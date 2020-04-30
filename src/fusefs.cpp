@@ -51,6 +51,8 @@
 
 #include <iostream>
 #include <string>
+#include "hpfs.hpp"
+#include "vfs.hpp"
 
 namespace fusefs
 {
@@ -152,7 +154,7 @@ int xmp_utimens(const char *path, const struct timespec ts[2],
 
 int xmp_create(const char *path, mode_t mode, struct fuse_file_info *fi)
 {
-	return 0;
+	return vfs::create(path, mode);
 }
 
 int xmp_open(const char *path, struct fuse_file_info *fi)
@@ -169,7 +171,7 @@ int xmp_read(const char *path, char *buf, size_t size, off_t offset,
 int xmp_write(const char *path, const char *buf, size_t size,
 			  off_t offset, struct fuse_file_info *fi)
 {
-	return 0;
+	return vfs::write(path, buf, size, offset);
 }
 
 int xmp_statfs(const char *path, struct statvfs *stbuf)
@@ -330,20 +332,18 @@ void assign_operations(fuse_operations &xmp_oper)
 
 int init()
 {
-	fuse_operations xmp_oper;
-	assign_operations(xmp_oper);
-
-	fuse_args args;
-	fuse_opt_parse(&args, NULL, NULL, NULL);
-	fuse_opt_add_arg(&args, "");
-	fuse_opt_add_arg(&args, "-f"); // Foreground
-	fuse_opt_add_arg(&args, "-s"); // Single threaded
+	fuse_args args = FUSE_ARGS_INIT(0, NULL);
+	fuse_opt_add_arg(&args, hpfs::ctx.mount_dir.c_str()); // Mount dir
+	fuse_opt_add_arg(&args, "-f");						  // Foreground
+	fuse_opt_add_arg(&args, "-s");						  // Single threaded
 	fuse_opt_add_arg(&args, "-ofsname=hpfs");
 	fuse_opt_add_arg(&args, "-odefault_permissions");
 	// fuse_opt_add_arg(&args, "-d"); // Debug
 
 	umask(0);
+	fuse_operations xmp_oper;
+	assign_operations(xmp_oper);
 	return fuse_main(args.argc, args.argv, &xmp_oper, NULL);
 }
 
-} // namespace fuse
+} // namespace fusefs

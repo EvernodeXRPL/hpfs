@@ -1,8 +1,11 @@
 #include <iostream>
 #include <limits.h>
-#include "string.h"
+#include <string.h>
 #include "hpfs.hpp"
 #include "util.hpp"
+#include "fusefs.hpp"
+#include "logger.hpp"
+#include "merger.hpp"
 
 namespace hpfs
 {
@@ -17,11 +20,21 @@ int init(int argc, char **argv)
         std::cout << "Usage:\n"
                   << "hpfs [rw|merge] [fsdir]\n"
                   << "hpfs ro [fsdir] [mountdir]\n";
-        return 1;
+        return -1;
     }
-    else if (vaidate_context() == -1)
+
+    if (vaidate_context() == -1 || logger::init() == -1)
+        return -1;
+
+    if (ctx.run_mode == RUN_MODE::Merge)
     {
-        return 1;
+        //if (merger::init() == -1)
+        //    return -1;
+    }
+    else
+    {
+        if (fusefs::init() == -1)
+            return -1;
     }
 
     return 0;
@@ -49,9 +62,9 @@ int parse_cmd(int argc, char **argv)
     if (argc == 3 || argc == 4)
     {
         if (strcmp(argv[1], "ro") == 0)
-            ctx.run_mode = RUN_MODE::ReadOnlySession;
+            ctx.run_mode = RUN_MODE::RO;
         else if (strcmp(argv[1], "rw") == 0)
-            ctx.run_mode = RUN_MODE::ReadWriteSession;
+            ctx.run_mode = RUN_MODE::RW;
         else if (strcmp(argv[1], "merge") == 0)
             ctx.run_mode = RUN_MODE::Merge;
         else
@@ -65,7 +78,7 @@ int parse_cmd(int argc, char **argv)
         {
             return 0;
         }
-        else if (argc == 4 && ctx.run_mode == RUN_MODE::ReadOnlySession || ctx.run_mode == RUN_MODE::ReadWriteSession)
+        else if (argc == 4 && (ctx.run_mode == RUN_MODE::RO || ctx.run_mode == RUN_MODE::RW))
         {
             realpath(argv[3], buf);
             ctx.mount_dir = buf;

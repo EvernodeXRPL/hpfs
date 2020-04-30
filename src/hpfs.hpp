@@ -8,8 +8,8 @@ namespace hpfs
 
 enum RUN_MODE
 {
-    ReadOnlySession,
-    ReadWriteSession,
+    RO,
+    RW,
     Merge
 };
 
