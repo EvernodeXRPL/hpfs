@@ -17,7 +17,10 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY build)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY build)
 
 add_executable(hpfs
-    src/fuse_handler.cpp
+    src/util.cpp
+    src/fusefs.cpp
+    src/hpfs.cpp
+    src/main.cpp
 )
 target_link_libraries(hpfs
     libfuse3.so.3)

@@ -22,3 +22,8 @@ hpfs is a [FUSE](https://www.kernel.org/doc/html/latest/filesystems/fuse.html)-b
 `sudo ldconfig`
 
 This will update your linker library cache and avoid potential issues when running your compiled C++ program which links to newly installed libraries.
+
+#### Build hpfs
+1. Navigate to repo root.
+2. Run `cmake .` (You only have to do this once)
+3. Run `make` (hpfs binary will be created as `./build/hpfs`)
