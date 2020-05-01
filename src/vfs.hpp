@@ -7,6 +7,7 @@ namespace vfs
 {
 
 int create(const char *path, mode_t mode);
+int read(const char *path, char *buf, size_t size, off_t offset);
 int write(const char *path, const char *buf, size_t size, off_t offset);
 
 } // namespace vfs

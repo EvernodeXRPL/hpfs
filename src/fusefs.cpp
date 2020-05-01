@@ -165,7 +165,7 @@ int xmp_open(const char *path, struct fuse_file_info *fi)
 int xmp_read(const char *path, char *buf, size_t size, off_t offset,
 			 struct fuse_file_info *fi)
 {
-	return 0;
+	return vfs::read(path, buf, size, offset);
 }
 
 int xmp_write(const char *path, const char *buf, size_t size,

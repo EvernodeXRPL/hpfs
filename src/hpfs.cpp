@@ -1,6 +1,7 @@
 #include <iostream>
 #include <limits.h>
 #include <string.h>
+#include <sys/stat.h>
 #include "hpfs.hpp"
 #include "util.hpp"
 #include "fusefs.hpp"
@@ -9,6 +10,9 @@
 
 namespace hpfs
 {
+
+constexpr const char *SEED_DIR_NAME = "seed";
+constexpr int DIR_PERMS = 0755;
 
 hpfs_context ctx;
 
@@ -33,8 +37,8 @@ int init(int argc, char **argv)
     }
     else
     {
-        if (fusefs::init() == -1)
-            return -1;
+        //if (fusefs::init() == -1)
+        //    return -1;
     }
 
     return 0;
@@ -51,6 +55,14 @@ int vaidate_context()
     if (ctx.run_mode != RUN_MODE::Merge && !util::is_dir_exists(ctx.mount_dir))
     {
         std::cerr << "Directory " << ctx.mount_dir << " does not exist.\n";
+        return -1;
+    }
+
+    ctx.seed_dir.append(ctx.fs_dir).append("/").append(SEED_DIR_NAME);
+
+    if (!util::is_dir_exists(ctx.seed_dir) && mkdir(ctx.seed_dir.c_str(), DIR_PERMS) == -1)
+    {
+        std::cerr << "Directory " << ctx.seed_dir << " cannot be located.\n" << errno;
         return -1;
     }
 

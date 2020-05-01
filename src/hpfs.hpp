@@ -18,6 +18,7 @@ struct hpfs_context
     RUN_MODE run_mode;
     std::string fs_dir;
     std::string mount_dir;
+    std::string seed_dir;
 };
 extern hpfs_context ctx;
 
