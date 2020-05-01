@@ -79,12 +79,18 @@ int init()
         eof_offset = st.st_size;
     }
 
-    // std::cout << "first_offset:" << std::to_string(first_offset)
-    //           << " last_offset:" << std::to_string(last_offset)
-    //           << " last_checkpoint_offset:" << std::to_string(last_checkpoint_offset)
-    //           << " eof_offset:" << std::to_string(eof_offset) << "\n";
+    std::cout << "first_offset:" << std::to_string(first_offset)
+              << " last_offset:" << std::to_string(last_offset)
+              << " last_checkpoint_offset:" << std::to_string(last_checkpoint_offset)
+              << " eof_offset:" << std::to_string(eof_offset) << "\n";
 
     return 0;
+}
+
+void deinit()
+{
+    if (fd > 0)
+        close(fd);
 }
 
 off_t get_first_offset()

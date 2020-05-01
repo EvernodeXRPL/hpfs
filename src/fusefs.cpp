@@ -82,6 +82,10 @@ int xmp_getattr(const char *path, struct stat *stbuf,
 				struct fuse_file_info *fi)
 {
 	(void)fi;
+
+	std::cout << path << "\n";
+	return vfs::getattr(path, stbuf);
+
 	return 0;
 }
 
@@ -171,6 +175,7 @@ int xmp_read(const char *path, char *buf, size_t size, off_t offset,
 int xmp_write(const char *path, const char *buf, size_t size,
 			  off_t offset, struct fuse_file_info *fi)
 {
+	std::cout << path << "\n";
 	return vfs::write(path, buf, size, offset);
 }
 
@@ -330,9 +335,12 @@ void assign_operations(fuse_operations &xmp_oper)
 	xmp_oper.lseek = xmp_lseek;
 }
 
-int init()
+fuse_operations xmp_oper;
+
+int init(char *arg0)
 {
 	fuse_args args = FUSE_ARGS_INIT(0, NULL);
+	fuse_opt_add_arg(&args, arg0); // Mount dir
 	fuse_opt_add_arg(&args, hpfs::ctx.mount_dir.c_str()); // Mount dir
 	fuse_opt_add_arg(&args, "-f");						  // Foreground
 	fuse_opt_add_arg(&args, "-s");						  // Single threaded
@@ -341,7 +349,6 @@ int init()
 	// fuse_opt_add_arg(&args, "-d"); // Debug
 
 	umask(0);
-	fuse_operations xmp_oper;
 	assign_operations(xmp_oper);
 	return fuse_main(args.argc, args.argv, &xmp_oper, NULL);
 }

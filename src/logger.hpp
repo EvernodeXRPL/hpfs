@@ -14,7 +14,9 @@ enum FS_OPERATION
 
 struct log_record
 {
-    off_t offset;
+    off_t offset;   // Position of this log record within the log file.
+    size_t size;    // Total length of this log record.
+
     int64_t timestamp;
     bool is_checkpoint;
     std::string path;
@@ -30,6 +32,7 @@ struct log_record_payload
 };
 
 int init();
+void deinit();
 off_t get_first_offset();
 off_t get_last_offset();
 off_t get_last_checkpoint_offset();
