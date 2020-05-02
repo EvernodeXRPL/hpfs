@@ -27,3 +27,5 @@ This will update your linker library cache and avoid potential issues when runni
 1. Navigate to repo root.
 2. Run `cmake .` (You only have to do this once)
 3. Run `make` (hpfs binary will be created as `./build/hpfs`)
+
+See [hpfs command line](https://github.com/HotPocketDev/hpfs/wiki/hpfs-command-line) for usage.
