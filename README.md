@@ -3,3 +3,29 @@ hpfs is a [FUSE](https://www.kernel.org/doc/html/latest/filesystems/fuse.html)-b
 
 ### [See wiki](https://github.com/ravinsp/hpfs/wiki)
 
+## Setup steps
+
+#### Install CMAKE 3.16
+1. Download and extract [cmake-3.16.0-rc3-Linux-x86_64.tar.gz](https://github.com/Kitware/CMake/releases/download/v3.16.0-rc3/cmake-3.16.0-rc3-Linux-x86_64.tar.gz)
+2. Navigate into the extracted directory in a terminal.
+3. Run `sudo cp -r bin/* /usr/local/bin/`
+4. Run `sudo cp -r share/* /usr/local/share/`
+
+#### Install libfuse
+1. `sudo apt-get install -y meson ninja-build pkg-config`
+2. Download [libfuse 3.8](https://github.com/libfuse/libfuse/releases/download/fuse-3.8.0/fuse-3.8.0.tar.xz) and extract.
+3. `mkdir build; cd build`
+4. `meson .. && ninja`
+6. `sudo ninja install`
+
+#### Run ldconfig
+`sudo ldconfig`
+
+This will update your linker library cache and avoid potential issues when running your compiled C++ program which links to newly installed libraries.
+
+#### Build hpfs
+1. Navigate to repo root.
+2. Run `cmake .` (You only have to do this once)
+3. Run `make` (hpfs binary will be created as `./build/hpfs`)
+
+See [hpfs command line](https://github.com/HotPocketDev/hpfs/wiki/hpfs-command-line) for usage.
