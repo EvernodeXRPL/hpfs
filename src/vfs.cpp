@@ -70,7 +70,6 @@ int add_vnode(const std::string &path, struct stat &st,
               const off_t log_offset, vnode_map::iterator &vnode_iter)
 {
     st.st_ino = next_ino++;
-    std::cout << "Added inode " << st.st_ino << "\n";
     struct vfs_node vnode = {st, log_offset};
     const auto [iter, success] = vnodes.try_emplace(path, std::move(vnode));
     vnode_iter = iter;

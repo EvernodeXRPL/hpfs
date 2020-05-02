@@ -23,15 +23,25 @@ int init(int argc, char **argv)
     {
         std::cerr << "Invalid arguments.\n";
         std::cout << "Usage:\n"
-                  << "hpfs [rw|merge] [fsdir]\n"
+                  << "hpfs [rw|merge|rdlog] [fsdir]\n"
                   << "hpfs ro [fsdir] [mountdir]\n";
         return -1;
     }
 
-    if (vaidate_context() == -1 || logger::init() == -1 || vfs::init() == -1)
+    if (vaidate_context() == -1 || logger::init() == -1)
         return -1;
 
-    if (ctx.run_mode == RUN_MODE::Merge)
+    if (vfs::init() == -1)
+    {
+        logger::deinit();
+        return -1;
+    }
+
+    if (ctx.run_mode == RUN_MODE::RDLOG)
+    {
+        logger::print_log();
+    }
+    else if (ctx.run_mode == RUN_MODE::MERGE)
     {
         //if (merger::init() == -1)
         //    return -1;
@@ -39,7 +49,10 @@ int init(int argc, char **argv)
     else
     {
         if (fusefs::init(argv[0]) == -1)
+        {
+            logger::deinit();
             return -1;
+        }
     }
 
     logger::deinit();
@@ -54,7 +67,7 @@ int vaidate_context()
         return -1;
     }
 
-    if (ctx.run_mode != RUN_MODE::Merge && !util::is_dir_exists(ctx.mount_dir))
+    if ((ctx.run_mode == RUN_MODE::RO || ctx.run_mode == RUN_MODE::RW) && !util::is_dir_exists(ctx.mount_dir))
     {
         std::cerr << "Directory " << ctx.mount_dir << " does not exist.\n";
         return -1;
@@ -64,7 +77,8 @@ int vaidate_context()
 
     if (!util::is_dir_exists(ctx.seed_dir) && mkdir(ctx.seed_dir.c_str(), DIR_PERMS) == -1)
     {
-        std::cerr << "Directory " << ctx.seed_dir << " cannot be located.\n" << errno;
+        std::cerr << "Directory " << ctx.seed_dir << " cannot be located.\n"
+                  << errno;
         return -1;
     }
 
@@ -80,7 +94,9 @@ int parse_cmd(int argc, char **argv)
         else if (strcmp(argv[1], "rw") == 0)
             ctx.run_mode = RUN_MODE::RW;
         else if (strcmp(argv[1], "merge") == 0)
-            ctx.run_mode = RUN_MODE::Merge;
+            ctx.run_mode = RUN_MODE::MERGE;
+        else if (strcmp(argv[1], "rdlog") == 0)
+            ctx.run_mode = RUN_MODE::RDLOG;
         else
             return -1;
 
@@ -88,7 +104,7 @@ int parse_cmd(int argc, char **argv)
         realpath(argv[2], buf);
         ctx.fs_dir = buf;
 
-        if (argc == 3 && ctx.run_mode == RUN_MODE::Merge)
+        if (argc == 3 && (ctx.run_mode == RUN_MODE::MERGE || ctx.run_mode == RUN_MODE::RDLOG))
         {
             return 0;
         }

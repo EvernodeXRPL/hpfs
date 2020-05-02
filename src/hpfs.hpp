@@ -10,7 +10,8 @@ enum RUN_MODE
 {
     RO,
     RW,
-    Merge
+    MERGE,
+    RDLOG
 };
 
 struct hpfs_context
