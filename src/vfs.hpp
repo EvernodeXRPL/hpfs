@@ -16,6 +16,8 @@ struct vfs_node
     // The offset position of the log file upto which has been
     // read to construct this vnode (inclusive of log record).
     off_t scanned_upto;
+
+    bool is_removed;
 };
 
 typedef std::unordered_map<std::string, vfs_node> vnode_map;
@@ -30,6 +32,7 @@ int apply_log_record_to_vnode(vfs_node &vnode, const logger::log_record &record,
 
 int getattr(const char *vpath, struct stat *stbuf);
 int mkdir(const char *vpath, mode_t mode);
+int rmdir(const char *vpath);
 int create(const char *vpath, mode_t mode);
 int read(const char *vpath, char *buf, size_t size, off_t offset);
 int write(const char *vpath, const char *buf, size_t size, off_t offset);

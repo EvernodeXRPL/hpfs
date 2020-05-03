@@ -66,6 +66,7 @@ int read_header(log_header &lh);
 int commit_header(log_header &lh);
 int append_log(std::string_view vpath, const FS_OPERATION operation, const std::vector<iovec> &payload_bufs);
 int append_log(std::string_view vpath, const FS_OPERATION operation, const iovec &payload_buf);
+int append_log(std::string_view vpath, const FS_OPERATION operation);
 int read_log_at(const off_t offset, off_t &next_offset, log_record &record);
 int read_payload(std::vector<uint8_t> &payload, const log_record &record);
 

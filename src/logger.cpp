@@ -235,6 +235,12 @@ int append_log(std::string_view vpath, const FS_OPERATION operation, const iovec
     return append_log(vpath, operation, bufs);
 }
 
+int append_log(std::string_view vpath, const FS_OPERATION operation)
+{
+    std::vector<iovec> bufs;
+    return append_log(vpath, operation, bufs);
+}
+
 int read_log_at(const off_t offset, off_t &next_offset, log_record &record)
 {
     if (header.first_record == 0 || offset > header.last_record)

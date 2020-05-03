@@ -14,6 +14,7 @@ namespace vfs
 
 ino_t next_ino = 1;
 vnode_map vnodes;
+vfs_node *root_vnode;
 
 // Last checkpoint offset for the use of ReadOnly session (inclusive of the checkpointed log record).
 off_t last_checkpoint = 0;
@@ -34,13 +35,14 @@ int init()
 
     vnode_map::iterator iter = vnodes.end();
     add_vnode("/", st, 0, iter);
+    root_vnode = &iter->second;
 }
 
 int add_vnode(const std::string &vpath, struct stat &st,
               const off_t log_offset, vnode_map::iterator &vnode_iter)
 {
     st.st_ino = next_ino++;
-    const auto [iter, success] = vnodes.try_emplace(vpath, vfs_node{st, log_offset});
+    const auto [iter, success] = vnodes.try_emplace(vpath, vfs_node{st, log_offset, false});
     vnode_iter = iter;
     return 0;
 }
@@ -138,7 +140,9 @@ int build_vnode(const std::string &vpath, vnode_map::iterator &iter)
             {
                 if (iter == vnodes.end())
                 {
-                    struct stat st;
+                    // Use the root node stat as initial stat template.
+                    struct stat st = root_vnode->st;
+                    st.st_nlink = 0;
                     add_vnode(vpath, st, next_log_offset, iter);
                 }
 
@@ -147,6 +151,9 @@ int build_vnode(const std::string &vpath, vnode_map::iterator &iter)
                     apply_log_record_to_vnode(iter->second, record, payload) == -1)
                     goto failure;
             }
+
+            if (iter != vnodes.end())
+                iter->second.scanned_upto = record.offset + record.size;
 
         } while (next_log_offset > 0 && next_log_offset < scan_upto);
     }
@@ -165,7 +172,7 @@ int get_vnode(const char *vpath, vfs_node **vnode)
     if (build_vnode(vpath, iter) == -1)
         return -1;
 
-    *vnode = iter == vnodes.end() ? NULL : &(iter->second);
+    *vnode = (iter == vnodes.end() || iter->second.is_removed) ? NULL : &(iter->second);
     return 0;
 }
 
@@ -175,7 +182,16 @@ int apply_log_record_to_vnode(vfs_node &vnode, const logger::log_record &record,
     switch (record.operation)
     {
     case logger::FS_OPERATION::MKDIR:
-        vnode.st.st_mode = *(mode_t *)payload.data();
+        if (vnode.is_removed)   // A previous log record has removed it and now we are creating again.
+        {
+            vnode.st.st_ino = next_ino++;   // Allocate new inode no.
+            vnode.is_removed = false;
+        }
+        vnode.st.st_mode = S_IFDIR | *(mode_t *)payload.data();
+
+        break;
+    case logger::FS_OPERATION::RMDIR:
+        vnode.is_removed = true;
         break;
 
     default:
@@ -188,7 +204,6 @@ int getattr(const char *vpath, struct stat *stbuf)
     vfs_node *vnode;
     if (get_vnode(vpath, &vnode) == -1)
         return -1;
-
     if (!vnode)
         return -ENOENT;
 
@@ -209,6 +224,20 @@ int mkdir(const char *vpath, mode_t mode)
         return -EEXIST;
 
     return logger::append_log(vpath, logger::FS_OPERATION::MKDIR, {&mode, sizeof(mode)});
+}
+
+int rmdir(const char *vpath)
+{
+    if (hpfs::ctx.run_mode != hpfs::RUN_MODE::RW)
+        return -1;
+
+    vfs_node *vnode;
+    if (get_vnode(vpath, &vnode) == -1)
+        return -1;
+    if (!vnode)
+        return -ENOENT;
+
+    return logger::append_log(vpath, logger::FS_OPERATION::RMDIR);
 }
 
 int create(const char *vpath, mode_t mode)
