@@ -4,6 +4,7 @@
 #include <string>
 #include <sys/uio.h>
 #include <fcntl.h>
+#include <vector>
 
 namespace logger
 {
@@ -24,8 +25,14 @@ enum FS_OPERATION
 struct log_header
 {
     uint16_t version;
+
+    // Begin offset of the first log record. 0 indicates there are no records.
     off_t first_record;
+
+    // Begin offset of the last log record. 0 indicates there are no records.
     off_t last_record;
+
+    // Last checkpoint offset (inclusive of the checkpointed log record).
     off_t last_checkpoint;
 };
 
@@ -33,7 +40,7 @@ struct log_record_header
 {
     int64_t timestamp;
     FS_OPERATION operation;
-    size_t path_len;
+    size_t vpath_len;
     uint64_t payload_len;
 };
 
@@ -43,29 +50,24 @@ struct log_record
     size_t size;    // Total length of this log record.
 
     int64_t timestamp;
-    std::string path;
+    std::string vpath;
     FS_OPERATION operation;
     uint64_t payload_len;
     off_t payload_offset;
 };
 
-struct log_record_payload
-{
-    const iovec *bufs;
-    const uint8_t buf_count;
-};
-
 int init();
 void deinit();
 void print_log();
-off_t get_eof_offset();
-int set_lock(flock &lock, bool is_rwlock, const off_t start, const off_t len);
-int release_lock(flock &lock);
+off_t get_eof();
+int set_lock(struct flock &lock, bool is_rwlock, const off_t start, const off_t len);
+int release_lock(struct flock &lock);
 int read_header(log_header &lh);
 int commit_header(log_header &lh);
-int append_log(std::string_view path, const FS_OPERATION operation, const log_record_payload payload);
+int append_log(std::string_view vpath, const FS_OPERATION operation, const std::vector<iovec> &payload_bufs);
+int append_log(std::string_view vpath, const FS_OPERATION operation, const iovec &payload_buf);
 int read_log_at(const off_t offset, off_t &next_offset, log_record &record);
-int read_payload(std::string &payload, const log_record &record);
+int read_payload(std::vector<uint8_t> &payload, const log_record &record);
 
 } // namespace logger
 

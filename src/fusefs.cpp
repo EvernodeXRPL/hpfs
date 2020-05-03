@@ -82,11 +82,7 @@ int xmp_getattr(const char *path, struct stat *stbuf,
 				struct fuse_file_info *fi)
 {
 	(void)fi;
-
-	std::cout << path << "\n";
 	return vfs::getattr(path, stbuf);
-
-	return 0;
 }
 
 int xmp_access(const char *path, int mask)
@@ -108,7 +104,7 @@ int xmp_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 
 int xmp_mkdir(const char *path, mode_t mode)
 {
-	return 0;
+	return vfs::create(path, mode);
 }
 
 int xmp_rmdir(const char *path)

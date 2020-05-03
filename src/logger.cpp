@@ -5,6 +5,7 @@
 #include <vector>
 #include <bitset>
 #include <iostream>
+#include <vector>
 #include "hpfs.hpp"
 #include "logger.hpp"
 #include "util.hpp"
@@ -87,11 +88,11 @@ int init()
         }
     }
 
-    if (hpfs::ctx.run_mode == hpfs::RUN_MODE::RO && header.last_checkpoint > 0)
+    if (hpfs::ctx.run_mode == hpfs::RUN_MODE::RO && header.last_checkpoint > header.first_record)
     {
-        // In read only session, place a 1-byte read lock on the last checkpoint record.
-        // This would prevent any merge process from purging beyond the checkpoint record.
-        if (set_lock(ro_checkpoint_lock, false, header.last_checkpoint, 1) == -1)
+        // In read only session, place a 1-byte read lock on the record ending with last checkpoint.
+        // This would prevent any merge process from purging beyond that record.
+        if (set_lock(ro_checkpoint_lock, false, header.last_checkpoint - 1, 1) == -1)
             return -1;
     }
 
@@ -102,10 +103,10 @@ void deinit()
 {
     if (fd > 0)
     {
-        // In ReadWrite session, mark the last record as last checkpoint.
-        if (hpfs::ctx.run_mode == hpfs::RUN_MODE::RW && header.last_record > header.last_checkpoint)
+        // In ReadWrite session, mark the eof offset as last checkpoint.
+        if (hpfs::ctx.run_mode == hpfs::RUN_MODE::RW && eof > header.last_checkpoint)
         {
-            header.last_checkpoint = header.last_record;
+            header.last_checkpoint = eof;
             commit_header(header);
         }
         else if (hpfs::ctx.run_mode == hpfs::RUN_MODE::RO)
@@ -136,7 +137,7 @@ void print_log()
         total_records++;
         std::cout << "ts:" << std::to_string(record.timestamp) << ", "
                   << "op:" << std::to_string(record.operation) << ", "
-                  << record.path << ", "
+                  << record.vpath << ", "
                   << "payload_len: " << std::to_string(record.payload_len) << "\n";
 
     } while (log_offset > 0);
@@ -144,12 +145,12 @@ void print_log()
     std::cout << "Total records: " << std::to_string(total_records) << "\n";
 }
 
-off_t get_eof_offset()
+off_t get_eof()
 {
     return eof;
 }
 
-int set_lock(flock &lock, bool is_rwlock, const off_t start, const off_t len)
+int set_lock(struct flock &lock, bool is_rwlock, const off_t start, const off_t len)
 {
     lock.l_type = is_rwlock ? F_WRLCK : F_RDLCK;
     lock.l_whence = SEEK_SET;
@@ -158,7 +159,7 @@ int set_lock(flock &lock, bool is_rwlock, const off_t start, const off_t len)
     return fcntl(fd, F_SETLKW, &lock);
 }
 
-int release_lock(flock &lock)
+int release_lock(struct flock &lock)
 {
     lock.l_type = F_UNLCK;
     return fcntl(fd, F_SETLKW, &lock);
@@ -178,32 +179,28 @@ int commit_header(log_header &lh)
     return 0;
 }
 
-int append_log(std::string_view path, const FS_OPERATION operation, const log_record_payload payload)
+int append_log(std::string_view vpath, const FS_OPERATION operation, const std::vector<iovec> &payload_bufs)
 {
-    // The buffers that will be written as the log record.
-    uint8_t buf_count = 2 + payload.buf_count;
-    iovec bufs[buf_count];
-
-    // Append payload buffers into log record buffers, while calculating total payload length.
+    // Calculate total payload length.
     uint64_t payload_len = 0;
-    for (int i = 0; i < payload.buf_count; i++)
-    {
-        payload_len += payload.bufs[i].iov_len;
-        bufs[2 + i] = payload.bufs[i];
-    }
+    for (const iovec &buf : payload_bufs)
+        payload_len += buf.iov_len;
 
     log_record_header rh;
     rh.timestamp = util::epoch();
     rh.operation = operation;
-    rh.path_len = path.length();
+    rh.vpath_len = vpath.length();
     rh.payload_len = payload_len;
 
-    bufs[0].iov_base = &rh;
-    bufs[0].iov_len = sizeof(rh);
-    bufs[1].iov_base = (void *)path.data();
-    bufs[1].iov_len = path.length();
+    // Log record buffer collection that will be written to the file.
+    std::vector<iovec> record_bufs;
+    record_bufs.reserve(2 + payload_bufs.size());
+    record_bufs.push_back({&rh, sizeof(rh)});
+    record_bufs.push_back({(void *)vpath.data(), vpath.length()});
+    for (const iovec &buf : payload_bufs) // Append payload buffers.
+        record_bufs.push_back(buf);
 
-    const size_t record_len = sizeof(rh) + rh.path_len + rh.payload_len;
+    const size_t record_len = sizeof(rh) + rh.vpath_len + rh.payload_len;
 
     // Acquire locks.
     flock header_lock, record_lock;
@@ -212,7 +209,7 @@ int append_log(std::string_view path, const FS_OPERATION operation, const log_re
         return -1;
 
     // Append log record at current end of file.
-    if (pwritev(fd, bufs, buf_count, eof) < record_len)
+    if (pwritev(fd, record_bufs.data(), record_bufs.size(), eof) < record_len)
         return -1;
 
     // Update log file header.
@@ -231,6 +228,13 @@ int append_log(std::string_view path, const FS_OPERATION operation, const log_re
     return 0;
 }
 
+int append_log(std::string_view vpath, const FS_OPERATION operation, const iovec &payload_buf)
+{
+    std::vector<iovec> bufs;
+    bufs.push_back(payload_buf);
+    return append_log(vpath, operation, bufs);
+}
+
 int read_log_at(const off_t offset, off_t &next_offset, log_record &record)
 {
     if (header.first_record == 0 || offset > header.last_record)
@@ -244,17 +248,17 @@ int read_log_at(const off_t offset, off_t &next_offset, log_record &record)
         return -1;
 
     record.offset = read_offset;
-    record.size = sizeof(rh) + rh.path_len + rh.payload_len;
+    record.size = sizeof(rh) + rh.vpath_len + rh.payload_len;
     record.timestamp = rh.timestamp;
     record.operation = rh.operation;
     record.payload_len = rh.payload_len;
-    record.payload_offset = sizeof(rh) + rh.path_len;
+    record.payload_offset = sizeof(rh) + rh.vpath_len;
 
-    std::string path;
-    path.resize(rh.path_len);
-    if (read(fd, path.data(), rh.path_len) < rh.path_len)
+    std::string vpath;
+    vpath.resize(rh.vpath_len);
+    if (read(fd, vpath.data(), rh.vpath_len) < rh.vpath_len)
         return -1;
-    record.path = std::move(path);
+    record.vpath = std::move(vpath);
 
     if (record.offset + record.size == eof)
         next_offset = 0;
@@ -264,7 +268,7 @@ int read_log_at(const off_t offset, off_t &next_offset, log_record &record)
     return 0;
 }
 
-int read_payload(std::string &payload, const log_record &record)
+int read_payload(std::vector<uint8_t> &payload, const log_record &record)
 {
     payload.resize(record.payload_len);
     if (read(fd, payload.data(), record.payload_len) < record.payload_len)
