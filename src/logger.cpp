@@ -17,16 +17,14 @@ constexpr int FILE_PERMS = 0644;
 constexpr uint16_t HPFS_VERSION = 1;
 
 int fd = 0;
-off_t first_offset = 0, last_offset = 0; // First and last record offsets.
-off_t last_checkpoint_offset = 0;
-off_t eof_offset = 0; // Total length of file.
+off_t eof = 0; // End of file (End offset of log file).
+log_header header;
+flock ro_checkpoint_lock; // Checkpoint lock placed by ReadOnly session.
 
 int init()
 {
     const std::string log_file_path = std::string(hpfs::ctx.fs_dir).append("/").append(LOG_FILE_NAME);
-
-    log_header header;
-    memset(&header, 0, sizeof(header));
+    flock header_lock;
 
     if (hpfs::ctx.run_mode == hpfs::RUN_MODE::RW) // ReadWrite session.
     {
@@ -36,20 +34,36 @@ int init()
             return -1;
         fd = res;
 
+        // Acquire header lock.
+        if (set_lock(header_lock, true, 0, sizeof(header)) == -1)
+            return -1;
+
         struct stat st;
         if (fstat(fd, &st) == -1)
             return -1;
 
-        if (st.st_size == 0) // If file is empty, write the header.
+        if (st.st_size == 0) // If file is empty, write the initial header.
         {
-            header.version = 1;
-            if (write(fd, &header, sizeof(header)) == -1)
+            memset(&header, 0, sizeof(header));
+            header.version = HPFS_VERSION;
+            if (commit_header(header) == -1)
                 return -1;
 
-            eof_offset = sizeof(header);
+            eof = sizeof(header);
         }
+        else
+        {
+            if (read_header(header) == -1)
+                return -1;
+
+            eof = st.st_size;
+        }
+
+        // Release header lock.
+        if (release_lock(header_lock) == -1)
+            return -1;
     }
-    else // ReadOnly session or Merge session
+    else // Non-RW sessions are only interested in reading the log file header if exists.
     {
         // Open the file if exists.
         const int flags = hpfs::ctx.run_mode == hpfs::RUN_MODE::RO ? O_RDONLY : O_RDWR;
@@ -58,43 +72,28 @@ int init()
             return -1;
 
         if (res > 0)
+        {
             fd = res;
+
+            // Read the header with read-lock.
+            if (set_lock(header_lock, false, 0, sizeof(header)) == -1 || read_header(header) == -1)
+                return -1;
+
+            // Get total file size and release the read lock.
+            struct stat st;
+            if (fstat(fd, &st) == -1 || release_lock(header_lock) == -1)
+                return -1;
+            eof = st.st_size;
+        }
     }
 
-    // Read-lock the header.
-    flock lock{F_RDLCK, SEEK_SET, 0, sizeof(header)};
-    if (fd > 0 && fcntl(fd, F_SETLKW, &lock) == -1)
-        return -1;
-
-    if (fd > 0 && eof_offset == 0)
-    {
-        // Read the header.
-        if (pread(fd, &header, sizeof(header), 0) == -1)
-            return -1;
-
-        first_offset = header.first_offset;
-        last_offset = header.last_offset;
-        last_checkpoint_offset = header.last_checkpoint_offset;
-
-        struct stat st;
-        if (fstat(fd, &st) == -1)
-            return -1;
-        eof_offset = st.st_size;
-    }
-
-    if (last_checkpoint_offset > 0 && hpfs::ctx.run_mode == hpfs::RUN_MODE::RO)
+    if (hpfs::ctx.run_mode == hpfs::RUN_MODE::RO && header.last_checkpoint > 0)
     {
         // In read only session, place a 1-byte read lock on the last checkpoint record.
         // This would prevent any merge process from purging beyond the checkpoint record.
-        flock lock{F_RDLCK, SEEK_SET, last_checkpoint_offset, 1};
-        if (fcntl(fd, F_SETLKW, &lock) == -1)
+        if (set_lock(ro_checkpoint_lock, false, header.last_checkpoint, 1) == -1)
             return -1;
     }
-
-    // Release the header read lock.
-    lock.l_type = F_UNLCK;
-    if (fd > 0 && fcntl(fd, F_SETLKW, &lock) == -1)
-        return -1;
 
     return 0;
 }
@@ -104,8 +103,15 @@ void deinit()
     if (fd > 0)
     {
         // In ReadWrite session, mark the last record as last checkpoint.
-        if (hpfs::ctx.run_mode == hpfs::RUN_MODE::RW && last_offset > last_checkpoint_offset)
-            update_header(first_offset, last_offset, last_offset);
+        if (hpfs::ctx.run_mode == hpfs::RUN_MODE::RW && header.last_record > header.last_checkpoint)
+        {
+            header.last_checkpoint = header.last_record;
+            commit_header(header);
+        }
+        else if (hpfs::ctx.run_mode == hpfs::RUN_MODE::RO)
+        {
+            release_lock(ro_checkpoint_lock);
+        }
 
         close(fd);
     }
@@ -113,10 +119,10 @@ void deinit()
 
 void print_log()
 {
-    std::cout << "first_offset:" << std::to_string(first_offset)
-              << " last_offset:" << std::to_string(last_offset)
-              << " last_chk_offset:" << std::to_string(last_checkpoint_offset)
-              << " eof:" << std::to_string(eof_offset) << "\n";
+    std::cout << "first:" << std::to_string(header.first_record)
+              << " last:" << std::to_string(header.last_record)
+              << " last_chk:" << std::to_string(header.last_checkpoint)
+              << " eof:" << std::to_string(eof) << "\n";
 
     off_t log_offset = 0;
     uint64_t total_records = 0;
@@ -138,37 +144,37 @@ void print_log()
     std::cout << "Total records: " << std::to_string(total_records) << "\n";
 }
 
-off_t get_first_offset()
+off_t get_eof_offset()
 {
-    return first_offset;
+    return eof;
 }
 
-off_t get_last_offset()
+int set_lock(flock &lock, bool is_rwlock, const off_t start, const off_t len)
 {
-    return last_offset;
+    lock.l_type = is_rwlock ? F_WRLCK : F_RDLCK;
+    lock.l_whence = SEEK_SET;
+    lock.l_start = start,
+    lock.l_len = len;
+    return fcntl(fd, F_SETLKW, &lock);
 }
 
-off_t get_last_checkpoint_offset()
+int release_lock(flock &lock)
 {
-    return last_checkpoint_offset;
-}
-
-int update_header(const off_t first_offset, const off_t last_offset, const off_t last_checkpoint_offset)
-{
-    // Set lock
-    flock lock{F_WRLCK, SEEK_SET, 0, sizeof(log_header)};
-    if (fcntl(fd, F_SETLKW, &lock) == -1)
-        return -1;
-
-    log_header header{HPFS_VERSION, first_offset, last_offset, last_checkpoint_offset};
-    if (pwrite(fd, &header, sizeof(header), 0) == -1)
-        return -1;
-
-    // Release lock
     lock.l_type = F_UNLCK;
-    if (fcntl(fd, F_SETLKW, &lock) == -1)
-        return -1;
+    return fcntl(fd, F_SETLKW, &lock);
+}
 
+int read_header(log_header &lh)
+{
+    if (pread(fd, &lh, sizeof(lh), 0) < sizeof(lh))
+        return -1;
+    return 0;
+}
+
+int commit_header(log_header &lh)
+{
+    if (pwrite(fd, &lh, sizeof(lh), 0) < sizeof(lh))
+        return -1;
     return 0;
 }
 
@@ -186,66 +192,83 @@ int append_log(std::string_view path, const FS_OPERATION operation, const log_re
         bufs[2 + i] = payload.bufs[i];
     }
 
-    log_record_header header;
-    memset(&header, 0, sizeof(header));
+    log_record_header rh;
+    rh.timestamp = util::epoch();
+    rh.operation = operation;
+    rh.path_len = path.length();
+    rh.payload_len = payload_len;
 
-    header.timestamp = util::epoch();
-    header.operation = operation;
-    header.path_len = path.length();
-    header.payload_len = payload_len;
-
-    bufs[0].iov_base = &header;
-    bufs[0].iov_len = sizeof(header);
+    bufs[0].iov_base = &rh;
+    bufs[0].iov_len = sizeof(rh);
     bufs[1].iov_base = (void *)path.data();
     bufs[1].iov_len = path.length();
 
-    // Append log record at current end of file.
-    if (pwritev(fd, bufs, buf_count, eof_offset) == -1)
+    const size_t record_len = sizeof(rh) + rh.path_len + rh.payload_len;
+
+    // Acquire locks.
+    flock header_lock, record_lock;
+    if (set_lock(header_lock, true, 0, sizeof(header)) == -1 ||
+        set_lock(record_lock, true, eof, sizeof(record_len) == -1))
         return -1;
 
-    if (first_offset == 0)
-        first_offset = eof_offset;
-    last_offset = eof_offset;
+    // Append log record at current end of file.
+    if (pwritev(fd, bufs, buf_count, eof) < record_len)
+        return -1;
 
-    update_header(first_offset, last_offset, last_checkpoint_offset);
+    // Update log file header.
+    if (header.first_record == 0)
+        header.first_record = eof;
+    header.last_record = eof;
+    commit_header(header);
+
+    // Release locks.
+    if (release_lock(header_lock) == -1 || release_lock(record_lock) == -1)
+        return -1;
 
     // Calculate new end of file.
-    eof_offset += sizeof(header) + path.length() + payload_len;
+    eof += record_len;
 
     return 0;
 }
 
 int read_log_at(const off_t offset, off_t &next_offset, log_record &record)
 {
-    if (first_offset == 0 || offset > last_offset)
+    if (header.first_record == 0 || offset > header.last_record)
         return -1;
 
-    const off_t read_offset = offset == 0 ? first_offset : offset;
+    const off_t read_offset = offset == 0 ? header.first_record : offset;
 
-    log_record_header header;
-    memset(&header, 0, sizeof(header));
-
+    log_record_header rh;
     lseek(fd, read_offset, SEEK_SET);
-    if (read(fd, &header, sizeof(header)) < sizeof(header))
+    if (read(fd, &rh, sizeof(rh)) < sizeof(rh))
         return -1;
 
     record.offset = read_offset;
-    record.size = sizeof(header) + header.path_len + header.payload_len;
-    record.timestamp = header.timestamp;
-    record.operation = header.operation;
-    record.payload_len = header.payload_len;
-    record.payload_offset = sizeof(header) + header.path_len;
+    record.size = sizeof(rh) + rh.path_len + rh.payload_len;
+    record.timestamp = rh.timestamp;
+    record.operation = rh.operation;
+    record.payload_len = rh.payload_len;
+    record.payload_offset = sizeof(rh) + rh.path_len;
 
     std::string path;
-    path.resize(header.path_len);
-    if (read(fd, path.data(), header.path_len) < header.path_len)
+    path.resize(rh.path_len);
+    if (read(fd, path.data(), rh.path_len) < rh.path_len)
         return -1;
     record.path = std::move(path);
 
-    if (record.offset + record.size == eof_offset)
+    if (record.offset + record.size == eof)
         next_offset = 0;
     else
         next_offset = record.offset + record.size;
+
+    return 0;
+}
+
+int read_payload(std::string &payload, const log_record &record)
+{
+    payload.resize(record.payload_len);
+    if (read(fd, payload.data(), record.payload_len) < record.payload_len)
+        return -1;
 
     return 0;
 }

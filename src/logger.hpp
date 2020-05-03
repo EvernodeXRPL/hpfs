@@ -3,21 +3,30 @@
 
 #include <string>
 #include <sys/uio.h>
+#include <fcntl.h>
 
 namespace logger
 {
 
 enum FS_OPERATION
 {
-    WRITE = 11
+    MKDIR = 1,
+    RMDIR = 2,
+    RENAME = 3,
+    UNLINK = 6,
+    CHMOD = 7,
+    CHOWN = 8,
+    CREATE = 10,
+    WRITE = 11,
+    TRUNCATE = 12
 };
 
 struct log_header
 {
     uint16_t version;
-    off_t first_offset;
-    off_t last_offset;
-    off_t last_checkpoint_offset;
+    off_t first_record;
+    off_t last_record;
+    off_t last_checkpoint;
 };
 
 struct log_record_header
@@ -49,12 +58,14 @@ struct log_record_payload
 int init();
 void deinit();
 void print_log();
-off_t get_first_offset();
-off_t get_last_offset();
-off_t get_last_checkpoint_offset();
-int update_header(const off_t first_offset, const off_t last_offset, const off_t last_checkpoint_offset);
+off_t get_eof_offset();
+int set_lock(flock &lock, bool is_rwlock, const off_t start, const off_t len);
+int release_lock(flock &lock);
+int read_header(log_header &lh);
+int commit_header(log_header &lh);
 int append_log(std::string_view path, const FS_OPERATION operation, const log_record_payload payload);
 int read_log_at(const off_t offset, off_t &next_offset, log_record &record);
+int read_payload(std::string &payload, const log_record &record);
 
 } // namespace logger
 
