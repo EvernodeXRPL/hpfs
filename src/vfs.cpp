@@ -5,14 +5,16 @@
 #include <unordered_map>
 #include <iostream>
 #include <dirent.h>
+#include <sys/mman.h>
 #include "vfs.hpp"
 #include "hpfs.hpp"
 #include "logger.hpp"
+#include "util.hpp"
 
 namespace vfs
 {
 
-ino_t next_ino = 1;
+uint next_ino = 1;
 vnode_map vnodes;
 vfs_node *root_vnode;
 
@@ -42,7 +44,12 @@ int add_vnode(const std::string &vpath, struct stat &st,
               const off_t log_offset, vnode_map::iterator &vnode_iter)
 {
     st.st_ino = next_ino++;
-    const auto [iter, success] = vnodes.try_emplace(vpath, vfs_node{st, log_offset, false});
+    const auto [iter, success] = vnodes.try_emplace(vpath, vfs_node{
+                                                               st,
+                                                               log_offset,
+                                                               false,
+                                                               mmapper::fmap{NULL, 0, 0},
+                                                           });
     vnode_iter = iter;
     return 0;
 }
@@ -108,12 +115,15 @@ int build_vnode(const std::string &vpath, vnode_map::iterator &iter)
 
             if (S_ISREG(st.st_mode)) // is file.
             {
-                // const int fd = open(seed_path.c_str(), O_RDONLY);
-                // if (fd > 0)
-                // {
-                //     // TODO: Lock the file.
-                //     // TODO: Map the seed file to memory (mmap)
-                // }
+                const int fd = open(seed_path.c_str(), O_RDONLY);
+                if (fd == -1)
+                    return -1;
+                if (st.st_size > 0 && mmapper::create(iter->second.mmap, fd, st.st_size, 0) == -1)
+                {
+                    close(fd);
+                    return -1;
+                }
+                close(fd);
             }
         }
     }
@@ -182,16 +192,20 @@ int apply_log_record_to_vnode(vfs_node &vnode, const logger::log_record &record,
     switch (record.operation)
     {
     case logger::FS_OPERATION::MKDIR:
-        if (vnode.is_removed)   // A previous log record has removed it and now we are creating again.
+        if (vnode.is_removed) // A previous log record has removed it and now we are creating again.
         {
-            vnode.st.st_ino = next_ino++;   // Allocate new inode no.
+            vnode.st.st_ino = next_ino++; // Allocate new inode no.
             vnode.is_removed = false;
         }
         vnode.st.st_mode = S_IFDIR | *(mode_t *)payload.data();
 
         break;
+
     case logger::FS_OPERATION::RMDIR:
         vnode.is_removed = true;
+        break;
+
+    case logger::FS_OPERATION::WRITE:
         break;
 
     default:
@@ -257,6 +271,22 @@ int create(const char *vpath, mode_t mode)
 
 int read(const char *vpath, char *buf, size_t size, off_t offset)
 {
+    vfs_node *vnode;
+    if (get_vnode(vpath, &vnode) == -1)
+        return -1;
+    if (!vnode)
+        return -ENOENT;
+
+    if (!vnode->mmap.ptr)
+        return -1;
+
+    size_t read_len = size;
+    if ((offset + size) > vnode->st.st_size)
+        read_len = vnode->st.st_size - offset;
+
+    memcpy(buf, (uint8_t *)vnode->mmap.ptr + offset, read_len);
+
+    return read_len;
 }
 
 int write(const char *vpath, const char *buf, size_t size, off_t offset)
@@ -264,14 +294,51 @@ int write(const char *vpath, const char *buf, size_t size, off_t offset)
     if (hpfs::ctx.run_mode != hpfs::RUN_MODE::RW)
         return -1;
 
-    // Payload: [size][offset][buf]
-    uint8_t header_buf[sizeof(size_t) + sizeof(off_t)];
-    *header_buf = size;
-    *(header_buf + sizeof(size_t)) = offset;
+    vfs_node *vnode;
+    if (get_vnode(vpath, &vnode) == -1)
+        return -1;
+    if (!vnode)
+        return -ENOENT;
+
+    logger::op_write_payload_header header{0, size, offset, 0};
 
     std::vector<iovec> payload_bufs;
-    payload_bufs.push_back({header_buf, sizeof(header_buf)});
-    payload_bufs.push_back({(void *)buf, size});
+    payload_bufs.push_back({&header, sizeof(header)});
+
+    // Create data buf
+    const off_t start_block_offset = mmapper::get_start_block_offset(offset);
+    const size_t end_block_offset = mmapper::get_end_block_offset(offset + size);
+    if (start_block_offset == offset && end_block_offset == (offset + size))
+    {
+        // If the block offsets are in perfect alignment, log the incoming write buf as it is.
+        header.blocked_size = size;
+        payload_bufs.push_back({(void *)buf, size});
+    }
+    else
+    {
+        // Construct new buf with block alignment.
+        header.blocked_size = end_block_offset - start_block_offset;
+        std::vector<uint8_t> vec;
+        vec.resize(header.blocked_size);
+
+        // Read any existing memory-mapped blocks and overlay on top of new buf.
+        const mmapper::fmap &mmap = vnode->mmap;
+        if (mmap.ptr && mmap.data_size > start_block_offset)
+        {
+            off_t read_len = header.blocked_size;
+            if ((start_block_offset + read_len) > mmap.data_size)
+                read_len = mmap.data_size - start_block_offset;
+
+            memcpy(vec.data(), (uint8_t *)mmap.ptr + start_block_offset, read_len);
+        }
+
+        // Overlay the incoming write buf.
+        header.data_relative_offset = offset - start_block_offset; // Real data offset within the block buf.
+        memcpy(vec.data() + header.data_relative_offset, buf, size);
+
+        // Add the block buf to log record payload.
+        payload_bufs.push_back({vec.data(), header.blocked_size});
+    }
 
     return logger::append_log(vpath, logger::FS_OPERATION::WRITE, payload_bufs);
 }

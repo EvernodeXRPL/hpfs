@@ -1,4 +1,5 @@
 #include <sys/stat.h>
+#include <fcntl.h>
 #include <string>
 #include <chrono>
 
@@ -19,6 +20,21 @@ bool is_dir_exists(std::string_view path)
 {
     struct stat st;
     return (stat(path.data(), &st) == 0 && S_ISDIR(st.st_mode));
+}
+
+int set_lock(const int fd, struct flock &lock, bool is_rwlock, const off_t start, const off_t len)
+{
+    lock.l_type = is_rwlock ? F_WRLCK : F_RDLCK;
+    lock.l_whence = SEEK_SET;
+    lock.l_start = start,
+    lock.l_len = len;
+    return fcntl(fd, F_SETLKW, &lock);
+}
+
+int release_lock(const int fd, struct flock &lock)
+{
+    lock.l_type = F_UNLCK;
+    return fcntl(fd, F_SETLKW, &lock);
 }
 
 } // namespace util

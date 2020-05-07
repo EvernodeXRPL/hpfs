@@ -5,6 +5,7 @@
 #include <sys/stat.h>
 #include <unordered_map>
 #include "logger.hpp"
+#include "mmapper.hpp"
 
 namespace vfs
 {
@@ -16,8 +17,8 @@ struct vfs_node
     // The offset position of the log file upto which has been
     // read to construct this vnode (inclusive of log record).
     off_t scanned_upto;
-
     bool is_removed;
+    mmapper::fmap mmap;
 };
 
 typedef std::unordered_map<std::string, vfs_node> vnode_map;

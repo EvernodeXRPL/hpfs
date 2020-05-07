@@ -56,6 +56,14 @@ struct log_record
     off_t payload_offset;
 };
 
+struct op_write_payload_header
+{
+    size_t blocked_size;
+    size_t data_size;
+    off_t data_offset;
+    off_t data_relative_offset; // Data offset within the block buf.
+};
+
 int init();
 void deinit();
 void print_log();

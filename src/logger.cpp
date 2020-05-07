@@ -152,21 +152,26 @@ off_t get_eof()
 
 int set_lock(struct flock &lock, bool is_rwlock, const off_t start, const off_t len)
 {
-    lock.l_type = is_rwlock ? F_WRLCK : F_RDLCK;
-    lock.l_whence = SEEK_SET;
-    lock.l_start = start,
-    lock.l_len = len;
-    return fcntl(fd, F_SETLKW, &lock);
+    if (fd == 0)
+        return 0;
+    return util::set_lock(fd, lock, is_rwlock, start, len);
 }
 
 int release_lock(struct flock &lock)
 {
-    lock.l_type = F_UNLCK;
-    return fcntl(fd, F_SETLKW, &lock);
+    if (fd == 0)
+        return 0;
+    return util::release_lock(fd, lock);
 }
 
 int read_header(log_header &lh)
 {
+    if (fd == 0)
+    {
+        lh = header;
+        return 0;
+    }
+
     if (pread(fd, &lh, sizeof(lh), 0) < sizeof(lh))
         return -1;
     return 0;
