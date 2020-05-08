@@ -41,7 +41,10 @@ struct log_record_header
     int64_t timestamp;
     FS_OPERATION operation;
     size_t vpath_len;
-    uint64_t payload_len;
+    size_t payload_len;
+    size_t block_data_padding_len;
+    size_t block_data_len;
+
 };
 
 struct log_record
@@ -52,17 +55,20 @@ struct log_record
     int64_t timestamp;
     std::string vpath;
     FS_OPERATION operation;
-    uint64_t payload_len;
     off_t payload_offset;
+    size_t payload_len;
+    off_t block_data_offset;
+    off_t block_data_len;
 };
 
 struct op_write_payload_header
 {
-    size_t blocked_size;
-    size_t data_size;
-    off_t data_offset;
-    off_t data_relative_offset; // Data offset within the block buf.
+    size_t size;
+    off_t offset;
+    off_t buf_offset_in_block_data; // Write buf relative offset within the block data.
 };
+
+extern int fd;
 
 int init();
 void deinit();
@@ -72,9 +78,7 @@ int set_lock(struct flock &lock, bool is_rwlock, const off_t start, const off_t 
 int release_lock(struct flock &lock);
 int read_header(log_header &lh);
 int commit_header(log_header &lh);
-int append_log(std::string_view vpath, const FS_OPERATION operation, const std::vector<iovec> &payload_bufs);
-int append_log(std::string_view vpath, const FS_OPERATION operation, const iovec &payload_buf);
-int append_log(std::string_view vpath, const FS_OPERATION operation);
+int append_log(std::string_view vpath, const FS_OPERATION operation, const iovec *payload_buf = NULL, const iovec *block_data_buf = NULL);
 int read_log_at(const off_t offset, off_t &next_offset, log_record &record);
 int read_payload(std::vector<uint8_t> &payload, const log_record &record);
 

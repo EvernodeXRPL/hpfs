@@ -9,6 +9,7 @@
 #include "hpfs.hpp"
 #include "logger.hpp"
 #include "util.hpp"
+#include "mmapper.hpp"
 
 namespace logger
 {
@@ -135,10 +136,13 @@ void print_log()
             break;
 
         total_records++;
-        std::cout << "ts:" << std::to_string(record.timestamp) << ", "
-                  << "op:" << std::to_string(record.operation) << ", "
-                  << record.vpath << ", "
-                  << "payload_len: " << std::to_string(record.payload_len) << "\n";
+        std::cout << "ts:" << std::to_string(record.timestamp)
+                  << ", op:" << std::to_string(record.operation)
+                  << ", " << record.vpath
+                  << ", payload_len: " << std::to_string(record.payload_len)
+                  << ", blkdata_off: " << std::to_string(record.block_data_offset)
+                  << ", blkdata_len: " << std::to_string(record.block_data_len)
+                  << "\n";
 
     } while (log_offset > 0);
 
@@ -184,28 +188,44 @@ int commit_header(log_header &lh)
     return 0;
 }
 
-int append_log(std::string_view vpath, const FS_OPERATION operation, const std::vector<iovec> &payload_bufs)
+int append_log(std::string_view vpath, const FS_OPERATION operation, const iovec *payload_buf, const iovec *block_data_buf)
 {
-    // Calculate total payload length.
-    uint64_t payload_len = 0;
-    for (const iovec &buf : payload_bufs)
-        payload_len += buf.iov_len;
-
     log_record_header rh;
     rh.timestamp = util::epoch();
     rh.operation = operation;
     rh.vpath_len = vpath.length();
-    rh.payload_len = payload_len;
+    rh.payload_len = payload_buf ? payload_buf->iov_len : 0;
+    rh.block_data_len = block_data_buf ? block_data_buf->iov_len : 0;
+    rh.block_data_padding_len = 0;
+
+    if (block_data_buf)
+    {
+        // Block data must start at the next clean block after log header data and payload.
+        const off_t record_end_offset = eof + sizeof(rh) + rh.vpath_len + rh.payload_len;
+        const off_t block_data_offset = mmapper::get_end_block_offset(record_end_offset);
+        rh.block_data_padding_len = block_data_offset - record_end_offset;
+    }
 
     // Log record buffer collection that will be written to the file.
     std::vector<iovec> record_bufs;
-    record_bufs.reserve(2 + payload_bufs.size());
-    record_bufs.push_back({&rh, sizeof(rh)});
-    record_bufs.push_back({(void *)vpath.data(), vpath.length()});
-    for (const iovec &buf : payload_bufs) // Append payload buffers.
-        record_bufs.push_back(buf);
+    record_bufs.push_back({&rh, sizeof(rh)});                      // Header
+    record_bufs.push_back({(void *)vpath.data(), vpath.length()}); // Vpath
 
-    const size_t record_len = sizeof(rh) + rh.vpath_len + rh.payload_len;
+    if (payload_buf)
+        record_bufs.push_back(*payload_buf);
+
+    if (rh.block_data_padding_len)
+    {
+        std::vector<uint8_t> padding;
+        padding.resize(rh.block_data_padding_len);
+        record_bufs.push_back({padding.data(), rh.block_data_padding_len});
+    }
+
+    if (block_data_buf)
+        record_bufs.push_back(*block_data_buf);
+
+    const size_t record_len = sizeof(rh) + rh.vpath_len + rh.payload_len +
+                              rh.block_data_padding_len + rh.block_data_len;
 
     // Acquire locks.
     flock header_lock, record_lock;
@@ -233,19 +253,6 @@ int append_log(std::string_view vpath, const FS_OPERATION operation, const std::
     return 0;
 }
 
-int append_log(std::string_view vpath, const FS_OPERATION operation, const iovec &payload_buf)
-{
-    std::vector<iovec> bufs;
-    bufs.push_back(payload_buf);
-    return append_log(vpath, operation, bufs);
-}
-
-int append_log(std::string_view vpath, const FS_OPERATION operation)
-{
-    std::vector<iovec> bufs;
-    return append_log(vpath, operation, bufs);
-}
-
 int read_log_at(const off_t offset, off_t &next_offset, log_record &record)
 {
     if (header.first_record == 0 || offset > header.last_record)
@@ -259,11 +266,13 @@ int read_log_at(const off_t offset, off_t &next_offset, log_record &record)
         return -1;
 
     record.offset = read_offset;
-    record.size = sizeof(rh) + rh.vpath_len + rh.payload_len;
+    record.size = sizeof(rh) + rh.vpath_len + rh.payload_len + rh.block_data_padding_len + rh.block_data_len;
     record.timestamp = rh.timestamp;
     record.operation = rh.operation;
     record.payload_len = rh.payload_len;
-    record.payload_offset = sizeof(rh) + rh.vpath_len;
+    record.payload_offset = record.offset + sizeof(rh) + rh.vpath_len;
+    record.block_data_len = rh.block_data_len;
+    record.block_data_offset = record.payload_offset + rh.payload_len + rh.block_data_padding_len;
 
     std::string vpath;
     vpath.resize(rh.vpath_len);

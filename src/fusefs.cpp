@@ -171,7 +171,6 @@ int xmp_read(const char *path, char *buf, size_t size, off_t offset,
 int xmp_write(const char *path, const char *buf, size_t size,
 			  off_t offset, struct fuse_file_info *fi)
 {
-	std::cout << path << "\n";
 	return vfs::write(path, buf, size, offset);
 }
 
@@ -342,7 +341,7 @@ int init(char *arg0)
 	fuse_opt_add_arg(&args, "-s");						  // Single threaded
 	fuse_opt_add_arg(&args, "-ofsname=hpfs");
 	fuse_opt_add_arg(&args, "-odefault_permissions");
-	 fuse_opt_add_arg(&args, "-d"); // Debug
+	// fuse_opt_add_arg(&args, "-d"); // Debug
 
 	umask(0);
 	assign_operations(xmp_oper);

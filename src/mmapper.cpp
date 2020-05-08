@@ -1,6 +1,8 @@
 #include <sys/mman.h>
+#include <string.h>
 #include <stdint.h>
 #include <math.h>
+#include <iostream>
 #include "mmapper.hpp"
 
 namespace mmapper
@@ -11,57 +13,41 @@ int create(fmap &map, const int src_fd, const size_t src_size, const off_t src_o
     map.ptr = mmap(NULL, src_size, PROT_READ, MAP_PRIVATE, src_fd, src_offset);
     if (map.ptr)
     {
-        map.data_size = (src_size - src_offset);
-        map.map_size = get_blocked_size(map.data_size);
+        map.size = src_size;
         return 0;
     }
 
     return -1;
 }
 
-int place(fmap &map, const off_t at_block_offset, const int src_fd, const size_t src_size, const off_t src_offset)
+int place(fmap &map, const off_t palce_at, const int src_fd, const size_t src_size, const off_t src_offset)
 {
     if (!map.ptr)
         return -1;
 
-    if ((at_block_offset + src_size) > map.data_size)
-        map.data_size = at_block_offset + src_size;
-
-    const size_t required_map_size = get_blocked_size(map.data_size);
-    if (required_map_size > map.map_size)
+    const size_t required_map_size = palce_at + src_size;
+    if (required_map_size > map.size)
     {
-        map.ptr = mremap(map.ptr, map.map_size, required_map_size, MREMAP_MAYMOVE);
+        map.ptr = mremap(map.ptr, map.size, required_map_size, MREMAP_MAYMOVE);
         if (!map.ptr)
             return -1;
 
-        map.map_size = required_map_size;
+        map.size = required_map_size;
     }
 
-    void *ptr = mmap((uint8_t*)map.ptr + at_block_offset, src_size, PROT_READ, MAP_PRIVATE, src_fd, src_offset);
+    const void *ptr = mmap((uint8_t *)map.ptr + palce_at, src_size, PROT_READ, MAP_PRIVATE | MAP_FIXED, src_fd, src_offset);
     if (!ptr)
         return -1;
 
     return 0;
 }
 
-int shrink(fmap &map, const size_t new_src_size)
-{
-    map.ptr = mremap(map.ptr, map.map_size, new_src_size, 0);
-    if (!map.ptr)
-        return -1;
-
-    map.data_size = new_src_size;
-    map.map_size = get_blocked_size(new_src_size);
-    return 0;
-}
-
 int unmap(fmap &map)
 {
-    if (munmap(map.ptr, map.map_size) == -1)
+    if (munmap(map.ptr, map.size) == -1)
         return -1;
     map.ptr = NULL;
-    map.map_size = 0;
-    map.data_size = 0;
+    map.size = 0;
     return 0;
 }
 

@@ -48,7 +48,7 @@ int add_vnode(const std::string &vpath, struct stat &st,
                                                                st,
                                                                log_offset,
                                                                false,
-                                                               mmapper::fmap{NULL, 0, 0},
+                                                               mmapper::fmap{NULL, 0},
                                                            });
     vnode_iter = iter;
     return 0;
@@ -198,7 +198,6 @@ int apply_log_record_to_vnode(vfs_node &vnode, const logger::log_record &record,
             vnode.is_removed = false;
         }
         vnode.st.st_mode = S_IFDIR | *(mode_t *)payload.data();
-
         break;
 
     case logger::FS_OPERATION::RMDIR:
@@ -206,7 +205,25 @@ int apply_log_record_to_vnode(vfs_node &vnode, const logger::log_record &record,
         break;
 
     case logger::FS_OPERATION::WRITE:
+    {
+        // Map the block to memory.
+        const logger::op_write_payload_header wh = *(logger::op_write_payload_header *)payload.data();
+
+        if (!vnode.mmap.ptr && mmapper::create(vnode.mmap, logger::fd, record.block_data_len, record.block_data_offset) == -1)
+            return -1;
+        else if (vnode.mmap.ptr)
+        {
+            const off_t place_data_block_at = mmapper::get_start_block_offset(wh.offset);
+            if (mmapper::place(vnode.mmap, place_data_block_at, logger::fd, record.block_data_len, record.block_data_offset) == -1)
+                return -1;
+        }
+
+        // Update stats, if the new data boundry is larger than current file size.
+        if (vnode.st.st_size < (wh.offset + wh.size))
+            vnode.st.st_size = wh.offset + wh.size;
+
         break;
+    }
 
     default:
         break;
@@ -237,7 +254,8 @@ int mkdir(const char *vpath, mode_t mode)
     if (vnode)
         return -EEXIST;
 
-    return logger::append_log(vpath, logger::FS_OPERATION::MKDIR, {&mode, sizeof(mode)});
+    iovec payload{&mode, sizeof(mode)};
+    return logger::append_log(vpath, logger::FS_OPERATION::MKDIR, &payload);
 }
 
 int rmdir(const char *vpath)
@@ -266,7 +284,8 @@ int create(const char *vpath, mode_t mode)
     if (vnode)
         return -EEXIST;
 
-    return logger::append_log(vpath, logger::FS_OPERATION::CREATE, {&mode, sizeof(mode)});
+    iovec payload{&mode, sizeof(mode)};
+    return logger::append_log(vpath, logger::FS_OPERATION::CREATE, &payload);
 }
 
 int read(const char *vpath, char *buf, size_t size, off_t offset)
@@ -300,47 +319,48 @@ int write(const char *vpath, const char *buf, size_t size, off_t offset)
     if (!vnode)
         return -ENOENT;
 
-    logger::op_write_payload_header header{0, size, offset, 0};
+    logger::op_write_payload_header wh{size, offset, 0};
 
-    std::vector<iovec> payload_bufs;
-    payload_bufs.push_back({&header, sizeof(header)});
+    // Create block data buf
+    const off_t block_data_start = mmapper::get_start_block_offset(offset);
+    const size_t block_data_end = mmapper::get_end_block_offset(offset + size);
+    const size_t block_data_size = block_data_end - block_data_start;
 
-    // Create data buf
-    const off_t start_block_offset = mmapper::get_start_block_offset(offset);
-    const size_t end_block_offset = mmapper::get_end_block_offset(offset + size);
-    if (start_block_offset == offset && end_block_offset == (offset + size))
+    iovec block_data_buf;
+    std::vector<uint8_t> vec;
+
+    if (block_data_start == offset && block_data_size == size)
     {
-        // If the block offsets are in perfect alignment, log the incoming write buf as it is.
-        header.blocked_size = size;
-        payload_bufs.push_back({(void *)buf, size});
+        // If the block start/end offsets are in perfect alignment,
+        // log the incoming write buf as it is.
+        block_data_buf = {(void *)buf, size};
     }
     else
     {
         // Construct new buf with block alignment.
-        header.blocked_size = end_block_offset - start_block_offset;
-        std::vector<uint8_t> vec;
-        vec.resize(header.blocked_size);
+        vec.resize(block_data_size);
 
-        // Read any existing memory-mapped blocks and overlay on top of new buf.
+        // Read any existing memory-mapped blocks and place on the new buf.
         const mmapper::fmap &mmap = vnode->mmap;
-        if (mmap.ptr && mmap.data_size > start_block_offset)
+        if (mmap.ptr && mmap.size > block_data_start)
         {
-            off_t read_len = header.blocked_size;
-            if ((start_block_offset + read_len) > mmap.data_size)
-                read_len = mmap.data_size - start_block_offset;
+            off_t read_len = block_data_size;
+            if ((block_data_start + read_len) > mmap.size)
+                read_len = mmap.size - block_data_start;
 
-            memcpy(vec.data(), (uint8_t *)mmap.ptr + start_block_offset, read_len);
+            memcpy(vec.data(), (uint8_t *)mmap.ptr + block_data_start, read_len);
         }
 
         // Overlay the incoming write buf.
-        header.data_relative_offset = offset - start_block_offset; // Real data offset within the block buf.
-        memcpy(vec.data() + header.data_relative_offset, buf, size);
+        wh.buf_offset_in_block_data = offset - block_data_start; // Real data offset within the block buf.
+        memcpy(vec.data() + wh.buf_offset_in_block_data, buf, size);
 
         // Add the block buf to log record payload.
-        payload_bufs.push_back({vec.data(), header.blocked_size});
+        block_data_buf = {vec.data(), block_data_size};
     }
 
-    return logger::append_log(vpath, logger::FS_OPERATION::WRITE, payload_bufs);
+    iovec payload{&wh, sizeof(wh)};
+    return logger::append_log(vpath, logger::FS_OPERATION::WRITE, &payload, &block_data_buf);
 }
 
 } // namespace vfs
