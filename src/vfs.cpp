@@ -7,6 +7,8 @@
 #include <dirent.h>
 #include <sys/mman.h>
 #include <vector>
+#include <unordered_set>
+#include <libgen.h>
 #include "vfs.hpp"
 #include "hpfs.hpp"
 #include "logger.hpp"
@@ -56,25 +58,7 @@ int add_vnode(const std::string &vpath, struct stat &st,
     return 0;
 }
 
-// int init_vnode_from_seed_dir(const std::string &vpath, const std::string &seed_path,
-//                              struct stat &st, vnode_map::iterator &iter)
-// {
-//     if (add_vnode(vpath, st, 0, iter) == -1)
-//         return -1;
-
-//     DIR *dirp = opendir(seed_path.c_str());
-//     if (dirp == NULL)
-//         return -1;
-
-//     dirent *entry;
-//     while (entry = readdir(dirp))
-//     {
-//     }
-
-//     close(dirp)
-// }
-
-int build_vnode(const std::string &vpath, vnode_map::iterator &iter)
+int build_vnode(const std::string &vpath, vnode_map::iterator &iter, const bool stat_only)
 {
     // Read the current log header with read-lock.
     flock log_header_lock;
@@ -169,11 +153,11 @@ int build_vnode(const std::string &vpath, vnode_map::iterator &iter)
         } while (next_log_offset > 0 && next_log_offset < scan_upto);
     }
 
-    // Update the memory mapped data blocks.
-    if (iter != vnodes.end() && update_vnode_fmap(iter->second) == -1)
-        return -1;
-
 success:
+    // Update the memory mapped data blocks.
+    if (!stat_only && iter != vnodes.end() && update_vnode_fmap(iter->second) == -1)
+        goto failure;
+        
     return logger::release_lock(scan_lock);
 
 failure:
@@ -181,10 +165,10 @@ failure:
     return -1;
 }
 
-int get_vnode(const char *vpath, vfs_node **vnode)
+int get_vnode(const char *vpath, vfs_node **vnode, const bool stat_only)
 {
     vnode_map::iterator iter = vnodes.end();
-    if (build_vnode(vpath, iter) == -1)
+    if (build_vnode(vpath, iter, stat_only) == -1)
         return -1;
 
     *vnode = (iter == vnodes.end() || iter->second.is_removed) ? NULL : &(iter->second);
@@ -310,6 +294,66 @@ int getattr(const char *vpath, struct stat *stbuf)
         return -ENOENT;
 
     *stbuf = vnode->st;
+    return 0;
+}
+
+int readdir(const char *vpath, vdir_children_map &children)
+{
+    vfs_node *vnode;
+    if (get_vnode(vpath, &vnode, true) == -1)
+        return -1;
+    if (!vnode)
+        return -ENOENT;
+    if (!S_ISDIR(vnode->st.st_mode))
+        return -ENOTDIR;
+
+    std::unordered_set<std::string> possible_child_names;
+
+    {
+        // Read possible children from seed dir;
+        const std::string seed_path = std::string(hpfs::ctx.seed_dir).append(vpath);
+        DIR *dirp = opendir(seed_path.c_str());
+        if (dirp != NULL)
+        {
+            dirent *entry;
+            while (entry = readdir(dirp))
+                possible_child_names.emplace(entry->d_name);
+
+            closedir(dirp);
+        }
+    }
+
+    {
+        // Find possible children from log records.
+        off_t next_log_offset = 0;
+        do
+        {
+            logger::log_record record;
+            if (logger::read_log_at(next_log_offset, next_log_offset, record) == -1)
+                break;
+
+            char *path2 = strdup(record.vpath.c_str());
+            char *parent_path = dirname(path2);
+            if (strcmp(parent_path, vpath) == 0)
+                possible_child_names.emplace(basename(record.vpath.data()));
+
+        } while (next_log_offset > 0);
+    }
+
+    for (const auto &child_name : possible_child_names)
+    {
+        const std::string child_vpath = std::string(vpath).append("/").append(child_name);
+        vfs_node *child_vnode;
+        if (get_vnode(child_vpath.c_str(), &child_vnode, true) == -1)
+            return -1;
+
+        if (child_vnode)
+        {
+            if (!child_vnode->is_removed)
+                children.try_emplace(child_name, child_vnode->st);
+        }
+    }
+
     return 0;
 }
 
