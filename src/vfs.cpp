@@ -6,6 +6,7 @@
 #include <iostream>
 #include <dirent.h>
 #include <sys/mman.h>
+#include <vector>
 #include "vfs.hpp"
 #include "hpfs.hpp"
 #include "logger.hpp"
@@ -40,16 +41,17 @@ int init()
     root_vnode = &iter->second;
 }
 
+void deinit()
+{
+    for (const auto &[vpath, vnode] : vnodes)
+        close(vnode.seed_fd);
+}
+
 int add_vnode(const std::string &vpath, struct stat &st,
               const off_t log_offset, vnode_map::iterator &vnode_iter)
 {
     st.st_ino = next_ino++;
-    const auto [iter, success] = vnodes.try_emplace(vpath, vfs_node{
-                                                               st,
-                                                               log_offset,
-                                                               false,
-                                                               mmapper::fmap{NULL, 0},
-                                                           });
+    const auto [iter, success] = vnodes.try_emplace(vpath, vfs_node{st, log_offset});
     vnode_iter = iter;
     return 0;
 }
@@ -118,12 +120,10 @@ int build_vnode(const std::string &vpath, vnode_map::iterator &iter)
                 const int fd = open(seed_path.c_str(), O_RDONLY);
                 if (fd == -1)
                     return -1;
-                if (st.st_size > 0 && mmapper::create(iter->second.mmap, fd, st.st_size, 0) == -1)
-                {
-                    close(fd);
-                    return -1;
-                }
-                close(fd);
+                if (st.st_size > 0)
+                    iter->second.data_segs.push_back(vdata_segment{fd, (size_t)st.st_size, 0, 0});
+
+                iter->second.seed_fd = fd;
             }
         }
     }
@@ -135,7 +135,7 @@ int build_vnode(const std::string &vpath, vnode_map::iterator &iter)
             goto success;
 
         // Return immediately if the virtual node is already fully updated.
-        off_t next_log_offset = (iter == vnodes.end()) ? lh.first_record : iter->second.scanned_upto;
+        off_t next_log_offset = (iter == vnodes.end()) ? lh.first_record : iter->second.log_scanned_upto;
         if (next_log_offset >= scan_upto)
             goto success;
 
@@ -153,6 +153,7 @@ int build_vnode(const std::string &vpath, vnode_map::iterator &iter)
                     // Use the root node stat as initial stat template.
                     struct stat st = root_vnode->st;
                     st.st_nlink = 0;
+                    st.st_size = 0;
                     add_vnode(vpath, st, next_log_offset, iter);
                 }
 
@@ -163,10 +164,14 @@ int build_vnode(const std::string &vpath, vnode_map::iterator &iter)
             }
 
             if (iter != vnodes.end())
-                iter->second.scanned_upto = record.offset + record.size;
+                iter->second.log_scanned_upto = record.offset + record.size;
 
         } while (next_log_offset > 0 && next_log_offset < scan_upto);
     }
+
+    // Update the memory mapped data blocks.
+    if (iter != vnodes.end() && update_vnode_fmap(iter->second) == -1)
+        return -1;
 
 success:
     return logger::release_lock(scan_lock);
@@ -204,19 +209,21 @@ int apply_log_record_to_vnode(vfs_node &vnode, const logger::log_record &record,
         vnode.is_removed = true;
         break;
 
+    case logger::FS_OPERATION::CREATE:
+        if (vnode.is_removed) // A previous log record has removed it and now we are creating again.
+        {
+            vnode.st.st_ino = next_ino++; // Allocate new inode no.
+            vnode.is_removed = false;
+        }
+        vnode.st.st_mode = S_IFREG | *(mode_t *)payload.data();
+        break;
+
     case logger::FS_OPERATION::WRITE:
     {
-        // Map the block to memory.
         const logger::op_write_payload_header wh = *(logger::op_write_payload_header *)payload.data();
 
-        if (!vnode.mmap.ptr && mmapper::create(vnode.mmap, logger::fd, record.block_data_len, record.block_data_offset) == -1)
-            return -1;
-        else if (vnode.mmap.ptr)
-        {
-            const off_t place_data_block_at = mmapper::get_start_block_offset(wh.offset);
-            if (mmapper::place(vnode.mmap, place_data_block_at, logger::fd, record.block_data_len, record.block_data_offset) == -1)
-                return -1;
-        }
+        const off_t logical_offset = util::get_block_start(wh.offset);
+        vnode.data_segs.push_back(vdata_segment{logger::fd, record.block_data_len, record.block_data_offset, logical_offset});
 
         // Update stats, if the new data boundry is larger than current file size.
         if (vnode.st.st_size < (wh.offset + wh.size))
@@ -228,6 +235,51 @@ int apply_log_record_to_vnode(vfs_node &vnode, const logger::log_record &record,
     default:
         break;
     }
+}
+
+int update_vnode_fmap(vfs_node &vnode)
+{
+    if (vnode.mapped_data_segs == vnode.data_segs.size())
+        return 0;
+
+    const off_t required_map_size = util::get_block_end(vnode.st.st_size);
+
+    if (vnode.mmap.ptr && vnode.mmap.size != required_map_size)
+    {
+        if (munmap(vnode.mmap.ptr, vnode.mmap.size) == -1)
+            return -1;
+
+        vnode.mapped_data_segs = 0;
+    }
+
+    for (uint32_t idx = vnode.mapped_data_segs; idx < vnode.data_segs.size(); idx++)
+    {
+        const vdata_segment &seg = vnode.data_segs.at(idx);
+
+        if (!vnode.mmap.ptr)
+        {
+            // Create the mapping for the full size needed.
+            const size_t size = util::get_block_end(vnode.st.st_size);
+            void *ptr = mmap(NULL, size, PROT_READ, MAP_PRIVATE, seg.physical_fd, seg.physical_offset);
+            if (ptr == MAP_FAILED)
+                return -1;
+
+            vnode.mmap.ptr = ptr;
+            vnode.mmap.size = size;
+        }
+        else
+        {
+            void *ptr = mmap(((uint8_t *)vnode.mmap.ptr + seg.logical_offset),
+                             seg.size, PROT_READ, MAP_PRIVATE | MAP_FIXED,
+                             seg.physical_fd, seg.physical_offset);
+
+            if (ptr == MAP_FAILED)
+                return -1;
+        }
+    }
+
+    vnode.mapped_data_segs = vnode.data_segs.size();
+    return 0;
 }
 
 int getattr(const char *vpath, struct stat *stbuf)
@@ -322,8 +374,8 @@ int write(const char *vpath, const char *buf, size_t size, off_t offset)
     logger::op_write_payload_header wh{size, offset, 0};
 
     // Create block data buf
-    const off_t block_data_start = mmapper::get_start_block_offset(offset);
-    const size_t block_data_end = mmapper::get_end_block_offset(offset + size);
+    const off_t block_data_start = util::get_block_start(offset);
+    const size_t block_data_end = util::get_block_end(offset + size);
     const size_t block_data_size = block_data_end - block_data_start;
 
     iovec block_data_buf;
@@ -341,7 +393,7 @@ int write(const char *vpath, const char *buf, size_t size, off_t offset)
         vec.resize(block_data_size);
 
         // Read any existing memory-mapped blocks and place on the new buf.
-        const mmapper::fmap &mmap = vnode->mmap;
+        const fmap &mmap = vnode->mmap;
         if (mmap.ptr && mmap.size > block_data_start)
         {
             off_t read_len = block_data_size;

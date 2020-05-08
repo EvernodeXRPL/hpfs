@@ -55,6 +55,7 @@ int init(int argc, char **argv)
         }
     }
 
+    vfs::deinit();
     logger::deinit();
     return 0;
 }

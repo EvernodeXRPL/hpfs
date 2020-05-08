@@ -58,7 +58,7 @@ struct log_record
     off_t payload_offset;
     size_t payload_len;
     off_t block_data_offset;
-    off_t block_data_len;
+    size_t block_data_len;
 };
 
 struct op_write_payload_header

@@ -9,7 +9,6 @@
 #include "hpfs.hpp"
 #include "logger.hpp"
 #include "util.hpp"
-#include "mmapper.hpp"
 
 namespace logger
 {
@@ -202,7 +201,7 @@ int append_log(std::string_view vpath, const FS_OPERATION operation, const iovec
     {
         // Block data must start at the next clean block after log header data and payload.
         const off_t record_end_offset = eof + sizeof(rh) + rh.vpath_len + rh.payload_len;
-        const off_t block_data_offset = mmapper::get_end_block_offset(record_end_offset);
+        const off_t block_data_offset = util::get_block_end(record_end_offset);
         rh.block_data_padding_len = block_data_offset - record_end_offset;
     }
 
@@ -272,7 +271,9 @@ int read_log_at(const off_t offset, off_t &next_offset, log_record &record)
     record.payload_len = rh.payload_len;
     record.payload_offset = record.offset + sizeof(rh) + rh.vpath_len;
     record.block_data_len = rh.block_data_len;
-    record.block_data_offset = record.payload_offset + rh.payload_len + rh.block_data_padding_len;
+    record.block_data_offset = rh.block_data_len == 0
+                                   ? 0
+                                   : record.payload_offset + rh.payload_len + rh.block_data_padding_len;
 
     std::string vpath;
     vpath.resize(rh.vpath_len);
