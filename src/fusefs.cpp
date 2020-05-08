@@ -129,7 +129,7 @@ int xmp_link(const char *from, const char *to)
 
 int xmp_unlink(const char *path)
 {
-	return 0;
+	return vfs::unlink(path);
 }
 
 int xmp_chmod(const char *path, mode_t mode,
