@@ -206,7 +206,11 @@ int apply_log_record_to_vnode(vfs_node &vnode, const logger::log_record &record,
         break;
 
     case logger::FS_OPERATION::RMDIR:
-        vnode.is_removed = true;
+        mark_vnode_as_removed(vnode);
+        break;
+
+    case logger::FS_OPERATION::UNLINK:
+        mark_vnode_as_removed(vnode);
         break;
 
     case logger::FS_OPERATION::CREATE:
@@ -282,6 +286,21 @@ int update_vnode_fmap(vfs_node &vnode)
     return 0;
 }
 
+int mark_vnode_as_removed(vfs_node &vnode)
+{
+    if (vnode.mmap.ptr && munmap(vnode.mmap.ptr, vnode.mmap.size) == -1)
+        return -1;
+
+    vnode.is_removed = true;
+    vnode.mmap = {NULL, 0};
+    vnode.data_segs.clear();
+    vnode.mapped_data_segs = 0;
+    vnode.seed_fd = 0;
+    vnode.st.st_nlink = 0;
+    vnode.st.st_size = 0;
+    return 0;
+}
+
 int getattr(const char *vpath, struct stat *stbuf)
 {
     vfs_node *vnode;
@@ -322,6 +341,20 @@ int rmdir(const char *vpath)
         return -ENOENT;
 
     return logger::append_log(vpath, logger::FS_OPERATION::RMDIR);
+}
+
+int unlink(const char *vpath)
+{
+    if (hpfs::ctx.run_mode != hpfs::RUN_MODE::RW)
+        return -1;
+
+    vfs_node *vnode;
+    if (get_vnode(vpath, &vnode) == -1)
+        return -1;
+    if (!vnode)
+        return -ENOENT;
+
+    return logger::append_log(vpath, logger::FS_OPERATION::UNLINK);
 }
 
 int create(const char *vpath, mode_t mode)
