@@ -1,5 +1,5 @@
-#ifndef _HPFS_VFS_
-#define _HPFS_VFS_
+#ifndef _HPFS_VFS2_
+#define _HPFS_VFS2_
 
 #include <sys/types.h>
 #include <sys/stat.h>

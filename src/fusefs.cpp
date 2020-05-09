@@ -53,6 +53,7 @@
 #include <string>
 #include "hpfs.hpp"
 #include "vfs2.hpp"
+#include "fuse_vfs.hpp"
 
 namespace fusefs
 {
@@ -82,7 +83,7 @@ int xmp_getattr(const char *path, struct stat *stbuf,
 				struct fuse_file_info *fi)
 {
 	(void)fi;
-	return vfs2::getattr(path, stbuf);
+	return fuse_vfs::getattr(path, stbuf);
 }
 
 int xmp_access(const char *path, int mask)
