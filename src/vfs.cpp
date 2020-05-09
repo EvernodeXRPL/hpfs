@@ -130,7 +130,7 @@ int build_vnode(const std::string &vpath, vnode_map::iterator &iter, const bool 
             if (logger::read_log_at(next_log_offset, next_log_offset, record) == -1)
                 break;
 
-            if (record.vpath == vpath)
+            if (is_record_matches_vpath(vpath, record))
             {
                 if (iter == vnodes.end())
                 {
@@ -165,13 +165,30 @@ failure:
     return -1;
 }
 
+bool is_record_matches_vpath(std::string_view vpath, const logger::log_record &record)
+{
+    if (record.vpath == vpath)
+        return true;
+
+    std::vector<uint8_t> payload;
+    if (record.operation == logger::FS_OPERATION::RENAME)
+    {
+        if (logger::read_payload(payload, record) == -1)
+            return false;
+        const char *rename_path = (char *)payload.data();
+        return strcmp(rename_path, vpath.data()) == 0;
+    }
+
+    return false;
+}
+
 int get_vnode(const char *vpath, vfs_node **vnode, const bool stat_only)
 {
     vnode_map::iterator iter = vnodes.end();
     if (build_vnode(vpath, iter, stat_only) == -1)
         return -1;
 
-    *vnode = (iter == vnodes.end() || iter->second.is_removed) ? NULL : &(iter->second);
+    *vnode = iter == vnodes.end() ? NULL : &(iter->second);
     return 0;
 }
 
@@ -183,16 +200,11 @@ int apply_log_record_to_vnode(vnode_map::iterator &vnode_iter, const logger::log
     switch (record.operation)
     {
     case logger::FS_OPERATION::MKDIR:
-        if (vnode.is_removed) // A previous log record has removed it and now we are creating again.
-        {
-            vnode.st.st_ino = next_ino++; // Allocate new inode no.
-            vnode.is_removed = false;
-        }
         vnode.st.st_mode = S_IFDIR | *(mode_t *)payload.data();
         break;
 
     case logger::FS_OPERATION::RMDIR:
-        mark_vnode_as_removed(vnode);
+        delete_vnode(vnode_iter);
         break;
 
     case logger::FS_OPERATION::RENAME:
@@ -200,18 +212,17 @@ int apply_log_record_to_vnode(vnode_map::iterator &vnode_iter, const logger::log
         const char *to_vpath = (char *)payload.data();
 
         // If "to" path already exists, delete it.
-        vfs_node *ex_vnode;
-        if (get_vnode(to_vpath, &ex_vnode) == -1)
-            return -1;
-        if (ex_vnode && mark_vnode_as_removed(*ex_vnode) == -1)
-            return -1;
-        vnodes.erase(to_vpath);
+        // vnode_map::iterator ex_iter = vnodes.end();
+        // if (build_vnode(to_vpath, ex_iter, true) == -1)
+        //     return -1;
+        // if (ex_iter != vnodes.end())
+        //     delete_vnode(ex_iter);
 
         // Rename this vnode. (erase it from the list and insert under new name)
         vfs_node vnode_copy = vnode;
-        if (mark_vnode_as_removed(vnode) == -1)
+        vnode_copy.log_scanned_upto = record.offset + record.size;
+        if (delete_vnode(vnode_iter) == -1)
             return -1;
-        vnodes.erase(record.vpath);
         auto [iter, success] = vnodes.try_emplace(to_vpath, std::move(vnode_copy));
         vnode_iter = iter;
 
@@ -219,15 +230,10 @@ int apply_log_record_to_vnode(vnode_map::iterator &vnode_iter, const logger::log
     }
 
     case logger::FS_OPERATION::UNLINK:
-        mark_vnode_as_removed(vnode);
+        delete_vnode(vnode_iter);
         break;
 
     case logger::FS_OPERATION::CREATE:
-        if (vnode.is_removed) // A previous log record has removed it and now we are creating again.
-        {
-            vnode.st.st_ino = next_ino++; // Allocate new inode no.
-            vnode.is_removed = false;
-        }
         vnode.st.st_mode = S_IFREG | *(mode_t *)payload.data();
         break;
 
@@ -295,25 +301,22 @@ int update_vnode_fmap(vfs_node &vnode)
     return 0;
 }
 
-int mark_vnode_as_removed(vfs_node &vnode)
+int delete_vnode(vnode_map::iterator &vnode_iter)
 {
+    vfs_node &vnode = vnode_iter->second;
+
     if (vnode.mmap.ptr && munmap(vnode.mmap.ptr, vnode.mmap.size) == -1)
         return -1;
 
-    vnode.is_removed = true;
-    vnode.mmap = {NULL, 0};
-    vnode.data_segs.clear();
-    vnode.mapped_data_segs = 0;
-    vnode.seed_fd = 0;
-    vnode.st.st_nlink = 0;
-    vnode.st.st_size = 0;
+    vnodes.erase(vnode_iter);
+    vnode_iter = vnodes.end();
     return 0;
 }
 
 int getattr(const char *vpath, struct stat *stbuf)
 {
     vfs_node *vnode;
-    if (get_vnode(vpath, &vnode) == -1)
+    if (get_vnode(vpath, &vnode, true) == -1)
         return -1;
     if (!vnode)
         return -ENOENT;
@@ -357,10 +360,19 @@ int readdir(const char *vpath, vdir_children_map &children)
             if (logger::read_log_at(next_log_offset, next_log_offset, record) == -1)
                 break;
 
-            char *path2 = strdup(record.vpath.c_str());
+            char *check_path = record.vpath.data();
+            std::vector<uint8_t> payload;
+            if (record.operation == logger::FS_OPERATION::RENAME)
+            {
+                if (logger::read_payload(payload, record) == -1)
+                    return -1;
+                check_path = (char *)payload.data();
+            }
+
+            char *path2 = strdup(check_path);
             char *parent_path = dirname(path2);
             if (strcmp(parent_path, vpath) == 0)
-                possible_child_names.emplace(basename(record.vpath.data()));
+                possible_child_names.emplace(basename(check_path));
 
         } while (next_log_offset > 0);
     }
@@ -377,10 +389,7 @@ int readdir(const char *vpath, vdir_children_map &children)
             return -1;
 
         if (child_vnode)
-        {
-            if (!child_vnode->is_removed)
-                children.try_emplace(child_name, child_vnode->st);
-        }
+            children.try_emplace(child_name, child_vnode->st);
     }
 
     return 0;
@@ -393,7 +402,7 @@ int mkdir(const char *vpath, mode_t mode)
 
     // Check if vnode for same vpath already exists.
     vfs_node *vnode;
-    if (get_vnode(vpath, &vnode) == -1)
+    if (get_vnode(vpath, &vnode, true) == -1)
         return -1;
     if (vnode)
         return -EEXIST;
@@ -408,7 +417,7 @@ int rmdir(const char *vpath)
         return -1;
 
     vfs_node *vnode;
-    if (get_vnode(vpath, &vnode) == -1)
+    if (get_vnode(vpath, &vnode, true) == -1)
         return -1;
     if (!vnode)
         return -ENOENT;
@@ -422,7 +431,7 @@ int rename(const char *from_vpath, const char *to_vpath)
         return -1;
 
     vfs_node *from_vnode;
-    if (get_vnode(from_vpath, &from_vnode) == -1)
+    if (get_vnode(from_vpath, &from_vnode, true) == -1)
         return -1;
     if (!from_vnode)
         return -ENOENT;
@@ -437,7 +446,7 @@ int unlink(const char *vpath)
         return -1;
 
     vfs_node *vnode;
-    if (get_vnode(vpath, &vnode) == -1)
+    if (get_vnode(vpath, &vnode, true) == -1)
         return -1;
     if (!vnode)
         return -ENOENT;
@@ -452,7 +461,7 @@ int create(const char *vpath, mode_t mode)
 
     // Check if vnode for same vpath already exists.
     vfs_node *vnode;
-    if (get_vnode(vpath, &vnode) == -1)
+    if (get_vnode(vpath, &vnode, true) == -1)
         return -1;
     if (vnode)
         return -EEXIST;
@@ -464,7 +473,7 @@ int create(const char *vpath, mode_t mode)
 int read(const char *vpath, char *buf, size_t size, off_t offset)
 {
     vfs_node *vnode;
-    if (get_vnode(vpath, &vnode) == -1)
+    if (get_vnode(vpath, &vnode, false) == -1)
         return -1;
     if (!vnode)
         return -ENOENT;
@@ -487,7 +496,7 @@ int write(const char *vpath, const char *buf, size_t size, off_t offset)
         return -1;
 
     vfs_node *vnode;
-    if (get_vnode(vpath, &vnode) == -1)
+    if (get_vnode(vpath, &vnode, false) == -1)
         return -1;
     if (!vnode)
         return -ENOENT;

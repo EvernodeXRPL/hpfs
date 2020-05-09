@@ -31,8 +31,6 @@ struct vfs_node
     // The offset position of the log file upto which has been
     // read to construct this vnode (inclusive of log record).
     off_t log_scanned_upto = 0;
-    bool is_removed = false;
-
     int seed_fd = 0;
     fmap mmap;
 
@@ -50,11 +48,12 @@ void deinit();
 int add_vnode(const std::string &vpath, struct stat &st,
               const off_t log_offset, vnode_map::iterator &vnode_iter);
 int build_vnode(const std::string &vpath, vnode_map::iterator &vnode_iter, const bool stat_only);
-int get_vnode(const char *vpath, vfs_node **vnode, const bool stat_only = false);
+bool is_record_matches_vpath(std::string_view vpath, const logger::log_record &record);
+int get_vnode(const char *vpath, vfs_node **vnode, const bool stat_only);
 int apply_log_record_to_vnode(vnode_map::iterator &vnode_iter, const logger::log_record &record,
                               std::vector<uint8_t> payload);
 int update_vnode_fmap(vfs_node &vnode);
-int mark_vnode_as_removed(vfs_node &vnode);
+int delete_vnode(vnode_map::iterator &vnode_iter);
 
 int getattr(const char *vpath, struct stat *stbuf);
 int readdir(const char *vpath, vdir_children_map &children);
