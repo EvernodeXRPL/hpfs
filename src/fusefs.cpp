@@ -127,7 +127,10 @@ int xmp_symlink(const char *from, const char *to)
 
 int xmp_rename(const char *from, const char *to, unsigned int flags)
 {
-	return 0;
+	if (flags)
+		return -EINVAL;
+
+	return vfs::rename(from, to);
 }
 
 int xmp_link(const char *from, const char *to)

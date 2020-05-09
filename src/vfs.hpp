@@ -51,7 +51,7 @@ int add_vnode(const std::string &vpath, struct stat &st,
               const off_t log_offset, vnode_map::iterator &vnode_iter);
 int build_vnode(const std::string &vpath, vnode_map::iterator &vnode_iter, const bool stat_only);
 int get_vnode(const char *vpath, vfs_node **vnode, const bool stat_only = false);
-int apply_log_record_to_vnode(vfs_node &vnode, const logger::log_record &record,
+int apply_log_record_to_vnode(vnode_map::iterator &vnode_iter, const logger::log_record &record,
                               std::vector<uint8_t> payload);
 int update_vnode_fmap(vfs_node &vnode);
 int mark_vnode_as_removed(vfs_node &vnode);
@@ -60,6 +60,7 @@ int getattr(const char *vpath, struct stat *stbuf);
 int readdir(const char *vpath, vdir_children_map &children);
 int mkdir(const char *vpath, mode_t mode);
 int rmdir(const char *vpath);
+int rename(const char *from_vpath, const char *to_vpath);
 int unlink(const char *vpath);
 int create(const char *vpath, mode_t mode);
 int read(const char *vpath, char *buf, size_t size, off_t offset);

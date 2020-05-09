@@ -143,7 +143,7 @@ int build_vnode(const std::string &vpath, vnode_map::iterator &iter, const bool 
 
                 std::vector<uint8_t> payload;
                 if (logger::read_payload(payload, record) == -1 ||
-                    apply_log_record_to_vnode(iter->second, record, payload) == -1)
+                    apply_log_record_to_vnode(iter, record, payload) == -1)
                     goto failure;
             }
 
@@ -175,9 +175,11 @@ int get_vnode(const char *vpath, vfs_node **vnode, const bool stat_only)
     return 0;
 }
 
-int apply_log_record_to_vnode(vfs_node &vnode, const logger::log_record &record,
+int apply_log_record_to_vnode(vnode_map::iterator &vnode_iter, const logger::log_record &record,
                               const std::vector<uint8_t> payload)
 {
+    vfs_node &vnode = vnode_iter->second;
+
     switch (record.operation)
     {
     case logger::FS_OPERATION::MKDIR:
@@ -192,6 +194,29 @@ int apply_log_record_to_vnode(vfs_node &vnode, const logger::log_record &record,
     case logger::FS_OPERATION::RMDIR:
         mark_vnode_as_removed(vnode);
         break;
+
+    case logger::FS_OPERATION::RENAME:
+    {
+        const char *to_vpath = (char *)payload.data();
+
+        // If "to" path already exists, delete it.
+        vfs_node *ex_vnode;
+        if (get_vnode(to_vpath, &ex_vnode) == -1)
+            return -1;
+        if (ex_vnode && mark_vnode_as_removed(*ex_vnode) == -1)
+            return -1;
+        vnodes.erase(to_vpath);
+
+        // Rename this vnode. (erase it from the list and insert under new name)
+        vfs_node vnode_copy = vnode;
+        if (mark_vnode_as_removed(vnode) == -1)
+            return -1;
+        vnodes.erase(record.vpath);
+        auto [iter, success] = vnodes.try_emplace(to_vpath, std::move(vnode_copy));
+        vnode_iter = iter;
+
+        break;
+    }
 
     case logger::FS_OPERATION::UNLINK:
         mark_vnode_as_removed(vnode);
@@ -389,6 +414,21 @@ int rmdir(const char *vpath)
         return -ENOENT;
 
     return logger::append_log(vpath, logger::FS_OPERATION::RMDIR);
+}
+
+int rename(const char *from_vpath, const char *to_vpath)
+{
+    if (hpfs::ctx.run_mode != hpfs::RUN_MODE::RW)
+        return -1;
+
+    vfs_node *from_vnode;
+    if (get_vnode(from_vpath, &from_vnode) == -1)
+        return -1;
+    if (!from_vnode)
+        return -ENOENT;
+
+    iovec payload{(void *)to_vpath, strlen(to_vpath) + 1};
+    return logger::append_log(from_vpath, logger::FS_OPERATION::RENAME, &payload);
 }
 
 int unlink(const char *vpath)
