@@ -9,12 +9,12 @@
 #include <vector>
 #include <unordered_set>
 #include <libgen.h>
-#include "vfs.hpp"
+#include "vfs2.hpp"
 #include "hpfs.hpp"
 #include "logger.hpp"
 #include "util.hpp"
 
-namespace vfs
+namespace vfs2
 {
 
 uint next_ino = 1;

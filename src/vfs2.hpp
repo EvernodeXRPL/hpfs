@@ -7,7 +7,7 @@
 #include <vector>
 #include "logger.hpp"
 
-namespace vfs
+namespace vfs2
 {
 
 struct fmap

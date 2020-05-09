@@ -19,7 +19,7 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY build)
 add_executable(hpfs
     src/util.cpp
     src/logger.cpp
-    src/vfs.cpp
+    src/vfs2.cpp
     src/fusefs.cpp
     src/hpfs.cpp
     src/main.cpp

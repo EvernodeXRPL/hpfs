@@ -7,7 +7,7 @@
 #include "fusefs.hpp"
 #include "logger.hpp"
 #include "merger.hpp"
-#include "vfs.hpp"
+#include "vfs2.hpp"
 
 namespace hpfs
 {
@@ -31,7 +31,7 @@ int init(int argc, char **argv)
     if (vaidate_context() == -1 || logger::init() == -1)
         return -1;
 
-    if (vfs::init() == -1)
+    if (vfs2::init() == -1)
     {
         logger::deinit();
         return -1;
@@ -55,7 +55,7 @@ int init(int argc, char **argv)
         }
     }
 
-    vfs::deinit();
+    vfs2::deinit();
     logger::deinit();
     return 0;
 }

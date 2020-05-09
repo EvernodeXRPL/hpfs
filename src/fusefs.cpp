@@ -52,7 +52,7 @@
 #include <iostream>
 #include <string>
 #include "hpfs.hpp"
-#include "vfs.hpp"
+#include "vfs2.hpp"
 
 namespace fusefs
 {
@@ -82,7 +82,7 @@ int xmp_getattr(const char *path, struct stat *stbuf,
 				struct fuse_file_info *fi)
 {
 	(void)fi;
-	return vfs::getattr(path, stbuf);
+	return vfs2::getattr(path, stbuf);
 }
 
 int xmp_access(const char *path, int mask)
@@ -101,8 +101,8 @@ int xmp_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 {
 	return 0;
 
-	vfs::vdir_children_map children;
-	int res = vfs::readdir(path, children);
+	vfs2::vdir_children_map children;
+	int res = vfs2::readdir(path, children);
 	if (res < 0)
 		return res;
 
@@ -114,12 +114,12 @@ int xmp_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 
 int xmp_mkdir(const char *path, mode_t mode)
 {
-	return vfs::mkdir(path, mode);
+	return vfs2::mkdir(path, mode);
 }
 
 int xmp_rmdir(const char *path)
 {
-	return vfs::rmdir(path);
+	return vfs2::rmdir(path);
 }
 
 int xmp_symlink(const char *from, const char *to)
@@ -132,7 +132,7 @@ int xmp_rename(const char *from, const char *to, unsigned int flags)
 	if (flags)
 		return -EINVAL;
 
-	return vfs::rename(from, to);
+	return vfs2::rename(from, to);
 }
 
 int xmp_link(const char *from, const char *to)
@@ -142,7 +142,7 @@ int xmp_link(const char *from, const char *to)
 
 int xmp_unlink(const char *path)
 {
-	return vfs::unlink(path);
+	return vfs2::unlink(path);
 }
 
 int xmp_chmod(const char *path, mode_t mode,
@@ -167,7 +167,7 @@ int xmp_utimens(const char *path, const struct timespec ts[2],
 
 int xmp_create(const char *path, mode_t mode, struct fuse_file_info *fi)
 {
-	return vfs::create(path, mode);
+	return vfs2::create(path, mode);
 }
 
 int xmp_open(const char *path, struct fuse_file_info *fi)
@@ -178,13 +178,13 @@ int xmp_open(const char *path, struct fuse_file_info *fi)
 int xmp_read(const char *path, char *buf, size_t size, off_t offset,
 			 struct fuse_file_info *fi)
 {
-	return vfs::read(path, buf, size, offset);
+	return vfs2::read(path, buf, size, offset);
 }
 
 int xmp_write(const char *path, const char *buf, size_t size,
 			  off_t offset, struct fuse_file_info *fi)
 {
-	return vfs::write(path, buf, size, offset);
+	return vfs2::write(path, buf, size, offset);
 }
 
 int xmp_statfs(const char *path, struct statvfs *stbuf)
