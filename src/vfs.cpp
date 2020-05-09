@@ -157,7 +157,7 @@ success:
     // Update the memory mapped data blocks.
     if (!stat_only && iter != vnodes.end() && update_vnode_fmap(iter->second) == -1)
         goto failure;
-        
+
     return logger::release_lock(scan_lock);
 
 failure:
@@ -342,7 +342,11 @@ int readdir(const char *vpath, vdir_children_map &children)
 
     for (const auto &child_name : possible_child_names)
     {
-        const std::string child_vpath = std::string(vpath).append("/").append(child_name);
+        std::string child_vpath = std::string(vpath);
+        if (child_vpath.back() != '/')
+            child_vpath.append("/");
+        child_vpath.append(child_name);
+
         vfs_node *child_vnode;
         if (get_vnode(child_vpath.c_str(), &child_vnode, true) == -1)
             return -1;
