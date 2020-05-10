@@ -20,6 +20,7 @@ namespace vfs
 ino_t next_ino = 1;
 vnode_map vnodes;
 struct stat default_stat;
+std::unordered_set<std::string> loaded_vpaths;
 
 // Last checkpoint offset for the use of ReadOnly session
 // (inclusive of the checkpointed log record).
@@ -58,13 +59,16 @@ void deinit()
     }
 }
 
-int get(const std::string &vpath, vnode **vn)
+int get_vnode(const std::string &vpath, vnode **vn)
 {
     vnode_map::iterator iter = vnodes.find(vpath);
-    if (iter == vnodes.end() && add_vnode_from_seed(vpath, iter) == -1)
+    if (iter == vnodes.end() &&
+        loaded_vpaths.count(vpath) == 0 &&
+        add_vnode_from_seed(vpath, iter) == -1)
         return -1;
 
     *vn = (iter == vnodes.end()) ? NULL : &iter->second;
+    loaded_vpaths.emplace(vpath);
 
     return 0;
 }
@@ -77,6 +81,7 @@ void add_vnode(const std::string &vpath, vnode_map::iterator &vnode_iter)
 
     auto [iter, success] = vnodes.try_emplace(vpath, std::move(vn));
     vnode_iter = iter;
+    loaded_vpaths.emplace(vpath);
 }
 
 int add_vnode_from_seed(const std::string &vpath, vnode_map::iterator &vnode_iter)
@@ -133,7 +138,8 @@ int build_vfs()
 
         log_scanned_upto = record.offset + record.size;
 
-    } while (next_log_offset > 0);
+    } while (next_log_offset > 0 &&
+             (hpfs::ctx.run_mode == hpfs::RUN_MODE::RW || log_scanned_upto < last_checkpoint));
 
     return 0;
 }
@@ -164,9 +170,49 @@ int apply_log_record(const logger::log_record &record, const std::vector<uint8_t
     case logger::FS_OPERATION::MKDIR:
         vn.st.st_mode = S_IFDIR | *(mode_t *)payload.data();
         break;
+
     case logger::FS_OPERATION::RMDIR:
         delete_vnode(iter);
         break;
+
+    case logger::FS_OPERATION::RENAME:
+    {
+        const char *to_vpath = (char *)payload.data();
+
+        // If "to" path already exists, delete it.
+        vnode_map::iterator ex_iter = vnodes.end();
+        if (ex_iter != vnodes.end() && delete_vnode(ex_iter) == -1)
+            return -1;
+
+        // Rename this vnode. (erase it from the list and insert under new name)
+        vnode vn2 = vn;
+        if (delete_vnode(iter) == -1)
+            return -1;
+        auto [iter2, success] = vnodes.try_emplace(to_vpath, std::move(vn2));
+        iter = iter2;
+    }
+
+    case logger::FS_OPERATION::UNLINK:
+        delete_vnode(iter);
+        break;
+
+    case logger::FS_OPERATION::CREATE:
+        vn.st.st_mode = S_IFREG | *(mode_t *)payload.data();
+        break;
+
+    case logger::FS_OPERATION::WRITE:
+    {
+        const logger::op_write_payload_header wh = *(logger::op_write_payload_header *)payload.data();
+
+        const off_t logical_offset = util::get_block_start(wh.offset);
+        vn.data_segs.push_back(vdata_segment{logger::fd, record.block_data_len, record.block_data_offset, logical_offset});
+
+        // Update stats, if the new data boundry is larger than current file size.
+        if (vn.st.st_size < (wh.offset + wh.size))
+            vn.st.st_size = wh.offset + wh.size;
+
+        break;
+    }
     }
 
     if (iter != vnodes.end())
@@ -184,6 +230,52 @@ int delete_vnode(vnode_map::iterator &vnode_iter)
 
     vnodes.erase(vnode_iter);
     vnode_iter = vnodes.end();
+    return 0;
+}
+
+int update_vnode_mmap(vnode &vn)
+{
+    if (vn.mapped_data_segs == vn.data_segs.size())
+        return 0;
+
+    const off_t required_map_size = util::get_block_end(vn.st.st_size);
+
+    if (vn.mmap.ptr && vn.mmap.size != required_map_size)
+    {
+        if (munmap(vn.mmap.ptr, vn.mmap.size) == -1)
+            return -1;
+
+        vn.mmap.ptr = NULL;
+        vn.mapped_data_segs = 0;
+    }
+
+    for (uint32_t idx = vn.mapped_data_segs; idx < vn.data_segs.size(); idx++)
+    {
+        const vdata_segment &seg = vn.data_segs.at(idx);
+
+        if (!vn.mmap.ptr)
+        {
+            // Create the mapping for the full size needed.
+            const size_t size = util::get_block_end(vn.st.st_size);
+            void *ptr = mmap(NULL, size, PROT_READ, MAP_PRIVATE, seg.physical_fd, seg.physical_offset);
+            if (ptr == MAP_FAILED)
+                return -1;
+
+            vn.mmap.ptr = ptr;
+            vn.mmap.size = size;
+        }
+        else
+        {
+            void *ptr = mmap(((uint8_t *)vn.mmap.ptr + seg.logical_offset),
+                             seg.size, PROT_READ, MAP_PRIVATE | MAP_FIXED,
+                             seg.physical_fd, seg.physical_offset);
+
+            if (ptr == MAP_FAILED)
+                return -1;
+        }
+    }
+
+    vn.mapped_data_segs = vn.data_segs.size();
     return 0;
 }
 

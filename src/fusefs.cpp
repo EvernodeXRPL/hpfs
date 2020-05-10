@@ -133,7 +133,7 @@ int xmp_rename(const char *from, const char *to, unsigned int flags)
 	if (flags)
 		return -EINVAL;
 
-	return vfs2::rename(from, to);
+	return fuse_vfs::rename(from, to);
 }
 
 int xmp_link(const char *from, const char *to)
@@ -143,7 +143,7 @@ int xmp_link(const char *from, const char *to)
 
 int xmp_unlink(const char *path)
 {
-	return vfs2::unlink(path);
+	return fuse_vfs::unlink(path);
 }
 
 int xmp_chmod(const char *path, mode_t mode,
@@ -168,7 +168,7 @@ int xmp_utimens(const char *path, const struct timespec ts[2],
 
 int xmp_create(const char *path, mode_t mode, struct fuse_file_info *fi)
 {
-	return vfs2::create(path, mode);
+	return fuse_vfs::create(path, mode);
 }
 
 int xmp_open(const char *path, struct fuse_file_info *fi)
@@ -179,13 +179,13 @@ int xmp_open(const char *path, struct fuse_file_info *fi)
 int xmp_read(const char *path, char *buf, size_t size, off_t offset,
 			 struct fuse_file_info *fi)
 {
-	return vfs2::read(path, buf, size, offset);
+	return fuse_vfs::read(path, buf, size, offset);
 }
 
 int xmp_write(const char *path, const char *buf, size_t size,
 			  off_t offset, struct fuse_file_info *fi)
 {
-	return vfs2::write(path, buf, size, offset);
+	return fuse_vfs::write(path, buf, size, offset);
 }
 
 int xmp_statfs(const char *path, struct statvfs *stbuf)
@@ -203,9 +203,7 @@ static int xmp_flush(const char *path, struct fuse_file_info *fi)
 	   called multiple times for an open file, this must not really
 	   close the file.  This is important if used on a network
 	   filesystem like NFS which flush the data/metadata on close() */
-	res = close(dup(fi->fh));
-	if (res == -1)
-		return -errno;
+	close(dup(fi->fh));
 
 	return 0;
 }

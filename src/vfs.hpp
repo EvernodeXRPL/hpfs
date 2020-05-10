@@ -30,7 +30,7 @@ struct vnode
     struct stat st;
     int seed_fd = 0;
 
-    // How many data segs from the beginig of list that has been mapped to memory.
+    // How many data segs from the begining of list that has been mapped to memory.
     uint32_t mapped_data_segs = 0;
     std::vector<vdata_segment> data_segs;
     struct vnode_mmap mmap;
@@ -41,12 +41,13 @@ typedef std::unordered_map<std::string, vnode> vnode_map;
 
 int init();
 void deinit();
-int get(const std::string &vpath, vnode **vn);
+int get_vnode(const std::string &vpath, vnode **vn);
 void add_vnode(const std::string &vpath, vnode_map::iterator &vnode_iter);
 int add_vnode_from_seed(const std::string &vpath, vnode_map::iterator &vnode_iter);
 int build_vfs();
 int apply_log_record(const logger::log_record &record, const std::vector<uint8_t> payload);
 int delete_vnode(vnode_map::iterator &vnode_iter);
+int update_vnode_mmap(vnode &vn);
 
 } // namespace vfs
 
