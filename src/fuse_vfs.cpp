@@ -1,5 +1,8 @@
 #include <iostream>
 #include <string.h>
+#include <sys/types.h>
+#include <dirent.h>
+#include <libgen.h>
 #include "vfs.hpp"
 #include "hpfs.hpp"
 #include "util.hpp"
@@ -17,6 +20,19 @@ int getattr(const char *vpath, struct stat *stbuf)
 
     *stbuf = vn->st;
     return 0;
+}
+
+int readdir(const char *vpath, vfs::vdir_children_map &children)
+{
+    vfs::vnode *vn;
+    if (vfs::get_vnode(vpath, &vn) == -1)
+        return -1;
+    if (!vn)
+        return -ENOENT;
+    if (!S_ISDIR(vn->st.st_mode))
+        return -ENOTDIR;
+
+    return vfs::get_dir_children(vpath, children);
 }
 
 int mkdir(const char *vpath, mode_t mode)

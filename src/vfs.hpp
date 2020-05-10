@@ -38,6 +38,7 @@ struct vnode
 };
 
 typedef std::unordered_map<std::string, vnode> vnode_map;
+typedef std::unordered_map<std::string, struct stat> vdir_children_map;
 
 int init();
 void deinit();
@@ -48,6 +49,7 @@ int build_vfs();
 int apply_log_record(const logger::log_record &record, const std::vector<uint8_t> payload);
 int delete_vnode(vnode_map::iterator &vnode_iter);
 int update_vnode_mmap(vnode &vn);
+int get_dir_children(const char *vpath, vdir_children_map &children);
 
 } // namespace vfs
 

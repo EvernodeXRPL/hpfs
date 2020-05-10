@@ -279,4 +279,62 @@ int update_vnode_mmap(vnode &vn)
     return 0;
 }
 
+int get_dir_children(const char *vpath, vdir_children_map &children)
+{
+    std::unordered_set<std::string> possible_child_names;
+
+    {
+        // Read possible children from seed dir;
+        const std::string seed_path = std::string(hpfs::ctx.seed_dir).append(vpath);
+        DIR *dirp = opendir(seed_path.c_str());
+        if (dirp != NULL)
+        {
+            dirent *entry;
+            while (entry = readdir(dirp))
+            {
+                if (strcmp(entry->d_name, ".") != 0 &&
+                    strcmp(entry->d_name, "..") != 0 &&
+                    strcmp(entry->d_name, "/") != 0)
+                    possible_child_names.emplace(entry->d_name);
+            }
+
+            closedir(dirp);
+        }
+    }
+
+    {
+        // Find possible children from vnodes.
+        for (const auto &[vn_path, vn] : vnodes)
+        {
+            char *path2 = strdup(vn_path.c_str());
+            char *parent_path = dirname(path2);
+            if (strcmp(parent_path, vpath) == 0)
+            {
+                char *path3 = strdup(vn_path.c_str());
+                char *child_name = basename(path3);
+                possible_child_names.emplace(child_name);
+            }
+        }
+    }
+
+    for (const auto &child_name : possible_child_names)
+    {
+        std::string child_vpath = std::string(vpath);
+        if (child_vpath.back() != '/')
+            child_vpath.append("/");
+        child_vpath.append(child_name);
+
+        vnode *child_vnode;
+        if (get_vnode(child_vpath.c_str(), &child_vnode) == -1)
+            return -1;
+
+        if (child_vnode)
+        {
+            children.try_emplace(child_name, child_vnode->st);
+        }
+    }
+
+    return 0;
+}
+
 } // namespace vfs

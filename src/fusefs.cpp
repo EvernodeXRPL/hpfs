@@ -52,7 +52,7 @@
 #include <iostream>
 #include <string>
 #include "hpfs.hpp"
-#include "vfs2.hpp"
+#include "vfs.hpp"
 #include "fuse_vfs.hpp"
 
 namespace fusefs
@@ -100,10 +100,8 @@ int xmp_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 				off_t offset, struct fuse_file_info *fi,
 				enum fuse_readdir_flags flags)
 {
-	return 0;
-
-	vfs2::vdir_children_map children;
-	int res = vfs2::readdir(path, children);
+	vfs::vdir_children_map children;
+	int res = fuse_vfs::readdir(path, children);
 	if (res < 0)
 		return res;
 

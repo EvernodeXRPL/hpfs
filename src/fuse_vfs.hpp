@@ -5,6 +5,7 @@ namespace fuse_vfs
 {
 
 int getattr(const char *vpath, struct stat *stbuf);
+int readdir(const char *vpath, vfs::vdir_children_map &children);
 int mkdir(const char *vpath, mode_t mode);
 int rmdir(const char *vpath);
 int rename(const char *from_vpath, const char *to_vpath);
