@@ -59,8 +59,14 @@ void deinit()
     }
 }
 
-int get_vnode(const std::string &vpath, vnode **vn)
+int get_vnode(const std::string &vpath_ori, vnode **vn)
 {
+    std::string vpath;
+    if (vpath_ori.front() == '/' && vpath_ori.find_first_not_of('/') == std::string::npos)
+        vpath = "/";
+    else
+        vpath = vpath_ori;
+
     vnode_map::iterator iter = vnodes.find(vpath);
     if (iter == vnodes.end() &&
         loaded_vpaths.count(vpath) == 0 &&
@@ -112,6 +118,7 @@ int add_vnode_from_seed(const std::string &vpath, vnode_map::iterator &vnode_ite
 
         auto [iter, success] = vnodes.try_emplace(vpath, std::move(vn));
         vnode_iter = iter;
+        loaded_vpaths.emplace(vpath);
     }
 
     return 0;
@@ -190,6 +197,8 @@ int apply_log_record(const logger::log_record &record, const std::vector<uint8_t
             return -1;
         auto [iter2, success] = vnodes.try_emplace(to_vpath, std::move(vn2));
         iter = iter2;
+
+        break;
     }
 
     case logger::FS_OPERATION::UNLINK:
@@ -306,6 +315,9 @@ int get_dir_children(const char *vpath, vdir_children_map &children)
         // Find possible children from vnodes.
         for (const auto &[vn_path, vn] : vnodes)
         {
+            if (vn_path == "/")
+                continue;
+
             char *path2 = strdup(vn_path.c_str());
             char *parent_path = dirname(path2);
             if (strcmp(parent_path, vpath) == 0)

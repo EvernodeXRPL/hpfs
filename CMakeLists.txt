@@ -21,7 +21,6 @@ add_executable(hpfs
     src/logger.cpp
     src/vfs.cpp
     src/fuse_vfs.cpp
-    src/vfs2.cpp
     src/fusefs.cpp
     src/hpfs.cpp
     src/main.cpp
