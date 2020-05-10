@@ -53,6 +53,7 @@
 #include <string>
 #include "hpfs.hpp"
 #include "vfs.hpp"
+#include "fuse_vfs.hpp"
 
 namespace fusefs
 {
@@ -82,7 +83,7 @@ int xmp_getattr(const char *path, struct stat *stbuf,
 				struct fuse_file_info *fi)
 {
 	(void)fi;
-	return vfs::getattr(path, stbuf);
+	return fuse_vfs::getattr(path, stbuf);
 }
 
 int xmp_access(const char *path, int mask)
@@ -99,17 +100,25 @@ int xmp_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 				off_t offset, struct fuse_file_info *fi,
 				enum fuse_readdir_flags flags)
 {
+	vfs::vdir_children_map children;
+	int res = fuse_vfs::readdir(path, children);
+	if (res < 0)
+		return res;
+
+	for (const auto &[name, stat] : children)
+		filler(buf, name.c_str(), &stat, 0, (fuse_fill_dir_flags)0);
+
 	return 0;
 }
 
 int xmp_mkdir(const char *path, mode_t mode)
 {
-	return vfs::mkdir(path, mode);
+	return fuse_vfs::mkdir(path, mode);
 }
 
 int xmp_rmdir(const char *path)
 {
-	return vfs::rmdir(path);
+	return fuse_vfs::rmdir(path);
 }
 
 int xmp_symlink(const char *from, const char *to)
@@ -119,7 +128,10 @@ int xmp_symlink(const char *from, const char *to)
 
 int xmp_rename(const char *from, const char *to, unsigned int flags)
 {
-	return 0;
+	if (flags)
+		return -EINVAL;
+
+	return fuse_vfs::rename(from, to);
 }
 
 int xmp_link(const char *from, const char *to)
@@ -129,7 +141,7 @@ int xmp_link(const char *from, const char *to)
 
 int xmp_unlink(const char *path)
 {
-	return vfs::unlink(path);
+	return fuse_vfs::unlink(path);
 }
 
 int xmp_chmod(const char *path, mode_t mode,
@@ -154,7 +166,7 @@ int xmp_utimens(const char *path, const struct timespec ts[2],
 
 int xmp_create(const char *path, mode_t mode, struct fuse_file_info *fi)
 {
-	return vfs::create(path, mode);
+	return fuse_vfs::create(path, mode);
 }
 
 int xmp_open(const char *path, struct fuse_file_info *fi)
@@ -165,17 +177,32 @@ int xmp_open(const char *path, struct fuse_file_info *fi)
 int xmp_read(const char *path, char *buf, size_t size, off_t offset,
 			 struct fuse_file_info *fi)
 {
-	return vfs::read(path, buf, size, offset);
+	return fuse_vfs::read(path, buf, size, offset);
 }
 
 int xmp_write(const char *path, const char *buf, size_t size,
 			  off_t offset, struct fuse_file_info *fi)
 {
-	return vfs::write(path, buf, size, offset);
+	return fuse_vfs::write(path, buf, size, offset);
 }
 
 int xmp_statfs(const char *path, struct statvfs *stbuf)
 {
+	return 0;
+}
+
+static int xmp_flush(const char *path, struct fuse_file_info *fi)
+{
+	int res;
+
+	(void)path;
+	/* This is called from every close on an open file, so call the
+	   close on the underlying filesystem.	But since flush may be
+	   called multiple times for an open file, this must not really
+	   close the file.  This is important if used on a network
+	   filesystem like NFS which flush the data/metadata on close() */
+	close(dup(fi->fh));
+
 	return 0;
 }
 
@@ -292,7 +319,7 @@ void assign_operations(fuse_operations &xmp_oper)
 	xmp_oper.read = xmp_read;
 	xmp_oper.write = xmp_write;
 	xmp_oper.statfs = xmp_statfs;
-	//xmp_oper.flush = xmp_flush;
+	xmp_oper.flush = xmp_flush;
 	xmp_oper.release = xmp_release;
 	xmp_oper.fsync = xmp_fsync;
 #ifdef HAVE_SETXATTR
@@ -335,7 +362,7 @@ fuse_operations xmp_oper;
 int init(char *arg0)
 {
 	fuse_args args = FUSE_ARGS_INIT(0, NULL);
-	fuse_opt_add_arg(&args, arg0); // Mount dir
+	fuse_opt_add_arg(&args, arg0);						  // Mount dir
 	fuse_opt_add_arg(&args, hpfs::ctx.mount_dir.c_str()); // Mount dir
 	fuse_opt_add_arg(&args, "-f");						  // Foreground
 	fuse_opt_add_arg(&args, "-s");						  // Single threaded

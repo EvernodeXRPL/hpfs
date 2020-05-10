@@ -255,7 +255,10 @@ int append_log(std::string_view vpath, const FS_OPERATION operation, const iovec
 int read_log_at(const off_t offset, off_t &next_offset, log_record &record)
 {
     if (header.first_record == 0 || offset > header.last_record)
-        return -1;
+    {
+        next_offset = -1;
+        return 0;
+    }
 
     const off_t read_offset = offset == 0 ? header.first_record : offset;
 
@@ -292,7 +295,7 @@ int read_log_at(const off_t offset, off_t &next_offset, log_record &record)
 int read_payload(std::vector<uint8_t> &payload, const log_record &record)
 {
     payload.resize(record.payload_len);
-    if (read(fd, payload.data(), record.payload_len) < record.payload_len)
+    if (pread(fd, payload.data(), record.payload_len, record.payload_offset) < record.payload_len)
         return -1;
 
     return 0;
