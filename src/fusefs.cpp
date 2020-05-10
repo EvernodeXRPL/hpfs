@@ -115,12 +115,12 @@ int xmp_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 
 int xmp_mkdir(const char *path, mode_t mode)
 {
-	return vfs2::mkdir(path, mode);
+	return fuse_vfs::mkdir(path, mode);
 }
 
 int xmp_rmdir(const char *path)
 {
-	return vfs2::rmdir(path);
+	return fuse_vfs::rmdir(path);
 }
 
 int xmp_symlink(const char *from, const char *to)

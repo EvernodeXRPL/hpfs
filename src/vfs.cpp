@@ -21,8 +21,13 @@ ino_t next_ino = 1;
 vnode_map vnodes;
 struct stat default_stat;
 
-// Last checkpoint offset for the use of ReadOnly session (inclusive of the checkpointed log record).
+// Last checkpoint offset for the use of ReadOnly session
+// (inclusive of the checkpointed log record).
 off_t last_checkpoint = 0;
+
+// Log offset that has been scanned for vfs buildup
+// (inclusive of log record).
+off_t log_scanned_upto = 0;
 
 int init()
 {
@@ -110,7 +115,7 @@ int add_vnode_from_seed(const std::string &vpath, vnode_map::iterator &vnode_ite
 int build_vfs()
 {
     // Scan log records and build up vnodes relevant to log records.
-    off_t next_log_offset = 0;
+    off_t next_log_offset = log_scanned_upto;
 
     do
     {
@@ -125,6 +130,8 @@ int build_vfs()
         if (logger::read_payload(payload, record) == -1 ||
             apply_log_record(record, payload) == -1)
             return -1;
+
+        log_scanned_upto = record.offset + record.size;
 
     } while (next_log_offset > 0);
 
