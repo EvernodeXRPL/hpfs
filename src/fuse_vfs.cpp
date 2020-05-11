@@ -2,7 +2,8 @@
 #include <string.h>
 #include <sys/types.h>
 #include <dirent.h>
-#include <libgen.h>
+#include <stdlib.h>
+#include <math.h>
 #include "vfs.hpp"
 #include "hpfs.hpp"
 #include "util.hpp"
@@ -148,7 +149,64 @@ int read(const char *vpath, char *buf, size_t size, off_t offset)
     return read_len;
 }
 
-int write(const char *vpath, const char *buf, size_t size, off_t offset)
+int write(const char *vpath, const char *buf, size_t buf_size, off_t wr_offset)
+{
+    if (hpfs::ctx.run_mode != hpfs::RUN_MODE::RW)
+        return -EACCES;
+
+    vfs::vnode *vn;
+    if (get_vnode(vpath, &vn) == -1)
+        return -1;
+    if (!vn)
+        return -ENOENT;
+
+    // Find the logical block offset range that should marked for overwrite in the log file.
+    const off_t owr_logical_start_offset = util::get_block_start(MIN(wr_offset, vn->st.st_size));
+    const off_t owr_logical_end_offset = util::get_block_end(wr_offset + buf_size);
+    const size_t owr_size = owr_logical_end_offset - owr_logical_start_offset;
+
+    logger::op_write_payload_header wh{owr_size, owr_logical_start_offset, 0};
+    std::vector<uint8_t> owr_vec;
+    iovec owr_buf;
+
+    if (owr_logical_start_offset == wr_offset && owr_size == buf_size)
+    {
+        // If the block start/end offsets are in perfect alignment,
+        // log the incoming write buf as it is.
+        owr_buf = {(void *)buf, buf_size};
+    }
+    else
+    {
+        if (vfs::update_vnode_mmap(*vn) == -1 || !vn->mmap.ptr)
+            return -1;
+
+        // Initialize the overwrite block buffer with zeros.
+        owr_vec.resize(owr_size);
+
+        if (wr_offset > owr_logical_start_offset)
+        {
+            // If incoming write lies beyond the overwrite block start, place existing data
+            // on the block buffer.
+            memcpy(owr_vec.data(),
+                   (uint8_t *)vn->mmap.ptr + owr_logical_start_offset,
+                   MIN(wr_offset, vn->st.st_size));
+        }
+
+        // Place the incoming write buf on the overwrite block buffer.
+        memcpy(owr_vec.data() + (wr_offset - owr_logical_start_offset), buf, buf_size);
+
+        owr_buf = {owr_vec.data(), owr_size};
+    }
+
+    iovec payload{&wh, sizeof(wh)};
+    if (logger::append_log(vpath, logger::FS_OPERATION::WRITE, &payload, &owr_buf) == -1 ||
+        vfs::build_vfs() == -1)
+        return -1;
+
+    return buf_size;
+}
+
+int write_old(const char *vpath, const char *buf, size_t size, off_t offset)
 {
     if (hpfs::ctx.run_mode != hpfs::RUN_MODE::RW)
         return -EACCES;
