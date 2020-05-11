@@ -2,8 +2,6 @@
 #include <string.h>
 #include <sys/types.h>
 #include <dirent.h>
-#include <stdlib.h>
-#include <math.h>
 #include "vfs.hpp"
 #include "hpfs.hpp"
 #include "util.hpp"
