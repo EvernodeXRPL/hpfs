@@ -44,13 +44,12 @@ struct log_record_header
     size_t payload_len;
     size_t block_data_padding_len;
     size_t block_data_len;
-
 };
 
 struct log_record
 {
-    off_t offset;   // Position of this log record within the log file.
-    size_t size;    // Total length of this log record.
+    off_t offset; // Position of this log record within the log file.
+    size_t size;  // Total length of this log record.
 
     int64_t timestamp;
     std::string vpath;
@@ -63,9 +62,15 @@ struct log_record
 
 struct op_write_payload_header
 {
-    size_t size;
-    off_t offset;
-    off_t buf_offset_in_block_data; // Write buf relative offset within the block data.
+    size_t size = 0;  // Original write buffer size.
+    off_t offset = 0; // Original write offset.
+
+    size_t mmap_block_size = 0;  // Memory map block size.
+    off_t mmap_block_offset = 0; // Memory map placement offset for the block data.
+
+    // Position of the original write buffer relative to block data start.
+    // Used for merge operation.
+    off_t data_offset_in_block = 0;
 };
 
 extern int fd;
@@ -78,7 +83,8 @@ int set_lock(struct flock &lock, bool is_rwlock, const off_t start, const off_t 
 int release_lock(struct flock &lock);
 int read_header(log_header &lh);
 int commit_header(log_header &lh);
-int append_log(std::string_view vpath, const FS_OPERATION operation, const iovec *payload_buf = NULL, const iovec *block_data_buf = NULL);
+int append_log(std::string_view vpath, const FS_OPERATION operation, const iovec *payload_buf = NULL,
+               const iovec *block_bufs = NULL, const int block_buf_count = 0);
 int read_log_at(const off_t offset, off_t &next_offset, log_record &record);
 int read_payload(std::vector<uint8_t> &payload, const log_record &record);
 

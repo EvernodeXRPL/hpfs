@@ -132,6 +132,9 @@ void print_log()
     {
         logger::log_record record;
         if (logger::read_log_at(log_offset, log_offset, record) == -1)
+            return;
+
+        if (log_offset == -1) // No log record was read.
             break;
 
         total_records++;
@@ -187,23 +190,34 @@ int commit_header(log_header &lh)
     return 0;
 }
 
-int append_log(std::string_view vpath, const FS_OPERATION operation, const iovec *payload_buf, const iovec *block_data_buf)
+int append_log(std::string_view vpath, const FS_OPERATION operation, const iovec *payload_buf,
+               const iovec *block_bufs, const int block_buf_count)
 {
     log_record_header rh;
     rh.timestamp = util::epoch();
     rh.operation = operation;
     rh.vpath_len = vpath.length();
     rh.payload_len = payload_buf ? payload_buf->iov_len : 0;
-    rh.block_data_len = block_data_buf ? block_data_buf->iov_len : 0;
+    rh.block_data_len = 0;
     rh.block_data_padding_len = 0;
 
-    if (block_data_buf)
+    if (block_bufs != NULL && block_buf_count > 0)
     {
         // Block data must start at the next clean block after log header data and payload.
         const off_t record_end_offset = eof + sizeof(rh) + rh.vpath_len + rh.payload_len;
         const off_t block_data_offset = util::get_block_end(record_end_offset);
         rh.block_data_padding_len = block_data_offset - record_end_offset;
+
+        for (int i = 0; i < block_buf_count; i++)
+        {
+            iovec block_buf = block_bufs[i];
+            rh.block_data_len += block_buf.iov_len;
+        }
     }
+
+    // Total record length.
+    const size_t record_len = sizeof(rh) + rh.vpath_len + rh.payload_len +
+                              rh.block_data_padding_len + rh.block_data_len;
 
     // Log record buffer collection that will be written to the file.
     std::vector<iovec> record_bufs;
@@ -213,19 +227,6 @@ int append_log(std::string_view vpath, const FS_OPERATION operation, const iovec
     if (payload_buf)
         record_bufs.push_back(*payload_buf);
 
-    if (rh.block_data_padding_len)
-    {
-        std::vector<uint8_t> padding;
-        padding.resize(rh.block_data_padding_len);
-        record_bufs.push_back({padding.data(), rh.block_data_padding_len});
-    }
-
-    if (block_data_buf)
-        record_bufs.push_back(*block_data_buf);
-
-    const size_t record_len = sizeof(rh) + rh.vpath_len + rh.payload_len +
-                              rh.block_data_padding_len + rh.block_data_len;
-
     // Acquire locks.
     flock header_lock, record_lock;
     if (set_lock(header_lock, true, 0, sizeof(header)) == -1 ||
@@ -233,8 +234,40 @@ int append_log(std::string_view vpath, const FS_OPERATION operation, const iovec
         return -1;
 
     // Append log record at current end of file.
-    if (pwritev(fd, record_bufs.data(), record_bufs.size(), eof) < record_len)
+    if (ftruncate(fd, eof + record_len) == -1 || // Extend the file size to fit entire record.
+        pwritev(fd, record_bufs.data(), record_bufs.size(), eof) == -1)
         return -1;
+
+    // Punch hole for block data padding.
+    if (rh.block_data_padding_len > 0)
+    {
+        const off_t block_data_padding_start = eof + sizeof(rh) + rh.vpath_len + rh.payload_len;
+        if (fallocate(fd,
+                      FALLOC_FL_PUNCH_HOLE | FALLOC_FL_KEEP_SIZE,
+                      block_data_padding_start,
+                      rh.block_data_padding_len) == -1)
+            return -1;
+    }
+
+    // Append block data bufs.
+    if (block_bufs != NULL && block_buf_count > 0)
+    {
+        off_t write_offset = eof + record_len - rh.block_data_len;
+        for (int i = 0; i < block_buf_count; i++)
+        {
+            iovec block_buf = block_bufs[i];
+            if (block_buf.iov_base && pwrite(fd, block_buf.iov_base, block_buf.iov_len, write_offset) == -1)
+                return -1;
+
+            else if (!block_buf.iov_base && fallocate(fd,
+                                                      FALLOC_FL_PUNCH_HOLE | FALLOC_FL_KEEP_SIZE,
+                                                      write_offset,
+                                                      block_buf.iov_len) == -1)
+                return -1;
+
+            write_offset += block_buf.iov_len;
+        }
+    }
 
     // Update log file header.
     if (header.first_record == 0)

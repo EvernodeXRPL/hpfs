@@ -214,7 +214,8 @@ int apply_log_record(const logger::log_record &record, const std::vector<uint8_t
         const logger::op_write_payload_header wh = *(logger::op_write_payload_header *)payload.data();
 
         const off_t logical_offset = util::get_block_start(wh.offset);
-        vn.data_segs.push_back(vdata_segment{logger::fd, record.block_data_len, record.block_data_offset, logical_offset});
+        vn.data_segs.push_back(vdata_segment{logger::fd, record.block_data_len,
+                                             record.block_data_offset, wh.mmap_block_offset});
 
         // Update stats, if the new data boundry is larger than current file size.
         if (vn.st.st_size < (wh.offset + wh.size))

@@ -156,13 +156,11 @@ int xmp_chown(const char *path, uid_t uid, gid_t gid,
 	return 0;
 }
 
-#ifdef HAVE_UTIMENSAT
 int xmp_utimens(const char *path, const struct timespec ts[2],
 				struct fuse_file_info *fi)
 {
 	return 0;
 }
-#endif
 
 int xmp_create(const char *path, mode_t mode, struct fuse_file_info *fi)
 {
@@ -339,9 +337,7 @@ void assign_operations(fuse_operations &xmp_oper)
 #ifdef HAVE_LIBULOCKMGR
 	xmp_oper.lock = xmp_lock;
 #endif
-#ifdef HAVE_UTIMENSAT
 	xmp_oper.utimens = xmp_utimens;
-#endif
 	//xmp_oper.bmap = NULL;
 	//xmp_oper.ioctl = NULL;
 	//xmp_oper.poll = NULL;
@@ -362,7 +358,7 @@ fuse_operations xmp_oper;
 int init(char *arg0)
 {
 	fuse_args args = FUSE_ARGS_INIT(0, NULL);
-	fuse_opt_add_arg(&args, arg0);						  // Mount dir
+	fuse_opt_add_arg(&args, arg0);
 	fuse_opt_add_arg(&args, hpfs::ctx.mount_dir.c_str()); // Mount dir
 	fuse_opt_add_arg(&args, "-f");						  // Foreground
 	fuse_opt_add_arg(&args, "-s");						  // Single threaded
