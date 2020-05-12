@@ -35,6 +35,8 @@ struct vnode
     std::vector<vdata_segment> data_segs;
     struct vnode_mmap mmap;
 
+    // Max file size that has been there for this vnode throughout the log history.
+    size_t max_size = 0;
 };
 
 typedef std::unordered_map<std::string, vnode> vnode_map;
@@ -50,6 +52,10 @@ int apply_log_record(const logger::log_record &record, const std::vector<uint8_t
 int delete_vnode(vnode_map::iterator &vnode_iter);
 int update_vnode_mmap(vnode &vn);
 int get_dir_children(const char *vpath, vdir_children_map &children);
+void populate_block_buf_segs(std::vector<iovec> &block_buf_segs,
+                             off_t &block_buf_start, off_t &block_buf_end,
+                             const char *buf, const size_t wr_size,
+                             const off_t wr_start, const size_t fsize, uint8_t *mmap_ptr);
 
 } // namespace vfs
 

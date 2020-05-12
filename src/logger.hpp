@@ -73,6 +73,13 @@ struct op_write_payload_header
     off_t data_offset_in_block = 0;
 };
 
+struct op_truncate_payload_header
+{
+    size_t size = 0;
+    size_t mmap_block_size = 0;  // Memory map block size.
+    off_t mmap_block_offset = 0; // Memory map placement offset for the block data.
+};
+
 extern int fd;
 
 int init();

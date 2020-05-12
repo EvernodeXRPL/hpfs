@@ -161,56 +161,15 @@ int write(const char *vpath, const char *buf, size_t wr_size, off_t wr_start)
     if (vfs::update_vnode_mmap(*vn) == -1 || !vn->mmap.ptr)
         return -1;
 
-    const size_t fsize = vn->st.st_size; // Current file size.
-    const size_t wr_end = wr_start + wr_size;
+    // We prepare list of block buf segments based on where the write buf lies within the block buf.
+    off_t block_buf_start = 0, block_buf_end = 0;
+    std::vector<iovec> block_buf_segs;
+    vfs::populate_block_buf_segs(block_buf_segs, block_buf_start, block_buf_end,
+                                 buf, wr_size, wr_start, vn->st.st_size, (uint8_t *)vn->mmap.ptr);
 
-    // Find the target file block offset range that should map to memory mapped file.
-    const off_t block_buf_start = util::get_block_start(MIN(wr_start, fsize));
-    const off_t block_buf_end = util::get_block_end(wr_start + wr_size);
     const size_t block_buf_size = block_buf_end - block_buf_start;
-
     logger::op_write_payload_header wh{wr_size, wr_start, block_buf_size,
                                        block_buf_start, (wr_start - block_buf_start)};
-
-    // We maintain list of block buf segments based on where the wr_buf lies within the block buf.
-    std::vector<iovec> block_buf_segs;
-
-    // If write offset is after block start.
-    if (block_buf_start < wr_start)
-    {
-        // If block start offset is before file end, add a segment containing existing
-        // file data between block start and write offset.
-        if (block_buf_start < fsize)
-        {
-            const size_t ex_data_len = MIN(fsize, wr_start) - block_buf_start;
-            block_buf_segs.push_back({(uint8_t *)vn->mmap.ptr + block_buf_start, ex_data_len});
-        }
-
-        // If write offset is beyond file size, add a segment for NULL bytes
-        // between file end and write offset.
-        if (fsize < wr_start)
-            block_buf_segs.push_back({NULL, (wr_start - fsize)});
-    }
-
-    // Add segment for write buf.
-    block_buf_segs.push_back({(void *)buf, wr_size});
-
-    // If write end offset is before the block end.
-    if (wr_end < block_buf_end)
-    {
-        // If write end offset is before file end, add a segment containing existing
-        // file data after write end.
-        if (wr_end < fsize)
-            block_buf_segs.push_back({((uint8_t *)vn->mmap.ptr + wr_end), (fsize - wr_end)});
-
-        // If block end is beyond write end offset, add a segment for NULL bytes
-        // between write end and block end.
-        if (wr_end < block_buf_end)
-        {
-            const size_t null_data_len = block_buf_end - MAX(fsize, wr_end);
-            block_buf_segs.push_back({NULL, null_data_len});
-        }
-    }
 
     iovec payload{&wh, sizeof(wh)};
     if (logger::append_log(vpath, logger::FS_OPERATION::WRITE, &payload,
@@ -219,6 +178,46 @@ int write(const char *vpath, const char *buf, size_t wr_size, off_t wr_start)
         return -1;
 
     return wr_size;
+}
+
+int truncate(const char *vpath, off_t size)
+{
+    if (hpfs::ctx.run_mode != hpfs::RUN_MODE::RW)
+        return -EACCES;
+
+    vfs::vnode *vn;
+    if (get_vnode(vpath, &vn) == -1)
+        return -1;
+    if (!vn)
+        return -ENOENT;
+
+    std::vector<iovec> block_buf_segs;
+    logger::op_truncate_payload_header th{size, 0, 0};
+
+    if (size > vn->st.st_size)
+    {
+        // If the new file size is bigger than old size, prepare a block buffer
+        // so the extra NULL bytes can be mapped to memory.
+
+        if (vfs::update_vnode_mmap(*vn) == -1 || !vn->mmap.ptr)
+            return -1;
+
+        off_t block_buf_start = 0, block_buf_end = 0;
+        vfs::populate_block_buf_segs(block_buf_segs, block_buf_start, block_buf_end,
+                                     NULL, 0, size, vn->st.st_size, (uint8_t *)vn->mmap.ptr);
+
+        const size_t block_buf_size = block_buf_end - block_buf_start;
+        th.mmap_block_offset = block_buf_start;
+        th.mmap_block_size = block_buf_size;
+    }
+
+    iovec payload{&th, sizeof(th)};
+    if (logger::append_log(vpath, logger::FS_OPERATION::TRUNCATE, &payload,
+                           block_buf_segs.data(), block_buf_segs.size()) == -1 ||
+        vfs::build_vfs() == -1)
+        return -1;
+
+    return 0;
 }
 
 } // namespace fuse_vfs

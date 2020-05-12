@@ -214,7 +214,7 @@ int xmp_release(const char *path, struct fuse_file_info *fi)
 int xmp_truncate(const char *path, off_t size,
 				 struct fuse_file_info *fi)
 {
-	return 0;
+	return fuse_vfs::truncate(path, size);
 }
 
 int xmp_fsync(const char *path, int isdatasync,

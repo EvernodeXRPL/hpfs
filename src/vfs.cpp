@@ -114,6 +114,7 @@ int add_vnode_from_seed(const std::string &vpath, vnode_map::iterator &vnode_ite
                 vn.data_segs.push_back(vdata_segment{fd, (size_t)vn.st.st_size, 0, 0});
 
             vn.seed_fd = fd;
+            vn.max_size = vn.st.st_size;
         }
 
         auto [iter, success] = vnodes.try_emplace(vpath, std::move(vn));
@@ -213,13 +214,32 @@ int apply_log_record(const logger::log_record &record, const std::vector<uint8_t
     {
         const logger::op_write_payload_header wh = *(logger::op_write_payload_header *)payload.data();
 
-        const off_t logical_offset = util::get_block_start(wh.offset);
-        vn.data_segs.push_back(vdata_segment{logger::fd, record.block_data_len,
-                                             record.block_data_offset, wh.mmap_block_offset});
+        if (record.block_data_len > 0)
+            vn.data_segs.push_back(vdata_segment{logger::fd, record.block_data_len,
+                                                 record.block_data_offset, wh.mmap_block_offset});
 
         // Update stats, if the new data boundry is larger than current file size.
         if (vn.st.st_size < (wh.offset + wh.size))
+        {
             vn.st.st_size = wh.offset + wh.size;
+            if (vn.st.st_size > vn.max_size)
+                vn.max_size = vn.st.st_size;
+        }
+
+        break;
+    }
+
+    case logger::FS_OPERATION::TRUNCATE:
+    {
+        const logger::op_truncate_payload_header th = *(logger::op_truncate_payload_header *)payload.data();
+
+        if (record.block_data_len > 0)
+            vn.data_segs.push_back(vdata_segment{logger::fd, record.block_data_len,
+                                                 record.block_data_offset, th.mmap_block_offset});
+
+        vn.st.st_size = th.size;
+        if (vn.st.st_size > vn.max_size)
+            vn.max_size = vn.st.st_size;
 
         break;
     }
@@ -248,9 +268,9 @@ int update_vnode_mmap(vnode &vn)
     if (vn.mapped_data_segs == vn.data_segs.size())
         return 0;
 
-    const off_t required_map_size = util::get_block_end(vn.st.st_size);
+    const off_t required_map_size = util::get_block_end(vn.max_size);
 
-    if (vn.mmap.ptr && vn.mmap.size != required_map_size)
+    if (vn.mmap.ptr && vn.mmap.size < required_map_size)
     {
         if (munmap(vn.mmap.ptr, vn.mmap.size) == -1)
             return -1;
@@ -266,13 +286,12 @@ int update_vnode_mmap(vnode &vn)
         if (!vn.mmap.ptr)
         {
             // Create the mapping for the full size needed.
-            const size_t size = util::get_block_end(vn.st.st_size);
-            void *ptr = mmap(NULL, size, PROT_READ, MAP_PRIVATE, seg.physical_fd, seg.physical_offset);
+            void *ptr = mmap(NULL, required_map_size, PROT_READ, MAP_PRIVATE, seg.physical_fd, seg.physical_offset);
             if (ptr == MAP_FAILED)
                 return -1;
 
             vn.mmap.ptr = ptr;
-            vn.mmap.size = size;
+            vn.mmap.size = required_map_size;
         }
         else
         {
@@ -348,6 +367,54 @@ int get_dir_children(const char *vpath, vdir_children_map &children)
     }
 
     return 0;
+}
+
+void populate_block_buf_segs(std::vector<iovec> &block_buf_segs,
+                             off_t &block_buf_start, off_t &block_buf_end,
+                             const char *buf, const size_t wr_size,
+                             const off_t wr_start, const size_t fsize, uint8_t *mmap_ptr)
+{
+    const size_t wr_end = wr_start + wr_size;
+
+    // Find the target file block offset range that should map to memory mapped file.
+    block_buf_start = util::get_block_start(MIN(wr_start, fsize));
+    block_buf_end = util::get_block_end(wr_start + wr_size);
+    const size_t block_buf_size = block_buf_end - block_buf_start;
+
+    // If write offset is after block start.
+    if (block_buf_start < wr_start)
+    {
+        // If block start offset is before file end, add a segment containing existing
+        // file data between block start and write offset.
+        if (block_buf_start < fsize)
+        {
+            const size_t ex_data_len = MIN(fsize, wr_start) - block_buf_start;
+            block_buf_segs.push_back({mmap_ptr + block_buf_start, ex_data_len});
+        }
+
+        // If write offset is beyond file size, add a segment for NULL bytes
+        // between file end and write offset.
+        if (fsize < wr_start)
+            block_buf_segs.push_back({NULL, (wr_start - fsize)});
+    }
+
+    // Add segment for write buf.
+    if (wr_size > 0)
+        block_buf_segs.push_back({(void *)buf, wr_size});
+
+    // If write end offset is before the block end.
+    if (wr_end < block_buf_end)
+    {
+        // If write end offset is before file end, add a segment containing existing
+        // file data after write end.
+        if (wr_end < fsize)
+            block_buf_segs.push_back({(mmap_ptr + wr_end), (fsize - wr_end)});
+
+        // Append segment for NULL data until block end.
+        const off_t null_data_start = MAX(wr_end, fsize);
+        if (null_data_start < block_buf_end)
+            block_buf_segs.push_back({NULL, (size_t)(block_buf_end - null_data_start)});
+    }
 }
 
 } // namespace vfs
