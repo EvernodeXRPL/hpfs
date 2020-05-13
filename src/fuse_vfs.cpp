@@ -135,7 +135,10 @@ int read(const char *vpath, char *buf, size_t size, off_t offset)
     if (!vn)
         return -ENOENT;
 
-    if (vfs::update_vnode_mmap(*vn) == -1 || !vn->mmap.ptr)
+    if (vn->st.st_size == 0 || offset >= vn->st.st_size)
+        return 0;
+
+    if (vfs::update_vnode_mmap(*vn) == -1)
         return -1;
 
     size_t read_len = size;
@@ -158,7 +161,7 @@ int write(const char *vpath, const char *buf, size_t wr_size, off_t wr_start)
     if (!vn)
         return -ENOENT;
 
-    if (vfs::update_vnode_mmap(*vn) == -1 || !vn->mmap.ptr)
+    if (vfs::update_vnode_mmap(*vn) == -1)
         return -1;
 
     // We prepare list of block buf segments based on where the write buf lies within the block buf.
@@ -199,7 +202,7 @@ int truncate(const char *vpath, off_t size)
         // If the new file size is bigger than old size, prepare a block buffer
         // so the extra NULL bytes can be mapped to memory.
 
-        if (vfs::update_vnode_mmap(*vn) == -1 || !vn->mmap.ptr)
+        if (vfs::update_vnode_mmap(*vn) == -1)
             return -1;
 
         off_t block_buf_start = 0, block_buf_end = 0;

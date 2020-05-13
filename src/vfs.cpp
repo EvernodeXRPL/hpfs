@@ -188,14 +188,13 @@ int apply_log_record(const logger::log_record &record, const std::vector<uint8_t
         const char *to_vpath = (char *)payload.data();
 
         // If "to" path already exists, delete it.
-        vnode_map::iterator ex_iter = vnodes.end();
+        vnode_map::iterator ex_iter = vnodes.find(to_vpath);
         if (ex_iter != vnodes.end() && delete_vnode(ex_iter) == -1)
             return -1;
 
         // Rename this vnode. (erase it from the list and insert under new name)
-        vnode vn2 = vn;
-        if (delete_vnode(iter) == -1)
-            return -1;
+        vnode vn2 = vn; // Create a copy before erase.
+        vnodes.erase(iter);//
         auto [iter2, success] = vnodes.try_emplace(to_vpath, std::move(vn2));
         iter = iter2;
 
