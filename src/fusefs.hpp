@@ -3,7 +3,7 @@
 
 namespace fusefs
 {
-int init(char *arg0);
+    int init(char *arg0);
 }
 
 #endif
