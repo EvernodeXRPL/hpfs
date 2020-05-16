@@ -81,6 +81,7 @@ namespace logger
     };
 
     extern int fd;
+    extern log_header header;
 
     int init();
     void deinit();
@@ -89,8 +90,8 @@ namespace logger
     off_t get_eof();
     int set_lock(struct flock &lock, const bool is_rwlock, const off_t start, const off_t len);
     int release_lock(struct flock &lock);
-    int read_header(log_header &lh);
-    int commit_header(log_header &lh);
+    int read_header();
+    int commit_header();
     int append_log(std::string_view vpath, const FS_OPERATION operation, const iovec *payload_buf = NULL,
                    const iovec *block_bufs = NULL, const int block_buf_count = 0);
     int read_log_at(const off_t offset, off_t &next_offset, log_record &record);

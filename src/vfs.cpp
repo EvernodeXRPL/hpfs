@@ -34,12 +34,7 @@ namespace vfs
     {
         // In ReadOnly session, remember the last checkpoint record offset during initialisation.
         if (hpfs::ctx.run_mode == hpfs::RUN_MODE::RO)
-        {
-            logger::log_header lh;
-            if (logger::read_header(lh) == -1)
-                return -1;
-            last_checkpoint = lh.last_checkpoint;
-        }
+            last_checkpoint = logger::header.last_checkpoint;
 
         stat(hpfs::ctx.seed_dir.c_str(), &default_stat);
         default_stat.st_nlink = 0;

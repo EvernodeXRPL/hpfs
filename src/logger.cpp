@@ -43,7 +43,7 @@ namespace logger
         if (hpfs::ctx.run_mode == hpfs::RUN_MODE::RW && eof > header.last_checkpoint)
         {
             header.last_checkpoint = eof;
-            commit_header(header);
+            commit_header();
         }
 
         if (hpfs::ctx.run_mode == hpfs::RUN_MODE::RW ||
@@ -76,14 +76,14 @@ namespace logger
         {
             memset(&header, 0, sizeof(header));
             header.version = HPFS_VERSION;
-            if (commit_header(header) == -1)
+            if (commit_header() == -1)
                 return -1;
 
             eof = sizeof(header);
         }
         else
         {
-            if (read_header(header) == -1)
+            if (read_header() == -1)
                 return -1;
 
             eof = st.st_size;
@@ -147,16 +147,16 @@ namespace logger
         return util::release_lock(fd, lock);
     }
 
-    int read_header(log_header &lh)
+    int read_header()
     {
-        if (pread(fd, &lh, sizeof(lh), 0) < sizeof(lh))
+        if (pread(fd, &header, sizeof(header), 0) < sizeof(header))
             return -1;
         return 0;
     }
 
-    int commit_header(log_header &lh)
+    int commit_header()
     {
-        if (pwrite(fd, &lh, sizeof(lh), 0) < sizeof(lh))
+        if (pwrite(fd, &header, sizeof(header), 0) < sizeof(header))
             return -1;
         return 0;
     }
@@ -238,7 +238,7 @@ namespace logger
         if (header.first_record == 0)
             header.first_record = eof;
         header.last_record = eof;
-        commit_header(header);
+        commit_header();
 
         // Calculate new end of file.
         eof += record_len;
@@ -288,15 +288,37 @@ namespace logger
 
     int read_payload(std::vector<uint8_t> &payload, const log_record &record)
     {
-        payload.resize(record.payload_len);
-        if (pread(fd, payload.data(), record.payload_len, record.payload_offset) < record.payload_len)
-            return -1;
+        if (record.payload_len > 0)
+        {
+            payload.resize(record.payload_len);
+            if (pread(fd, payload.data(), record.payload_len, record.payload_offset) < record.payload_len)
+                return -1;
+        }
 
         return 0;
     }
 
     int purge_log(const log_record &record)
     {
+        if (fallocate(fd, FALLOC_FL_PUNCH_HOLE | FALLOC_FL_KEEP_SIZE,
+                      record.offset, record.size) == -1)
+            return -1;
+
+        if (record.offset == header.last_record) // This was the last remaining record
+        {
+            header.first_record = 0;
+            header.last_record = 0;
+            header.last_checkpoint = 0;
+        }
+        else
+        {
+            // Shift the first record offset forward.
+            header.first_record = record.offset + record.size;
+        }
+
+        if (commit_header() == -1)
+            return -1;
+
         return 0;
     }
 
