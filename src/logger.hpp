@@ -84,6 +84,7 @@ namespace logger
 
     int init();
     void deinit();
+    int load_log_file();
     void print_log();
     off_t get_eof();
     int set_lock(struct flock &lock, const bool is_rwlock, const off_t start, const off_t len);
@@ -94,6 +95,7 @@ namespace logger
                    const iovec *block_bufs = NULL, const int block_buf_count = 0);
     int read_log_at(const off_t offset, off_t &next_offset, log_record &record);
     int read_payload(std::vector<uint8_t> &payload, const log_record &record);
+    int purge_log(const log_record &record);
 
 } // namespace logger
 

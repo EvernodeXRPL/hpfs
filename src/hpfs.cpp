@@ -37,8 +37,11 @@ namespace hpfs
         }
         else if (ctx.run_mode == RUN_MODE::MERGE)
         {
-            //if (merger::init() == -1)
-            //    return -1;
+            if (merger::init() == -1)
+            {
+                logger::deinit();
+                return -1;
+            }
         }
         else
         {
@@ -54,9 +57,10 @@ namespace hpfs
                 logger::deinit();
                 return -1;
             }
+
+            vfs::deinit();
         }
 
-        vfs::deinit();
         logger::deinit();
         return 0;
     }
@@ -79,8 +83,7 @@ namespace hpfs
 
         if (!util::is_dir_exists(ctx.seed_dir) && mkdir(ctx.seed_dir.c_str(), DIR_PERMS) == -1)
         {
-            std::cerr << "Directory " << ctx.seed_dir << " cannot be located.\n"
-                      << errno;
+            std::cerr << "Directory " << ctx.seed_dir << " cannot be located.\n";
             return -1;
         }
 

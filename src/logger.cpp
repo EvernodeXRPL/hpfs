@@ -13,110 +13,87 @@
 
 namespace logger
 {
-
     constexpr const char *LOG_FILE_NAME = "log.hpfs";
     constexpr int FILE_PERMS = 0644;
     constexpr uint16_t HPFS_VERSION = 1;
 
-    int fd = 0;
-    off_t eof = 0; // End of file (End offset of log file).
-    log_header header;
-    flock ro_checkpoint_lock; // Checkpoint lock placed by ReadOnly session.
+    int fd = 0;         // The loag file fd uses throughout the session.
+    off_t eof = 0;      // End of file (End offset of log file).
+    log_header header;  // The log file header loaded into memory.
+    flock session_lock; // Session lock placed on the log file.
 
     int init()
     {
-        const std::string log_file_path = std::string(hpfs::ctx.fs_dir).append("/").append(LOG_FILE_NAME);
-        flock header_lock;
+        if (load_log_file() == -1)
+            return -1;
 
-        if (hpfs::ctx.run_mode == hpfs::RUN_MODE::RW) // ReadWrite session.
-        {
-            // Open or create the log file.
-            const int res = open(log_file_path.c_str(), O_CREAT | O_RDWR, FILE_PERMS);
-            if (res == -1)
-                return -1;
-            fd = res;
-
-            // Acquire header lock.
-            if (set_lock(header_lock, true, 0, sizeof(header)) == -1)
-                return -1;
-
-            struct stat st;
-            if (fstat(fd, &st) == -1)
-                return -1;
-
-            if (st.st_size == 0) // If file is empty, write the initial header.
-            {
-                memset(&header, 0, sizeof(header));
-                header.version = HPFS_VERSION;
-                if (commit_header(header) == -1)
-                    return -1;
-
-                eof = sizeof(header);
-            }
-            else
-            {
-                if (read_header(header) == -1)
-                    return -1;
-
-                eof = st.st_size;
-            }
-
-            // Release header lock.
-            if (release_lock(header_lock) == -1)
-                return -1;
-        }
-        else // Non-RW sessions are only interested in reading the log file header if exists.
-        {
-            // Open the file if exists.
-            const int flags = hpfs::ctx.run_mode == hpfs::RUN_MODE::RO ? O_RDONLY : O_RDWR;
-            const int res = open(log_file_path.c_str(), flags);
-            if (res == -1 && errno != ENOENT)
-                return -1;
-
-            if (res > 0)
-            {
-                fd = res;
-
-                // Read the header with read-lock.
-                if (set_lock(header_lock, false, 0, sizeof(header)) == -1 || read_header(header) == -1)
-                    return -1;
-
-                // Get total file size and release the read lock.
-                struct stat st;
-                if (fstat(fd, &st) == -1 || release_lock(header_lock) == -1)
-                    return -1;
-                eof = st.st_size;
-            }
-        }
-
-        if (hpfs::ctx.run_mode == hpfs::RUN_MODE::RO && header.last_checkpoint > header.first_record)
-        {
-            // In read only session, place a 1-byte read lock on the record ending with last checkpoint.
-            // This would prevent any merge process from purging beyond that record.
-            if (set_lock(ro_checkpoint_lock, false, header.last_checkpoint - 1, 1) == -1)
-                return -1;
-        }
+        // RW sessions acquire a read lock on first byte of the log file.
+        // This is to prevent merge operation from running when any RO/RW sessions are live.
+        if ((hpfs::ctx.run_mode == hpfs::RUN_MODE::RW ||
+             hpfs::ctx.run_mode == hpfs::RUN_MODE::RO) &&
+            set_lock(session_lock, false, 0, 1) == -1)
+            return -1;
 
         return 0;
     }
 
     void deinit()
     {
-        if (fd > 0)
+        // In ReadWrite session, mark the eof offset as last checkpoint.
+        if (hpfs::ctx.run_mode == hpfs::RUN_MODE::RW && eof > header.last_checkpoint)
         {
-            // In ReadWrite session, mark the eof offset as last checkpoint.
-            if (hpfs::ctx.run_mode == hpfs::RUN_MODE::RW && eof > header.last_checkpoint)
-            {
-                header.last_checkpoint = eof;
-                commit_header(header);
-            }
-            else if (hpfs::ctx.run_mode == hpfs::RUN_MODE::RO)
-            {
-                release_lock(ro_checkpoint_lock);
-            }
-
-            close(fd);
+            header.last_checkpoint = eof;
+            commit_header(header);
         }
+
+        if (hpfs::ctx.run_mode == hpfs::RUN_MODE::RW ||
+            hpfs::ctx.run_mode == hpfs::RUN_MODE::RO)
+            release_lock(session_lock);
+
+        close(fd);
+    }
+
+    int load_log_file()
+    {
+        const std::string log_file_path = std::string(hpfs::ctx.fs_dir).append("/").append(LOG_FILE_NAME);
+        flock header_lock;
+
+        // Open or create the log file.
+        const int res = open(log_file_path.c_str(), O_CREAT | O_RDWR, FILE_PERMS);
+        if (res == -1)
+            return -1;
+        fd = res;
+
+        // Acquire header rw lock.
+        if (set_lock(header_lock, true, 0, sizeof(header)) == -1)
+            return -1;
+
+        struct stat st;
+        if (fstat(fd, &st) == -1)
+            return -1;
+
+        if (st.st_size == 0) // If file is empty, write the initial header.
+        {
+            memset(&header, 0, sizeof(header));
+            header.version = HPFS_VERSION;
+            if (commit_header(header) == -1)
+                return -1;
+
+            eof = sizeof(header);
+        }
+        else
+        {
+            if (read_header(header) == -1)
+                return -1;
+
+            eof = st.st_size;
+        }
+
+        // Release header rw lock.
+        if (release_lock(header_lock) == -1)
+            return -1;
+
+        return 0;
     }
 
     void print_log()
@@ -133,9 +110,12 @@ namespace logger
         {
             logger::log_record record;
             if (logger::read_log_at(log_offset, log_offset, record) == -1)
+            {
+                std::cerr << errno << ": Error occured when reading log.\n";
                 return;
+            }
 
-            if (log_offset == -1) // No log record was read.
+            if (log_offset == -1) // No log record was read. We are at end of log.
                 break;
 
             total_records++;
@@ -159,26 +139,16 @@ namespace logger
 
     int set_lock(struct flock &lock, const bool is_rwlock, const off_t start, const off_t len)
     {
-        if (fd == 0)
-            return 0;
         return util::set_lock(fd, lock, is_rwlock, start, len);
     }
 
     int release_lock(struct flock &lock)
     {
-        if (fd == 0)
-            return 0;
         return util::release_lock(fd, lock);
     }
 
     int read_header(log_header &lh)
     {
-        if (fd == 0)
-        {
-            lh = header;
-            return 0;
-        }
-
         if (pread(fd, &lh, sizeof(lh), 0) < sizeof(lh))
             return -1;
         return 0;
@@ -228,12 +198,6 @@ namespace logger
         if (payload_buf)
             record_bufs.push_back(*payload_buf);
 
-        // Acquire locks.
-        flock header_lock, record_lock;
-        if (set_lock(header_lock, true, 0, sizeof(header)) == -1 ||
-            set_lock(record_lock, true, eof, sizeof(record_len) == -1))
-            return -1;
-
         // Append log record at current end of file.
         if (ftruncate(fd, eof + record_len) == -1 || // Extend the file size to fit entire record.
             pwritev(fd, record_bufs.data(), record_bufs.size(), eof) == -1)
@@ -275,10 +239,6 @@ namespace logger
             header.first_record = eof;
         header.last_record = eof;
         commit_header(header);
-
-        // Release locks.
-        if (release_lock(header_lock) == -1 || release_lock(record_lock) == -1)
-            return -1;
 
         // Calculate new end of file.
         eof += record_len;
@@ -332,6 +292,11 @@ namespace logger
         if (pread(fd, payload.data(), record.payload_len, record.payload_offset) < record.payload_len)
             return -1;
 
+        return 0;
+    }
+
+    int purge_log(const log_record &record)
+    {
         return 0;
     }
 

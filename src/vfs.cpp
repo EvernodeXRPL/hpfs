@@ -136,7 +136,7 @@ namespace vfs
             if (logger::read_log_at(next_log_offset, next_log_offset, record) == -1)
                 return -1;
 
-            if (next_log_offset == -1) // No log record was read.
+            if (next_log_offset == -1) // No log record was read. We are at end of log.
                 break;
 
             std::vector<uint8_t> payload;

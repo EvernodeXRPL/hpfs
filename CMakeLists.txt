@@ -22,6 +22,7 @@ add_executable(hpfs
     src/vfs.cpp
     src/fuse_vfs.cpp
     src/fusefs.cpp
+    src/merger.cpp
     src/hpfs.cpp
     src/main.cpp
 )
