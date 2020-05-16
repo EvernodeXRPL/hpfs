@@ -12,113 +12,113 @@
 namespace hpfs
 {
 
-constexpr const char *SEED_DIR_NAME = "seed";
-constexpr int DIR_PERMS = 0755;
+    constexpr const char *SEED_DIR_NAME = "seed";
+    constexpr int DIR_PERMS = 0755;
 
-hpfs_context ctx;
+    hpfs_context ctx;
 
-int init(int argc, char **argv)
-{
-    if (parse_cmd(argc, argv) == -1)
+    int init(int argc, char **argv)
     {
-        std::cerr << "Invalid arguments.\n";
-        std::cout << "Usage:\n"
-                  << "hpfs [rw|merge|rdlog] [fsdir]\n"
-                  << "hpfs ro [fsdir] [mountdir]\n";
-        return -1;
-    }
-
-    if (vaidate_context() == -1 || logger::init() == -1)
-        return -1;
-
-    if (ctx.run_mode == RUN_MODE::RDLOG)
-    {
-        logger::print_log();
-    }
-    else if (ctx.run_mode == RUN_MODE::MERGE)
-    {
-        //if (merger::init() == -1)
-        //    return -1;
-    }
-    else
-    {
-        if (vfs::init() == -1)
+        if (parse_cmd(argc, argv) == -1)
         {
-            logger::deinit();
+            std::cerr << "Invalid arguments.\n";
+            std::cout << "Usage:\n"
+                      << "hpfs [rw|merge|rdlog] [fsdir]\n"
+                      << "hpfs ro [fsdir] [mountdir]\n";
             return -1;
         }
 
-        if (fusefs::init(argv[0]) == -1)
-        {
-            vfs::deinit();
-            logger::deinit();
+        if (vaidate_context() == -1 || logger::init() == -1)
             return -1;
+
+        if (ctx.run_mode == RUN_MODE::RDLOG)
+        {
+            logger::print_log();
         }
-    }
-
-    vfs::deinit();
-    logger::deinit();
-    return 0;
-}
-
-int vaidate_context()
-{
-    if (!util::is_dir_exists(ctx.fs_dir))
-    {
-        std::cerr << "Directory " << ctx.fs_dir << " does not exist.\n";
-        return -1;
-    }
-
-    if ((ctx.run_mode == RUN_MODE::RO || ctx.run_mode == RUN_MODE::RW) && !util::is_dir_exists(ctx.mount_dir))
-    {
-        std::cerr << "Directory " << ctx.mount_dir << " does not exist.\n";
-        return -1;
-    }
-
-    ctx.seed_dir.append(ctx.fs_dir).append("/").append(SEED_DIR_NAME);
-
-    if (!util::is_dir_exists(ctx.seed_dir) && mkdir(ctx.seed_dir.c_str(), DIR_PERMS) == -1)
-    {
-        std::cerr << "Directory " << ctx.seed_dir << " cannot be located.\n"
-                  << errno;
-        return -1;
-    }
-
-    return 0;
-}
-
-int parse_cmd(int argc, char **argv)
-{
-    if (argc == 3 || argc == 4)
-    {
-        if (strcmp(argv[1], "ro") == 0)
-            ctx.run_mode = RUN_MODE::RO;
-        else if (strcmp(argv[1], "rw") == 0)
-            ctx.run_mode = RUN_MODE::RW;
-        else if (strcmp(argv[1], "merge") == 0)
-            ctx.run_mode = RUN_MODE::MERGE;
-        else if (strcmp(argv[1], "rdlog") == 0)
-            ctx.run_mode = RUN_MODE::RDLOG;
+        else if (ctx.run_mode == RUN_MODE::MERGE)
+        {
+            //if (merger::init() == -1)
+            //    return -1;
+        }
         else
-            return -1;
-
-        char buf[PATH_MAX];
-        realpath(argv[2], buf);
-        ctx.fs_dir = buf;
-
-        if (argc == 3 && (ctx.run_mode == RUN_MODE::MERGE || ctx.run_mode == RUN_MODE::RDLOG))
         {
-            return 0;
+            if (vfs::init() == -1)
+            {
+                logger::deinit();
+                return -1;
+            }
+
+            if (fusefs::init(argv[0]) == -1)
+            {
+                vfs::deinit();
+                logger::deinit();
+                return -1;
+            }
         }
-        else if (argc == 4 && (ctx.run_mode == RUN_MODE::RO || ctx.run_mode == RUN_MODE::RW))
-        {
-            realpath(argv[3], buf);
-            ctx.mount_dir = buf;
-            return 0;
-        }
+
+        vfs::deinit();
+        logger::deinit();
+        return 0;
     }
 
-    return -1;
-}
+    int vaidate_context()
+    {
+        if (!util::is_dir_exists(ctx.fs_dir))
+        {
+            std::cerr << "Directory " << ctx.fs_dir << " does not exist.\n";
+            return -1;
+        }
+
+        if ((ctx.run_mode == RUN_MODE::RO || ctx.run_mode == RUN_MODE::RW) && !util::is_dir_exists(ctx.mount_dir))
+        {
+            std::cerr << "Directory " << ctx.mount_dir << " does not exist.\n";
+            return -1;
+        }
+
+        ctx.seed_dir.append(ctx.fs_dir).append("/").append(SEED_DIR_NAME);
+
+        if (!util::is_dir_exists(ctx.seed_dir) && mkdir(ctx.seed_dir.c_str(), DIR_PERMS) == -1)
+        {
+            std::cerr << "Directory " << ctx.seed_dir << " cannot be located.\n"
+                      << errno;
+            return -1;
+        }
+
+        return 0;
+    }
+
+    int parse_cmd(int argc, char **argv)
+    {
+        if (argc == 3 || argc == 4)
+        {
+            if (strcmp(argv[1], "ro") == 0)
+                ctx.run_mode = RUN_MODE::RO;
+            else if (strcmp(argv[1], "rw") == 0)
+                ctx.run_mode = RUN_MODE::RW;
+            else if (strcmp(argv[1], "merge") == 0)
+                ctx.run_mode = RUN_MODE::MERGE;
+            else if (strcmp(argv[1], "rdlog") == 0)
+                ctx.run_mode = RUN_MODE::RDLOG;
+            else
+                return -1;
+
+            char buf[PATH_MAX];
+            realpath(argv[2], buf);
+            ctx.fs_dir = buf;
+
+            if (argc == 3 && (ctx.run_mode == RUN_MODE::MERGE || ctx.run_mode == RUN_MODE::RDLOG))
+            {
+                return 0;
+            }
+            else if (argc == 4 && (ctx.run_mode == RUN_MODE::RO || ctx.run_mode == RUN_MODE::RW))
+            {
+                realpath(argv[3], buf);
+                ctx.mount_dir = buf;
+                return 0;
+            }
+        }
+
+        return -1;
+    }
 
 } // namespace hpfs

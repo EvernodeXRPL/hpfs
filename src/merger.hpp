@@ -3,7 +3,7 @@
 
 namespace merger
 {
-int init();
+    int init();
 }
 
 #endif
