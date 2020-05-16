@@ -31,7 +31,7 @@ namespace logger
         // This is to prevent merge operation from running when any RO/RW sessions are live.
         if ((hpfs::ctx.run_mode == hpfs::RUN_MODE::RW ||
              hpfs::ctx.run_mode == hpfs::RUN_MODE::RO) &&
-            set_lock(session_lock, false, 0, 1) == -1)
+            set_lock(session_lock, LOCK_TYPE::SESSION_LOCK) == -1)
             return -1;
 
         return 0;
@@ -43,7 +43,13 @@ namespace logger
         if (hpfs::ctx.run_mode == hpfs::RUN_MODE::RW && eof > header.last_checkpoint)
         {
             header.last_checkpoint = eof;
-            commit_header();
+
+            flock header_lock;
+            if (set_lock(header_lock, LOCK_TYPE::UPDATE_LOCK) != -1)
+            {
+                commit_header();
+                release_lock(header_lock);
+            }
         }
 
         if (hpfs::ctx.run_mode == hpfs::RUN_MODE::RW ||
@@ -65,7 +71,7 @@ namespace logger
         fd = res;
 
         // Acquire header rw lock.
-        if (set_lock(header_lock, true, 0, sizeof(header)) == -1)
+        if (set_lock(header_lock, LOCK_TYPE::UPDATE_LOCK) == -1)
             return -1;
 
         struct stat st;
@@ -137,9 +143,16 @@ namespace logger
         return eof;
     }
 
-    int set_lock(struct flock &lock, const bool is_rwlock, const off_t start, const off_t len)
+    int set_lock(struct flock &lock, const LOCK_TYPE type)
     {
-        return util::set_lock(fd, lock, is_rwlock, start, len);
+        if (type == LOCK_TYPE::SESSION_LOCK)
+            return util::set_lock(fd, lock, false, 0, 1); // Read lock first byte.
+        else if (type == LOCK_TYPE::UPDATE_LOCK)
+            return util::set_lock(fd, lock, true, 1, 1); // Write lock second byte.
+        else if (type == LOCK_TYPE::MERGE_LOCK)
+            return util::set_lock(fd, lock, true, 0, 2); // Write lock inclusive of both bytes above
+
+        return -1;
     }
 
     int release_lock(struct flock &lock)
@@ -238,7 +251,12 @@ namespace logger
         if (header.first_record == 0)
             header.first_record = eof;
         header.last_record = eof;
-        commit_header();
+
+        flock header_lock;
+        if (set_lock(header_lock, LOCK_TYPE::UPDATE_LOCK) == -1 ||
+            commit_header() == -1 ||
+            release_lock(header_lock) == -1)
+            return -1;
 
         // Calculate new end of file.
         eof += record_len;

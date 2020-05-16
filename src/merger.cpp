@@ -7,7 +7,6 @@
 #include "merger.hpp"
 #include "hpfs.hpp"
 #include "logger.hpp"
-#include "util.hpp"
 
 namespace merger
 {
@@ -20,57 +19,51 @@ namespace merger
             if (usleep(CHECK_INTERVAL) == -1)
                 return -1;
 
-            if (log_has_records())
+            while (true)
             {
-                std::cout << "Has records...\n";
-
-                off_t log_offset = 0;
-
-                do
-                {
-                    logger::log_record record;
-                    if (logger::read_log_at(log_offset, log_offset, record) == -1)
-                        return -1;
-
-                    if (log_offset == -1) // No log record was read. We are at end of log.
-                        break;
-
-                    flock header_lock;
-
-                    std::vector<uint8_t> payload;
-                    if (util::set_lock(logger::fd, header_lock, true, 0, sizeof(logger::log_header)) == -1 ||
-                        logger::read_payload(payload, record) == -1 ||
-                        merge_log_record(record, payload) == -1 ||
-                        logger::purge_log(record) == -1 ||
-                        util::release_lock(logger::fd, header_lock) == -1)
-                    {
-                        std::cerr << errno << "\n";
-                        return -1;
-                    }
-
-                } while (log_offset > 0);
-            }
-            else
-            {
-                std::cout << "no records...\n";
+                // Keep processing the oldest record of the log until it fails.
+                if (process_log_front() == -1)
+                    break;
             }
         }
 
         return 0;
     }
 
-    bool log_has_records()
+    /**
+     * Merges the oldest log record to the seed.
+     * @return 0 on success. -1 on failure or no more log records available.
+     */
+    int process_log_front()
     {
         flock header_lock;
+        off_t off = 0;
+        logger::log_record record;
+        std::vector<uint8_t> payload;
 
-        if (util::set_lock(logger::fd, header_lock, false, 0, sizeof(logger::log_header)) == -1 ||
-            logger::read_header() == -1 ||
-            util::release_lock(logger::fd, header_lock) == -1)
-            return false;
+        // Process the oldest log record within a lock.
 
-        return logger::header.first_record > 0;
+        if (logger::set_lock(header_lock, logger::LOCK_TYPE::MERGE_LOCK) == -1)
+            return -1;
+
+        if (logger::read_header() == -1 ||                 // Read the latest header information.
+            logger::header.first_record == 0 ||            // No records in log file.
+            logger::read_log_at(off, off, record) == -1 || // Read the first log record (oldest).
+            logger::read_payload(payload, record) == -1 || // Read any associated payload.
+            merge_log_record(record, payload) == -1 ||     // Merge the record with the seed.
+            logger::purge_log(record) == -1)               // Purge the log record and update the header.
+        {
+            // Release the header lock even if something fails.
+            logger::release_lock(header_lock);
+            return -1;
+        }
+
+        return logger::release_lock(header_lock);
     }
 
+    /**
+     * Physically merges the specified log record with the seed.
+     */
     int merge_log_record(const logger::log_record &record, const std::vector<uint8_t> payload)
     {
         const std::string seed_path_str = std::string(hpfs::ctx.seed_dir).append(record.vpath);
@@ -93,20 +86,16 @@ namespace merger
         {
             const char *to_vpath = (char *)payload.data();
             const std::string to_seed_path = std::string(hpfs::ctx.seed_dir).append(to_vpath);
-            std::cout << seed_path << " to " << to_seed_path << " rename\n";
-
             return rename(seed_path, to_seed_path.c_str());
             break;
         }
 
         case logger::FS_OPERATION::UNLINK:
-            std::cout << seed_path << " unlink\n";
             return unlink(seed_path);
             break;
 
         case logger::FS_OPERATION::CREATE:
         {
-            std::cout << seed_path << " create\n";
             const mode_t mode = S_IFREG | *(mode_t *)payload.data();
             if (creat(seed_path, mode) == -1)
                 return -1;
@@ -115,7 +104,6 @@ namespace merger
 
         case logger::FS_OPERATION::WRITE:
         {
-            std::cout << seed_path << " write\n";
             const logger::op_write_payload_header wh = *(logger::op_write_payload_header *)payload.data();
 
             int seed_fd = open(seed_path, O_RDWR);
@@ -138,7 +126,6 @@ namespace merger
 
         case logger::FS_OPERATION::TRUNCATE:
         {
-            std::cout << seed_path << " truncate\n";
             const logger::op_truncate_payload_header th = *(logger::op_truncate_payload_header *)payload.data();
             return truncate(seed_path, th.size);
             break;

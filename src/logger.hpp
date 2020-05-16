@@ -22,6 +22,13 @@ namespace logger
         TRUNCATE = 12
     };
 
+    enum LOCK_TYPE
+    {
+        SESSION_LOCK, // Used by RO/RW session to indicate existance of session.
+        UPDATE_LOCK,  // Used by RW session to make updates to the header.
+        MERGE_LOCK    // Used by MERGE session to acquire exclusive access to the log.
+    };
+
     struct log_header
     {
         uint16_t version;
@@ -88,7 +95,7 @@ namespace logger
     int load_log_file();
     void print_log();
     off_t get_eof();
-    int set_lock(struct flock &lock, const bool is_rwlock, const off_t start, const off_t len);
+    int set_lock(struct flock &lock, const LOCK_TYPE type);
     int release_lock(struct flock &lock);
     int read_header();
     int commit_header();

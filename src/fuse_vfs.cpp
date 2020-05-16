@@ -64,6 +64,11 @@ namespace fuse_vfs
         if (!vn)
             return -ENOENT;
 
+        vfs::vdir_children_map children;
+        vfs::get_dir_children(vpath, children);
+        if (!children.empty())
+            return -ENOTEMPTY;
+
         if (logger::append_log(vpath, logger::FS_OPERATION::RMDIR) == -1 ||
             vfs::build_vfs() == -1)
             return -1;
