@@ -1,0 +1,68 @@
+#!/bin/bash
+
+fsdir=~/fs
+rwdir=~/rw
+rodir=~/ro
+hpfs=./build/hpfs
+
+rm -r $fsdir > /dev/null 2>&1
+mkdir -p $fsdir/seed > /dev/null 2>&1
+mkdir $rwdir > /dev/null 2>&1
+mkdir $rodir > /dev/null 2>&1
+
+# Create a seed text file with text.
+tr -dc A-Za-z0-9 </dev/urandom | head -c 10240 > $fsdir/seed/sample.txt
+
+# Start MERGE session.
+./$hpfs merge $fsdir &
+pid_merge=$!
+sleep 1
+
+# Start RW session.
+./$hpfs rw $fsdir $rwdir &
+pid_rw=$!
+
+# Start RO session 1.
+./$hpfs ro $fsdir $rodir &
+pid_ro=$!
+
+sleep 1
+
+# Perform some filesystem operations on the RW session.
+mkdir $rwdir/dir1
+mkdir $rwdir/dir2
+mv $rwdir/dir2 $rwdir/dir2_renamed
+cp $rwdir/sample.txt $rwdir/dir2_renamed/copied.txt
+truncate -s 100K $rwdir/dir2_renamed/copied.txt
+rmdir $rwdir/dir1
+rm $rwdir/sample.txt
+
+# Read from RO session before RW session is killed.
+echo "RO session 1: Read from sample.txt"
+head -c 10 $rodir/sample.txt
+echo ""
+
+kill $pid_rw
+
+# Read from RO session after RW session is killed.
+echo "RO session 1: Read from sample.txt"
+head -c 10 $rodir/sample.txt
+echo ""
+
+kill $pid_ro
+sleep 1
+
+# Start RO session 2.
+./$hpfs ro $fsdir $rodir &
+pid_ro=$!
+sleep 1
+
+# Read from RO session 2.
+echo "RO session 2: Read from now-deleted sample.txt"
+head -c 10 $rodir/sample.txt
+echo ""
+
+kill $pid_ro
+
+sleep 2
+kill $pid_merge
