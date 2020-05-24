@@ -23,8 +23,11 @@ add_executable(hpfs
     src/fuse_vfs.cpp
     src/fusefs.cpp
     src/merger.cpp
+    src/hmap/h32.cpp
+    src/hmap/hmap.cpp
     src/hpfs.cpp
     src/main.cpp
 )
 target_link_libraries(hpfs
-    libfuse3.so.3)
+    libfuse3.so.3
+    libb2.so)

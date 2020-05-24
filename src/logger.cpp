@@ -62,13 +62,14 @@ namespace logger
     int load_log_file()
     {
         const std::string log_file_path = std::string(hpfs::ctx.fs_dir).append("/").append(LOG_FILE_NAME);
-        flock header_lock;
 
         // Open or create the log file.
         const int res = open(log_file_path.c_str(), O_CREAT | O_RDWR, FILE_PERMS);
         if (res == -1)
             return -1;
         fd = res;
+
+        flock header_lock;
 
         // Acquire header rw lock.
         if (set_lock(header_lock, LOCK_TYPE::UPDATE_LOCK) == -1)

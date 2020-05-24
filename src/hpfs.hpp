@@ -24,6 +24,7 @@ namespace hpfs
     extern hpfs_context ctx;
 
     int init(int argc, char **argv);
+    int run_ro_rw_session(char *arg0);
     int vaidate_context();
     int parse_cmd(int argc, char **argv);
 } // namespace hpfs
