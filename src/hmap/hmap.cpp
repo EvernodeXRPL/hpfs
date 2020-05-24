@@ -63,12 +63,9 @@ namespace hmap
         if (vfs::get_dir_children(vpath.c_str(), dir_children) == -1)
             return -1;
 
-        char *path2 = strdup(vpath.c_str());
-        const char *dirname = basename(path2);
-
-        // Initialize dir hash with the dir name hash.
+        // Initialize dir hash with the dir path hash.
         h32 dir_hash;
-        if (hash_buf(dir_hash, dirname, strlen(dirname)) == -1)
+        if (hash_buf(dir_hash, vpath.c_str(), vpath.length()) == -1)
             return -1;
 
         for (const auto &[child_name, st] : dir_children)
@@ -105,11 +102,8 @@ namespace hmap
 
         file_hmap f_hmap;
 
-        char *path2 = strdup(vpath.c_str());
-        const char *filename = basename(path2);
-
-        // Initialize file hash with the file name hash.
-        if (hash_buf(f_hmap.file_hash, filename, strlen(filename)) == -1)
+        // Initialize file hash with the file path hash.
+        if (hash_buf(f_hmap.file_hash, vpath.c_str(), vpath.length()) == -1)
             return -1;
 
         // Hash all data blocks.
