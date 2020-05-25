@@ -364,7 +364,7 @@ namespace fusefs
 		fuse_opt_add_arg(&args, "-s");						  // Single threaded
 		fuse_opt_add_arg(&args, "-ofsname=hpfs");
 		fuse_opt_add_arg(&args, "-odefault_permissions");
-		// fuse_opt_add_arg(&args, "-d"); // Debug
+		 fuse_opt_add_arg(&args, "-d"); // Debug
 
 		umask(0);
 		assign_operations(xmp_oper);

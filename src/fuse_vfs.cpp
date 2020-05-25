@@ -5,6 +5,7 @@
 #include "vfs.hpp"
 #include "hpfs.hpp"
 #include "util.hpp"
+#include "hmap/hmap.hpp"
 
 namespace fuse_vfs
 {
@@ -182,7 +183,8 @@ namespace fuse_vfs
         iovec payload{&wh, sizeof(wh)};
         if (logger::append_log(vpath, logger::FS_OPERATION::WRITE, &payload,
                                block_buf_segs.data(), block_buf_segs.size()) == -1 ||
-            vfs::build_vfs() == -1)
+                vfs::build_vfs() == -1 ||
+                hmap::update_block_hashes(vpath, wr_start, wr_size) == -1)
             return -1;
 
         return wr_size;
