@@ -169,6 +169,10 @@ namespace fusefs
 
 	int xmp_open(const char *path, struct fuse_file_info *fi)
 	{
+		// Check if file is being opened in truncate mode.
+		if (fi->flags & O_TRUNC)
+			fuse_vfs::truncate(path, 0);
+
 		return 0;
 	}
 
