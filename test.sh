@@ -10,25 +10,25 @@ mkdir -p $fsdir/seed > /dev/null 2>&1
 mkdir $rwdir > /dev/null 2>&1
 mkdir $rodir > /dev/null 2>&1
 
-# Create a seed text file with text.
+echo "Create a seed text file with text."
 tr -dc A-Za-z0-9 </dev/urandom | head -c 10240 > $fsdir/seed/sample.txt
 
-# Start MERGE session.
+echo "Start MERGE session."
 ./$hpfs merge $fsdir &
 pid_merge=$!
 sleep 1
 
-# Start RW session.
+echo "Start RW session."
 ./$hpfs rw $fsdir $rwdir &
 pid_rw=$!
 
-# Start RO session 1.
+echo "Start RO session 1."
 ./$hpfs ro $fsdir $rodir &
 pid_ro=$!
 
 sleep 1
 
-# Perform some filesystem operations on the RW session.
+echo "Perform some filesystem operations on the RW session."
 mkdir $rwdir/dir1
 mkdir $rwdir/dir2
 mv $rwdir/dir2 $rwdir/dir2_renamed
@@ -37,14 +37,14 @@ truncate -s 100K $rwdir/dir2_renamed/copied.txt
 rmdir $rwdir/dir1
 rm $rwdir/sample.txt
 
-# Read from RO session before RW session is killed.
+echo "Read from RO session before RW session is killed."
 echo "RO session 1: Read from sample.txt"
 head -c 10 $rodir/sample.txt
 echo ""
 
 kill $pid_rw
 
-# Read from RO session after RW session is killed.
+echo "Read from RO session after RW session is killed."
 echo "RO session 1: Read from sample.txt"
 head -c 10 $rodir/sample.txt
 echo ""
@@ -52,17 +52,22 @@ echo ""
 kill $pid_ro
 sleep 1
 
-# Start RO session 2.
+echo "Start RO session 2."
 ./$hpfs ro $fsdir $rodir &
 pid_ro=$!
 sleep 1
 
-# Read from RO session 2.
-echo "RO session 2: Read from now-deleted sample.txt"
-head -c 10 $rodir/sample.txt
-echo ""
+echo "Read from RO session 2."
+echo "RO session 2: Check for now-deleted sample.txt"
+stat $rodir/sample.txt
 
 kill $pid_ro
 
-sleep 2
+sleep 1
 kill $pid_merge
+sleep 1
+
+echo "Verify whether operations are merged to seed."
+echo "Reading dir2_renamed/copied.txt"
+head -c 10 $fsdir/seed/dir2_renamed/copied.txt
+echo ""

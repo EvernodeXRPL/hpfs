@@ -145,8 +145,6 @@ namespace hmap
 
         if (strcmp(parent_path, "/") != 0)
             propogate_hash_update(parent_path, parent_old_hash, parent_hmap.node_hash);
-        else
-            std::cout << "roothash:" << parent_hmap.node_hash << "\n";
     }
 
     int apply_vnode_create(const std::string &vpath)
@@ -201,13 +199,14 @@ namespace hmap
         // Reset file hash with vpath hash.
         node_hmap.node_hash = node_hmap.vpath_hash;
 
-        // Calculate hashes of updated blocks.
-        const off_t update_from_block_id = update_offset / BLOCK_SIZE;
-        const off_t update_upto_block_id = (update_offset + update_size) / BLOCK_SIZE;
+        const off_t update_end_offset = update_offset + update_size;
 
-        for (uint32_t block_id = update_from_block_id; block_id <= update_upto_block_id; block_id++)
+        // Calculate hashes of updated blocks.
+        for (uint32_t block_id = (update_offset / BLOCK_SIZE);; block_id++)
         {
             const off_t block_offset = block_id * BLOCK_SIZE;
+            if (block_offset >= update_end_offset)
+                break;
 
             // Calculate the new block hash.
             const void *read_buf = (uint8_t *)vn.mmap.ptr + block_offset;
