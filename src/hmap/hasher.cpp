@@ -1,6 +1,7 @@
 #include "hasher.hpp"
 #include <blake2.h>
 #include <string.h>
+#include <iomanip>
 
 /**
  * Based on https://github.com/codetsunami/file-ptracer/blob/master/merkle.cpp
@@ -33,13 +34,10 @@ namespace hmap::hasher
 
     std::ostream &operator<<(std::ostream &output, const h32 &h)
     {
-        output << h.data[0] << h.data[1] << h.data[2] << h.data[3];
-        return output;
-    }
+        const uint8_t *buf = reinterpret_cast<const uint8_t *>(&h);
+        for (int i = 0; i < sizeof(h32); i++)
+            output << std::hex << std::setfill('0') << std::setw(2) << (int)buf[i];
 
-    std::stringstream &operator<<(std::stringstream &output, const h32 &h)
-    {
-        output << std::hex << h;
         return output;
     }
 
@@ -60,4 +58,4 @@ namespace hmap::hasher
         return 0;
     }
 
-} // namespace hmap
+} // namespace hmap::hasher

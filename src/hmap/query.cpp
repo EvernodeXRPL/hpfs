@@ -28,16 +28,18 @@ namespace hmap::query
 
         if (len >= HASH_REQUEST_PATTERN_LEN &&
             strcmp(hash_match_start, HASH_REQUEST_PATTERN) == 0)
+        {
             req.mode = MODE::HASH;
+            req.vpath = std::string_view(request_path, len - HASH_REQUEST_PATTERN_LEN);
+        }
         else if (len >= CHILDREN_REQUEST_PATTERN_LEN &&
                  strcmp(hash_match_start, CHILDREN_REQUEST_PATTERN) == 0)
+        {
             req.mode = MODE::CHILDREN;
-        else
-            return req; // Retuen the request struct with 'undefined' request type.
+            req.vpath = std::string_view(request_path, len - CHILDREN_REQUEST_PATTERN_LEN);
+        }
 
-        char *path2 = strdup(request_path);
-        req.vpath = dirname(path2);
-        return req;
+        return req; // Retuen the request struct with 'undefined' request type.
     }
 
     int getattr(const request &req, struct stat *stbuf)
@@ -59,6 +61,7 @@ namespace hmap::query
     int read(const request &req, char *buf, const size_t size)
     {
         vnode_hmap *node_hmap;
+        std::cout << req.vpath << "\n";
         if (get_vnode_hmap(&node_hmap, req.vpath) == -1)
             return -1;
         if (!node_hmap)
