@@ -145,9 +145,6 @@ namespace fuse_vfs
         if (vn->st.st_size == 0 || offset >= vn->st.st_size)
             return 0;
 
-        if (vfs::update_vnode_mmap(*vn) == -1)
-            return -1;
-
         size_t read_len = size;
         if ((offset + size) > vn->st.st_size)
             read_len = vn->st.st_size - offset;
@@ -167,9 +164,6 @@ namespace fuse_vfs
             return -1;
         if (!vn)
             return -ENOENT;
-
-        if (vfs::update_vnode_mmap(*vn) == -1)
-            return -1;
 
         // We prepare list of block buf segments based on where the write buf lies within the block buf.
         off_t block_buf_start = 0, block_buf_end = 0;
@@ -212,9 +206,6 @@ namespace fuse_vfs
         {
             // If the new file size is bigger than old size, prepare a block buffer
             // so the extra NULL bytes can be mapped to memory.
-
-            if (vfs::update_vnode_mmap(*vn) == -1)
-                return -1;
 
             off_t block_buf_start = 0, block_buf_end = 0;
             vfs::populate_block_buf_segs(block_buf_segs, block_buf_start, block_buf_end,

@@ -112,6 +112,9 @@ namespace vfs
                 vn.max_size = vn.st.st_size;
             }
 
+            if (update_vnode_mmap(vn) == -1)
+                return -1;
+
             auto [iter, success] = vnodes.try_emplace(vpath, std::move(vn));
             vnode_iter = iter;
             loaded_vpaths.emplace(vpath);
@@ -220,6 +223,9 @@ namespace vfs
                     vn.max_size = vn.st.st_size;
             }
 
+            if (update_vnode_mmap(vn) == -1)
+                return -1;
+
             break;
         }
 
@@ -234,6 +240,9 @@ namespace vfs
             vn.st.st_size = th.size;
             if (vn.st.st_size > vn.max_size)
                 vn.max_size = vn.st.st_size;
+
+            if (update_vnode_mmap(vn) == -1)
+                return -1;
 
             break;
         }

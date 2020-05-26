@@ -95,9 +95,7 @@ namespace hmap
     int calculate_file_hash(h32 &hash, const std::string &vpath)
     {
         vfs::vnode *vn;
-        if (get_vnode(vpath, &vn) == -1 ||
-            !vn ||
-            vfs::update_vnode_mmap(*vn) == -1)
+        if (get_vnode(vpath, &vn) == -1 || !vn)
             return -1;
 
         vnode_hmap file_hmap;
