@@ -1,10 +1,10 @@
-#ifndef _HPFS_HMAP_H32_
-#define _HPFS_HMAP_H32_
+#ifndef _HPFS_HMAP_HASHER_
+#define _HPFS_HMAP_HASHER_
 
 #include <iostream>
 #include <sstream>
 
-namespace hmap
+namespace hmap::hasher
 {
 
     // blake2b hash is 32 bytes which we store as 4 quad words

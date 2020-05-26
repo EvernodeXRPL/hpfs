@@ -6,7 +6,7 @@
 #include <string.h>
 #include <libgen.h>
 #include <math.h>
-#include "h32.hpp"
+#include "hasher.hpp"
 #include "hmap.hpp"
 #include "../hpfs.hpp"
 #include "../util.hpp"
@@ -14,49 +14,29 @@
 
 namespace hmap
 {
-    constexpr const char *HMAP_FILE_NAME = "hmap.hpfs";
-    constexpr int FILE_PERMS = 0644;
-    constexpr uint16_t HPFS_VERSION = 1;
-    constexpr size_t BLOCK_SIZE = 4096; //4194304; // 4MB
-
-    std::string hmap_file_path; // File path to persis the hash map.
+    constexpr size_t BLOCK_SIZE = 4194304; // 4MB
     std::unordered_map<std::string, vnode_hmap> hash_map;
 
     int init()
     {
-        std::string hmap_file_path = std::string(hpfs::ctx.fs_dir).append("/").append(HMAP_FILE_NAME);
-
-        const int read_status = read_hmap_file();
-        if (read_status == -1)
-            return -1;
-
-        if (read_status == 0)
-        {
-            // Calculate the hash map for the filesystem from scratch.
-            h32 root_hash;
-            if (calculate_dir_hash(root_hash, "/") == -1)
-                return -1;
-        }
-
-        return 0;
+        // Calculate the hash map for the filesystem from scratch.
+        // TODO: We need to load the hash map from persisted cache.
+        hasher::h32 root_hash;
+        return calculate_dir_hash(root_hash, "/");
     }
 
     void deinit()
     {
     }
 
-    int read_hmap_file()
+    int get_vnode_hmap(vnode_hmap **node_hmap, const std::string &vpath)
     {
-        const int fd = open(hmap_file_path.c_str(), O_RDONLY);
-        if (fd == -1 && errno == ENOENT) // File does not exist.
-            return 0;
-        else if (fd == -1 && errno != ENOENT)
-            return -1;
-
-        return 1; // File exists and data was read successfully.
+        const auto iter = hash_map.find(vpath);
+        *node_hmap = (iter == hash_map.end()) ? NULL : &iter->second;
+        return 0;
     }
 
-    int calculate_dir_hash(h32 &node_hash, const std::string &vpath)
+    int calculate_dir_hash(hasher::h32 &node_hash, const std::string &vpath)
     {
         vfs::vdir_children_map dir_children;
         if (vfs::get_dir_children(vpath.c_str(), dir_children) == -1)
@@ -79,7 +59,7 @@ namespace hmap
 
             const bool is_dir = S_ISDIR(st.st_mode);
 
-            h32 child_hash;
+            hasher::h32 child_hash;
             if ((is_dir && calculate_dir_hash(child_hash, child_vpath) == -1) ||
                 (!is_dir && calculate_file_hash(child_hash, child_vpath) == -1))
                 return -1;
@@ -94,7 +74,7 @@ namespace hmap
         return 0;
     }
 
-    int calculate_file_hash(h32 &node_hash, const std::string &vpath)
+    int calculate_file_hash(hasher::h32 &node_hash, const std::string &vpath)
     {
         vfs::vnode *vn;
         if (get_vnode(vpath, &vn) == -1 || !vn)
@@ -111,26 +91,7 @@ namespace hmap
         return 0;
     }
 
-    int persist_hmap()
-    {
-        // Open or create the hash map file.
-        const int fd = open(hmap_file_path.c_str(), O_CREAT | O_RDWR, FILE_PERMS);
-        if (fd == -1)
-            return -1;
-
-        flock file_lock;
-
-        if (util::set_lock(fd, file_lock, true, 0, 1) == -1 || // Acquire exclusive rw lock.
-            ftruncate(fd, 0) == -1 ||                          // Truncate the file.
-            // Write new hash map.
-            util::release_lock(fd, file_lock) == -1 || // Release rw lock.
-            close(fd) == -1)                           // Close the file.
-            return -1;
-
-        return 0;
-    }
-
-    void propogate_hash_update(const std::string &vpath, const h32 &old_hash, const h32 &new_hash)
+    void propogate_hash_update(const std::string &vpath, const hasher::h32 &old_hash, const hasher::h32 &new_hash)
     {
         char *path2 = strdup(vpath.c_str());
         const char *parent_path = dirname(path2);
@@ -139,7 +100,7 @@ namespace hmap
 
         // XOR old hash and new hash into parent hash.
         // Remember the old parent hash before updating it.
-        const h32 parent_old_hash = parent_hmap.node_hash;
+        const hasher::h32 parent_old_hash = parent_hmap.node_hash;
         parent_hmap.node_hash ^= old_hash;
         parent_hmap.node_hash ^= new_hash;
 
@@ -156,12 +117,12 @@ namespace hmap
         const bool is_file = S_ISREG(vn->st.st_mode);
 
         // Initial node hash is the vpath hash.
-        h32 hash;
+        hasher::h32 hash;
         if (hash_buf(hash, vpath.c_str(), vpath.length()) == -1)
             return -1;
         hash_map.try_emplace(vpath, vnode_hmap{is_file, hash, hash});
 
-        propogate_hash_update(vpath, h32_empty, hash);
+        propogate_hash_update(vpath, hasher::h32_empty, hash);
     }
 
     int apply_vnode_update(const std::string &vpath, const vfs::vnode &vn,
@@ -169,7 +130,7 @@ namespace hmap
     {
         const auto iter = hash_map.find(vpath);
         vnode_hmap &node_hmap = iter->second;
-        const h32 old_hash = node_hmap.node_hash; // Remember old hash before we modify.
+        const hasher::h32 old_hash = node_hmap.node_hash; // Remember old hash before we modify.
 
         // If this is a file update operation, update the block hashes and recalculate
         // the file hash.
@@ -211,7 +172,7 @@ namespace hmap
             // Calculate the new block hash.
             const void *read_buf = (uint8_t *)vn.mmap.ptr + block_offset;
             const int read_len = MIN(BLOCK_SIZE, (file_size - block_offset));
-            h32 block_hash;
+            hasher::h32 block_hash;
             if (hash_buf(block_hash, &block_offset, sizeof(off_t), read_buf, read_len) == -1)
                 return -1;
 
@@ -219,7 +180,7 @@ namespace hmap
         }
 
         // Add block hashes to the file hash.
-        for (const h32 &block_hash : node_hmap.block_hashes)
+        for (const hasher::h32 &block_hash : node_hmap.block_hashes)
             node_hmap.node_hash ^= block_hash;
 
         return 0;
@@ -228,10 +189,10 @@ namespace hmap
     int apply_vnode_delete(const std::string &vpath)
     {
         const auto iter = hash_map.find(vpath);
-        const h32 node_hash = iter->second.node_hash;
+        const hasher::h32 node_hash = iter->second.node_hash;
         hash_map.erase(iter);
 
-        propogate_hash_update(vpath, node_hash, h32_empty);
+        propogate_hash_update(vpath, node_hash, hasher::h32_empty);
         return 0;
     }
 
@@ -243,7 +204,7 @@ namespace hmap
         hash_map.erase(iter);
 
         // Update hash map with removed node hash.
-        propogate_hash_update(from_vpath, node_hmap.node_hash, h32_empty);
+        propogate_hash_update(from_vpath, node_hmap.node_hash, hasher::h32_empty);
 
         // Update the node hash for the new vpath.
         node_hmap.node_hash ^= node_hmap.vpath_hash; // XOR old vpath hash.
@@ -252,7 +213,7 @@ namespace hmap
         node_hmap.node_hash ^= node_hmap.vpath_hash; // XOR new vpath hash.
 
         // Update hash map with new node hash.
-        propogate_hash_update(to_vpath, h32_empty, node_hmap.node_hash);
+        propogate_hash_update(to_vpath, hasher::h32_empty, node_hmap.node_hash);
 
         hash_map.try_emplace(to_vpath, std::move(node_hmap));
 

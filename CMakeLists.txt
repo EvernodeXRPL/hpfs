@@ -23,7 +23,8 @@ add_executable(hpfs
     src/fuse_vfs.cpp
     src/fusefs.cpp
     src/merger.cpp
-    src/hmap/h32.cpp
+    src/hmap/hasher.cpp
+    src/hmap/query.cpp
     src/hmap/hmap.cpp
     src/hpfs.cpp
     src/main.cpp

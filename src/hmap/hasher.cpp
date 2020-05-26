@@ -1,11 +1,11 @@
-#include "h32.hpp"
+#include "hasher.hpp"
 #include <blake2.h>
 #include <string.h>
 
 /**
  * Based on https://github.com/codetsunami/file-ptracer/blob/master/merkle.cpp
  */
-namespace hmap
+namespace hmap::hasher
 {
     /**
      * Helper functions for working with 32 byte hash type h32.
