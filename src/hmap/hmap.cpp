@@ -57,16 +57,19 @@ namespace hmap
         return 1; // File exists and data was read successfully.
     }
 
-    int calculate_dir_hash(h32 &hash, const std::string &vpath)
+    int calculate_dir_hash(h32 &node_hash, const std::string &vpath)
     {
         vfs::vdir_children_map dir_children;
         if (vfs::get_dir_children(vpath.c_str(), dir_children) == -1)
             return -1;
 
         // Initialize dir hash with the dir path hash.
-        vnode_hmap dir_hmap;
-        if (hash_buf(dir_hmap.hash, vpath.c_str(), vpath.length()) == -1)
+        vnode_hmap dir_hmap{false};
+        if (hash_buf(dir_hmap.vpath_hash, vpath.c_str(), vpath.length()) == -1)
             return -1;
+
+        // Initial node hash is the vpath hash.
+        dir_hmap.node_hash = dir_hmap.vpath_hash;
 
         for (const auto &[child_name, st] : dir_children)
         {
@@ -82,27 +85,28 @@ namespace hmap
                 (!is_dir && calculate_file_hash(child_hash, child_vpath) == -1))
                 return -1;
 
-            // XOR child hash to the parent dir hash.
-            dir_hmap.hash ^= child_hash;
+            // XOR child hash to the parent dir node hash.
+            dir_hmap.node_hash ^= child_hash;
         }
 
-        hash = dir_hmap.hash;
+        node_hash = dir_hmap.node_hash;
         hash_map.try_emplace(vpath, std::move(dir_hmap));
 
         return 0;
     }
 
-    int calculate_file_hash(h32 &hash, const std::string &vpath)
+    int calculate_file_hash(h32 &node_hash, const std::string &vpath)
     {
         vfs::vnode *vn;
         if (get_vnode(vpath, &vn) == -1 || !vn)
             return -1;
 
-        vnode_hmap file_hmap;
-        if (apply_file_data_update(file_hmap, vpath, *vn, 0, vn->st.st_size) == -1)
+        vnode_hmap file_hmap{true};
+        if (hash_buf(file_hmap.vpath_hash, vpath.c_str(), vpath.length()) == -1 || // vpath hash.
+            apply_file_data_update(file_hmap, *vn, 0, vn->st.st_size) == -1)       // File hash.
             return -1;
 
-        hash = file_hmap.hash;
+        node_hash = file_hmap.node_hash;
         hash_map.try_emplace(vpath, std::move(file_hmap));
 
         return 0;
@@ -137,14 +141,14 @@ namespace hmap
         vnode_hmap &parent_hmap = iter->second;
 
         // Remember the old parent hash and update it.
-        const h32 parent_old_hash = parent_hmap.hash;
-        parent_hmap.hash ^= old_hash;
-        parent_hmap.hash ^= new_hash;
+        const h32 parent_old_hash = parent_hmap.node_hash;
+        parent_hmap.node_hash ^= old_hash;
+        parent_hmap.node_hash ^= new_hash;
 
         if (strcmp(parent_path, "/") != 0)
-            propogate_hash_update(parent_path, parent_old_hash, parent_hmap.hash);
+            propogate_hash_update(parent_path, parent_old_hash, parent_hmap.node_hash);
         else
-            std::cout << "roothash:" << parent_hmap.hash << "\n";
+            std::cout << "roothash:" << parent_hmap.node_hash << "\n";
     }
 
     int apply_vnode_create(const std::string &vpath)
@@ -159,7 +163,7 @@ namespace hmap
         h32 hash;
         if (hash_buf(hash, vpath.c_str(), vpath.length()) == -1)
             return -1;
-        hash_map.try_emplace(vpath, vnode_hmap{is_file, hash});
+        hash_map.try_emplace(vpath, vnode_hmap{is_file, hash, hash});
 
         propogate_hash_update(vpath, h32_empty, hash);
     }
@@ -169,20 +173,19 @@ namespace hmap
     {
         auto iter = hash_map.find(vpath);
         vnode_hmap &node_hmap = iter->second;
-        const h32 old_hash = node_hmap.hash; // Remember old hash before we modify.
+        const h32 old_hash = node_hmap.node_hash; // Remember old hash before we modify.
 
         // If this is a file update operation, update the block hashes and recalculate
         // the file hash.
         if (S_ISREG(vn.st.st_mode) &&
-            apply_file_data_update(node_hmap, vpath, vn, file_update_offset, file_update_size) == -1)
+            apply_file_data_update(node_hmap, vn, file_update_offset, file_update_size) == -1)
             return -1;
 
-        propogate_hash_update(vpath, old_hash, node_hmap.hash);
+        propogate_hash_update(vpath, old_hash, node_hmap.node_hash);
         return 0;
     }
 
-    int apply_file_data_update(vnode_hmap &node_hmap,
-                               const std::string &vpath, const vfs::vnode &vn,
+    int apply_file_data_update(vnode_hmap &node_hmap, const vfs::vnode &vn,
                                const off_t update_offset, const size_t update_size)
     {
         const size_t file_size = vn.st.st_size;
@@ -198,8 +201,7 @@ namespace hmap
         node_hmap.block_hashes.resize(required_block_count);
 
         // Reset file hash with vpath hash.
-        if (hash_buf(node_hmap.hash, vpath.c_str(), vpath.length()) == -1)
-            return -1;
+        node_hmap.node_hash = node_hmap.vpath_hash;
 
         // Calculate hashes of updated blocks.
         const off_t update_from_block_id = update_offset / BLOCK_SIZE;
@@ -221,7 +223,7 @@ namespace hmap
 
         // Add block hashes to the file hash.
         for (const h32 &block_hash : node_hmap.block_hashes)
-            node_hmap.hash ^= block_hash;
+            node_hmap.node_hash ^= block_hash;
 
         return 0;
     }
