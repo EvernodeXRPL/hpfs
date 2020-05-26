@@ -101,24 +101,8 @@ namespace hmap
             return -1;
 
         vnode_hmap file_hmap;
-
-        // Initialize file hash with the file path hash.
-        if (hash_buf(file_hmap.hash, vpath.c_str(), vpath.length()) == -1)
+        if (apply_file_data_update(file_hmap, vpath, *vn, 0, vn->st.st_size) == -1)
             return -1;
-
-        // Hash all data blocks.
-        const size_t file_size = vn->st.st_size;
-        for (off_t block_offset = 0; block_offset < file_size; block_offset += BLOCK_SIZE)
-        {
-            const void *read_buf = (uint8_t *)vn->mmap.ptr + block_offset;
-            const int read_len = MIN(BLOCK_SIZE, (file_size - block_offset));
-            h32 block_hash;
-            if (hash_buf(block_hash, &block_offset, sizeof(off_t), read_buf, read_len) == -1)
-                return -1;
-
-            file_hmap.block_hashes.push_back(block_hash);
-            file_hmap.hash ^= block_hash; // XOR block hash to the file hash.
-        }
 
         hash = file_hmap.hash;
         hash_map.try_emplace(vpath, std::move(file_hmap));
@@ -165,29 +149,33 @@ namespace hmap
             std::cout << "roothash:" << parent_hmap.hash << "\n";
     }
 
+    int apply_vnode_create(const std::string &vpath)
+    {
+        vfs::vnode *vn;
+        if (get_vnode(vpath, &vn) == -1 || !vn)
+            return -1;
+
+        const bool is_file = S_ISREG(vn->st.st_mode);
+
+        // Initial node hash is the vpath hash.
+        h32 hash;
+        if (hash_buf(hash, vpath.c_str(), vpath.length()) == -1)
+            return -1;
+        hash_map.try_emplace(vpath, vnode_hmap{is_file, hash});
+
+        propogate_hash_update(vpath, h32_empty, hash);
+    }
+
     int apply_vnode_update(const std::string &vpath, const vfs::vnode &vn,
                            const off_t file_update_offset, const size_t file_update_size)
     {
         auto iter = hash_map.find(vpath);
-        const bool is_file = S_ISREG(vn.st.st_mode);
-        const bool is_new = (iter == hash_map.end());
-
-        // If vnode_hmap does not exist, create it with the vpath hash.
-        if (is_new)
-        {
-            h32 vpath_hash;
-            if (hash_buf(vpath_hash, vpath.c_str(), vpath.length()) == -1)
-                return -1;
-            auto [new_iter, success] = hash_map.try_emplace(vpath, vnode_hmap{is_file, vpath_hash});
-            iter = new_iter;
-        }
-
         vnode_hmap &node_hmap = iter->second;
-        const h32 old_hash = is_new ? h32_empty : node_hmap.hash; // Remember old hash before we modify.
+        const h32 old_hash = node_hmap.hash; // Remember old hash before we modify.
 
         // If this is a file update operation, update the block hashes and recalculate
         // the file hash.
-        if (is_file && !is_new &&
+        if (S_ISREG(vn.st.st_mode) &&
             apply_file_data_update(node_hmap, vpath, vn, file_update_offset, file_update_size) == -1)
             return -1;
 
@@ -199,13 +187,21 @@ namespace hmap
                                const std::string &vpath, const vfs::vnode &vn,
                                const off_t update_offset, const size_t update_size)
     {
-        // Resize the block hashes list according to current file size.
         const size_t file_size = vn.st.st_size;
         const uint32_t old_block_count = node_hmap.block_hashes.size();
         const uint32_t required_block_count = file_size == 0
                                                   ? 0
                                                   : ceil((double)file_size / (double)BLOCK_SIZE);
+
+        if (old_block_count == required_block_count && old_block_count == 0)
+            return 0;
+
+        // Resize the block hashes list according to current file size.
         node_hmap.block_hashes.resize(required_block_count);
+
+        // Reset file hash with vpath hash.
+        if (hash_buf(node_hmap.hash, vpath.c_str(), vpath.length()) == -1)
+            return -1;
 
         // Calculate hashes of updated blocks.
         const off_t update_from_block_id = update_offset / BLOCK_SIZE;
@@ -225,10 +221,7 @@ namespace hmap
             node_hmap.block_hashes[block_id] = block_hash;
         }
 
-        // Recalculate the file hash with vpath hash and latest block hashes.
-        if (hash_buf(node_hmap.hash, vpath.c_str(), vpath.length()) == -1)
-            return -1;
-
+        // Add block hashes to the file hash.
         for (const h32 &block_hash : node_hmap.block_hashes)
             node_hmap.hash ^= block_hash;
 
