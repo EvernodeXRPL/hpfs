@@ -92,7 +92,8 @@ namespace fuse_vfs
 
         iovec payload{(void *)to_vpath, strlen(to_vpath) + 1};
         if (logger::append_log(from_vpath, logger::FS_OPERATION::RENAME, &payload) == -1 ||
-            vfs::build_vfs() == -1)
+            vfs::build_vfs() == -1 ||
+            hmap::apply_vnode_rename(from_vpath, to_vpath) == -1)
             return -1;
 
         return 0;

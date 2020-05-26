@@ -237,4 +237,28 @@ namespace hmap
         return 0;
     }
 
+    int apply_vnode_rename(const std::string &from_vpath, const std::string &to_vpath)
+    {
+        // Backup and delete the hashed node.
+        const auto iter = hash_map.find(from_vpath);
+        vnode_hmap node_hmap = iter->second;
+        hash_map.erase(iter);
+
+        // Update hash map with removed node hash.
+        propogate_hash_update(from_vpath, node_hmap.node_hash, h32_empty);
+
+        // Update the node hash for the new vpath.
+        node_hmap.node_hash ^= node_hmap.vpath_hash; // XOR old vpath hash.
+        if (hash_buf(node_hmap.vpath_hash, to_vpath.c_str(), to_vpath.length()) == -1)
+            return -1;
+        node_hmap.node_hash ^= node_hmap.vpath_hash; // XOR new vpath hash.
+
+        // Update hash map with new node hash.
+        propogate_hash_update(to_vpath, h32_empty, node_hmap.node_hash);
+
+        hash_map.try_emplace(to_vpath, std::move(node_hmap));
+
+        return 0;
+    }
+
 } // namespace hmap
