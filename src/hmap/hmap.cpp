@@ -36,7 +36,7 @@ namespace hmap
             h32 root_hash;
             if (calculate_dir_hash(root_hash, "/") == -1)
                 return -1;
-            std::cout << root_hash << "\n";
+            std::cout << "roothash:" << root_hash << "\n";
         }
 
         return 0;
@@ -161,66 +161,77 @@ namespace hmap
 
         if (strcmp(parent_path, "/") != 0)
             propogate_hash_update(parent_path, parent_old_hash, parent_hmap.hash);
+        else
+            std::cout << "roothash:" << parent_hmap.hash << "\n";
     }
 
-    int add_new_vnode_hmap(const std::string &vpath, const bool is_file)
+    int apply_vnode_update(const std::string &vpath, const vfs::vnode &vn,
+                           const off_t file_update_offset, const size_t file_update_size)
     {
-        // Calculate node hash with the vpath hash.
-        h32 hash;
-        if (hash_buf(hash, vpath.c_str(), vpath.length()) == -1)
+        auto iter = hash_map.find(vpath);
+        const bool is_file = S_ISREG(vn.st.st_mode);
+        const bool is_new = (iter == hash_map.end());
+
+        // If vnode_hmap does not exist, create it with the vpath hash.
+        if (is_new)
+        {
+            h32 vpath_hash;
+            if (hash_buf(vpath_hash, vpath.c_str(), vpath.length()) == -1)
+                return -1;
+            auto [new_iter, success] = hash_map.try_emplace(vpath, vnode_hmap{is_file, vpath_hash});
+            iter = new_iter;
+        }
+
+        vnode_hmap &node_hmap = iter->second;
+        const h32 old_hash = is_new ? h32_empty : node_hmap.hash; // Remember old hash before we modify.
+
+        // If this is a file update operation, update the block hashes and recalculate
+        // the file hash.
+        if (is_file && !is_new &&
+            apply_file_data_update(node_hmap, vpath, vn, file_update_offset, file_update_size) == -1)
             return -1;
 
-        hash_map.try_emplace(vpath, vnode_hmap{is_file, hash});
-        propogate_hash_update(vpath, h32_empty, hash);
+        propogate_hash_update(vpath, old_hash, node_hmap.hash);
         return 0;
     }
 
-    int update_block_hashes(const std::string &vpath, const off_t update_offset, const size_t update_size)
+    int apply_file_data_update(vnode_hmap &node_hmap,
+                               const std::string &vpath, const vfs::vnode &vn,
+                               const off_t update_offset, const size_t update_size)
     {
-        vfs::vnode *vn;
-        if (get_vnode(vpath, &vn) == -1 ||
-            !vn ||
-            vfs::update_vnode_mmap(*vn) == -1)
-            return -1;
+        // Resize the block hashes list according to current file size.
+        const size_t file_size = vn.st.st_size;
+        const uint32_t old_block_count = node_hmap.block_hashes.size();
+        const uint32_t required_block_count = file_size == 0
+                                                  ? 0
+                                                  : ceil((double)file_size / (double)BLOCK_SIZE);
+        node_hmap.block_hashes.resize(required_block_count);
 
-        const auto iter = hash_map.find(vpath);
-        vnode_hmap &file_hmap = iter->second;
-        const h32 old_file_hash = file_hmap.hash;
-
-        const off_t ex_last_block_id = file_hmap.block_hashes.empty()
-                                           ? 0
-                                           : file_hmap.block_hashes.size() - 1;
-        const off_t update_from_block_id = MIN((update_offset / BLOCK_SIZE), ex_last_block_id);
+        // Calculate hashes of updated blocks.
+        const off_t update_from_block_id = update_offset / BLOCK_SIZE;
         const off_t update_upto_block_id = (update_offset + update_size) / BLOCK_SIZE;
 
-        // If the updated blocks lie beyond the end of existing blocks that means
-        // file size has increased due to write(). We must update block hashes of
-        // the blocks that are effected by a file size increase as well.
-
-        // Make sure the block hash list contains total no. of elements required.
-        // Resizing will cause the extra block hashes to become 0 which is what we want.
-        if (file_hmap.block_hashes.size() < update_upto_block_id + 1)
-            file_hmap.block_hashes.resize(update_upto_block_id + 1);
-
-        for (off_t block_id = update_from_block_id; block_id <= update_upto_block_id; block_id++)
+        for (uint32_t block_id = update_from_block_id; block_id <= update_upto_block_id; block_id++)
         {
             const off_t block_offset = block_id * BLOCK_SIZE;
 
             // Calculate the new block hash.
-            const void *read_buf = (uint8_t *)vn->mmap.ptr + block_offset;
-            const int read_len = MIN(BLOCK_SIZE, (vn->st.st_size - block_offset));
+            const void *read_buf = (uint8_t *)vn.mmap.ptr + block_offset;
+            const int read_len = MIN(BLOCK_SIZE, (file_size - block_offset));
             h32 block_hash;
             if (hash_buf(block_hash, &block_offset, sizeof(off_t), read_buf, read_len) == -1)
                 return -1;
 
-            // Update the file hash with the new block hash.
-            file_hmap.hash ^= file_hmap.block_hashes[block_id]; // XOR old hash.
-            file_hmap.hash ^= block_hash;                       // XOR new hash.
-
-            file_hmap.block_hashes[block_id] = block_hash;
+            node_hmap.block_hashes[block_id] = block_hash;
         }
 
-        propogate_hash_update(vpath, old_file_hash, file_hmap.hash);
+        // Recalculate the file hash with vpath hash and latest block hashes.
+        if (hash_buf(node_hmap.hash, vpath.c_str(), vpath.length()) == -1)
+            return -1;
+
+        for (const h32 &block_hash : node_hmap.block_hashes)
+            node_hmap.hash ^= block_hash;
+
         return 0;
     }
 

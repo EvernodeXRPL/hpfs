@@ -183,8 +183,8 @@ namespace fuse_vfs
         iovec payload{&wh, sizeof(wh)};
         if (logger::append_log(vpath, logger::FS_OPERATION::WRITE, &payload,
                                block_buf_segs.data(), block_buf_segs.size()) == -1 ||
-                vfs::build_vfs() == -1 ||
-                hmap::update_block_hashes(vpath, wr_start, wr_size) == -1)
+            vfs::build_vfs() == -1 ||
+            hmap::apply_vnode_update(vpath, *vn, wr_start, wr_size) == -1)
             return -1;
 
         return wr_size;
@@ -200,6 +200,8 @@ namespace fuse_vfs
             return -1;
         if (!vn)
             return -ENOENT;
+        if (size == vn->st.st_size)
+            return 0;
 
         std::vector<iovec> block_buf_segs;
         logger::op_truncate_payload_header th{(size_t)size, 0, 0};
