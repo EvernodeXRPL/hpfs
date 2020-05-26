@@ -36,7 +36,6 @@ namespace hmap
             h32 root_hash;
             if (calculate_dir_hash(root_hash, "/") == -1)
                 return -1;
-            std::cout << "roothash:" << root_hash << "\n";
         }
 
         return 0;
