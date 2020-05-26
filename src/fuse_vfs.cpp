@@ -48,7 +48,8 @@ namespace fuse_vfs
 
         iovec payload{&mode, sizeof(mode)};
         if (logger::append_log(vpath, logger::FS_OPERATION::MKDIR, &payload) == -1 ||
-            vfs::build_vfs() == -1)
+            vfs::build_vfs() == -1 ||
+            hmap::apply_vnode_create(vpath) == -1)
             return -1;
 
         return 0;
@@ -71,7 +72,8 @@ namespace fuse_vfs
             return -ENOTEMPTY;
 
         if (logger::append_log(vpath, logger::FS_OPERATION::RMDIR) == -1 ||
-            vfs::build_vfs() == -1)
+            vfs::build_vfs() == -1 ||
+            hmap::apply_vnode_delete(vpath) == -1)
             return -1;
 
         return 0;
@@ -108,7 +110,8 @@ namespace fuse_vfs
             return -ENOENT;
 
         if (logger::append_log(vpath, logger::FS_OPERATION::UNLINK) == -1 ||
-            vfs::build_vfs() == -1)
+            vfs::build_vfs() == -1 ||
+            hmap::apply_vnode_delete(vpath) == -1)
             return -1;
 
         return 0;

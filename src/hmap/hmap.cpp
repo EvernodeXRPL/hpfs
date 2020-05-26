@@ -135,12 +135,11 @@ namespace hmap
     {
         char *path2 = strdup(vpath.c_str());
         const char *parent_path = dirname(path2);
-
-        // XOR old hash and new hash into parent hash.
         const auto iter = hash_map.find(parent_path);
         vnode_hmap &parent_hmap = iter->second;
 
-        // Remember the old parent hash and update it.
+        // XOR old hash and new hash into parent hash.
+        // Remember the old parent hash before updating it.
         const h32 parent_old_hash = parent_hmap.node_hash;
         parent_hmap.node_hash ^= old_hash;
         parent_hmap.node_hash ^= new_hash;
@@ -171,7 +170,7 @@ namespace hmap
     int apply_vnode_update(const std::string &vpath, const vfs::vnode &vn,
                            const off_t file_update_offset, const size_t file_update_size)
     {
-        auto iter = hash_map.find(vpath);
+        const auto iter = hash_map.find(vpath);
         vnode_hmap &node_hmap = iter->second;
         const h32 old_hash = node_hmap.node_hash; // Remember old hash before we modify.
 
@@ -225,6 +224,16 @@ namespace hmap
         for (const h32 &block_hash : node_hmap.block_hashes)
             node_hmap.node_hash ^= block_hash;
 
+        return 0;
+    }
+
+    int apply_vnode_delete(const std::string &vpath)
+    {
+        const auto iter = hash_map.find(vpath);
+        const h32 node_hash = iter->second.node_hash;
+        hash_map.erase(iter);
+
+        propogate_hash_update(vpath, node_hash, h32_empty);
         return 0;
     }
 
