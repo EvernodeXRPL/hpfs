@@ -5,6 +5,7 @@
 #include "vfs.hpp"
 #include "hpfs.hpp"
 #include "util.hpp"
+#include "hmap/hmap.hpp"
 
 namespace fuse_vfs
 {
@@ -47,7 +48,8 @@ namespace fuse_vfs
 
         iovec payload{&mode, sizeof(mode)};
         if (logger::append_log(vpath, logger::FS_OPERATION::MKDIR, &payload) == -1 ||
-            vfs::build_vfs() == -1)
+            vfs::build_vfs() == -1 ||
+            hmap::apply_vnode_create(vpath) == -1)
             return -1;
 
         return 0;
@@ -70,7 +72,8 @@ namespace fuse_vfs
             return -ENOTEMPTY;
 
         if (logger::append_log(vpath, logger::FS_OPERATION::RMDIR) == -1 ||
-            vfs::build_vfs() == -1)
+            vfs::build_vfs() == -1 ||
+            hmap::apply_vnode_delete(vpath) == -1)
             return -1;
 
         return 0;
@@ -89,7 +92,8 @@ namespace fuse_vfs
 
         iovec payload{(void *)to_vpath, strlen(to_vpath) + 1};
         if (logger::append_log(from_vpath, logger::FS_OPERATION::RENAME, &payload) == -1 ||
-            vfs::build_vfs() == -1)
+            vfs::build_vfs() == -1 ||
+            hmap::apply_vnode_rename(from_vpath, to_vpath) == -1)
             return -1;
 
         return 0;
@@ -107,7 +111,8 @@ namespace fuse_vfs
             return -ENOENT;
 
         if (logger::append_log(vpath, logger::FS_OPERATION::UNLINK) == -1 ||
-            vfs::build_vfs() == -1)
+            vfs::build_vfs() == -1 ||
+            hmap::apply_vnode_delete(vpath) == -1)
             return -1;
 
         return 0;
@@ -126,13 +131,14 @@ namespace fuse_vfs
 
         iovec payload{&mode, sizeof(mode)};
         if (logger::append_log(vpath, logger::FS_OPERATION::CREATE, &payload) == -1 ||
-            vfs::build_vfs() == -1)
+            vfs::build_vfs() == -1 ||
+            hmap::apply_vnode_create(vpath) == -1)
             return -1;
 
         return 0;
     }
 
-    int read(const char *vpath, char *buf, size_t size, off_t offset)
+    int read(const char *vpath, char *buf, const size_t size, const off_t offset)
     {
         vfs::vnode *vn;
         if (get_vnode(vpath, &vn) == -1)
@@ -142,9 +148,6 @@ namespace fuse_vfs
 
         if (vn->st.st_size == 0 || offset >= vn->st.st_size)
             return 0;
-
-        if (vfs::update_vnode_mmap(*vn) == -1)
-            return -1;
 
         size_t read_len = size;
         if ((offset + size) > vn->st.st_size)
@@ -166,9 +169,6 @@ namespace fuse_vfs
         if (!vn)
             return -ENOENT;
 
-        if (vfs::update_vnode_mmap(*vn) == -1)
-            return -1;
-
         // We prepare list of block buf segments based on where the write buf lies within the block buf.
         off_t block_buf_start = 0, block_buf_end = 0;
         std::vector<iovec> block_buf_segs;
@@ -182,13 +182,14 @@ namespace fuse_vfs
         iovec payload{&wh, sizeof(wh)};
         if (logger::append_log(vpath, logger::FS_OPERATION::WRITE, &payload,
                                block_buf_segs.data(), block_buf_segs.size()) == -1 ||
-            vfs::build_vfs() == -1)
+            vfs::build_vfs() == -1 ||
+            hmap::apply_vnode_update(vpath, *vn, wr_start, wr_size) == -1)
             return -1;
 
         return wr_size;
     }
 
-    int truncate(const char *vpath, off_t size)
+    int truncate(const char *vpath, const off_t new_size)
     {
         if (hpfs::ctx.run_mode != hpfs::RUN_MODE::RW)
             return -EACCES;
@@ -198,21 +199,21 @@ namespace fuse_vfs
             return -1;
         if (!vn)
             return -ENOENT;
+        size_t current_size = vn->st.st_size;
+        if (new_size == current_size)
+            return 0;
 
         std::vector<iovec> block_buf_segs;
-        logger::op_truncate_payload_header th{(size_t)size, 0, 0};
+        logger::op_truncate_payload_header th{(size_t)new_size, 0, 0};
 
-        if (size > vn->st.st_size)
+        if (new_size > current_size)
         {
             // If the new file size is bigger than old size, prepare a block buffer
             // so the extra NULL bytes can be mapped to memory.
 
-            if (vfs::update_vnode_mmap(*vn) == -1)
-                return -1;
-
             off_t block_buf_start = 0, block_buf_end = 0;
             vfs::populate_block_buf_segs(block_buf_segs, block_buf_start, block_buf_end,
-                                         NULL, 0, size, vn->st.st_size, (uint8_t *)vn->mmap.ptr);
+                                         NULL, 0, new_size, vn->st.st_size, (uint8_t *)vn->mmap.ptr);
 
             const size_t block_buf_size = block_buf_end - block_buf_start;
             th.mmap_block_offset = block_buf_start;
@@ -222,7 +223,10 @@ namespace fuse_vfs
         iovec payload{&th, sizeof(th)};
         if (logger::append_log(vpath, logger::FS_OPERATION::TRUNCATE, &payload,
                                block_buf_segs.data(), block_buf_segs.size()) == -1 ||
-            vfs::build_vfs() == -1)
+            vfs::build_vfs() == -1 ||
+            hmap::apply_vnode_update(vpath, *vn,
+                                     MIN(new_size, current_size),
+                                     MAX(0, new_size - current_size)) == -1)
             return -1;
 
         return 0;

@@ -18,6 +18,10 @@ hpfs is a [FUSE](https://www.kernel.org/doc/html/latest/filesystems/fuse.html)-b
 4. `meson .. && ninja`
 6. `sudo ninja install`
 
+#### Install blake2
+1. `sudo apt-get install -y autoconf libtool libtool-bin`
+2. Clone the [blake2b library](https://github.com/BLAKE2/libb2) and follow installation isntructions.
+
 #### Run ldconfig
 `sudo ldconfig`
 
