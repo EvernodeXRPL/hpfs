@@ -1,10 +1,10 @@
-#ifndef _HPFS_HMAP_H32_
-#define _HPFS_HMAP_H32_
+#ifndef _HPFS_HMAP_HASHER_
+#define _HPFS_HMAP_HASHER_
 
 #include <iostream>
 #include <sstream>
 
-namespace hmap
+namespace hmap::hasher
 {
 
     // blake2b hash is 32 bytes which we store as 4 quad words
@@ -20,7 +20,6 @@ namespace hmap
     extern h32 h32_empty;
 
     std::ostream &operator<<(std::ostream &output, const h32 &h);
-    std::stringstream &operator<<(std::stringstream &output, const h32 &h);
     int hash_buf(h32 &hash, const void *buf, const size_t len);
     int hash_buf(h32 &hash, const void *buf1, const size_t len1, const void *buf2, const size_t len2);
 

@@ -54,6 +54,7 @@
 #include "hpfs.hpp"
 #include "vfs.hpp"
 #include "fuse_vfs.hpp"
+#include "hmap/query.hpp"
 
 namespace fusefs
 {
@@ -83,6 +84,12 @@ namespace fusefs
 					struct fuse_file_info *fi)
 	{
 		(void)fi;
+
+		// Check whether this is a hash map query path.
+		const hmap::query::request req = hmap::query::parse_request_path(path);
+		if (req.mode != hmap::query::MODE::UNDEFINED)
+			return hmap::query::getattr(req, stbuf);
+
 		return fuse_vfs::getattr(path, stbuf);
 	}
 
@@ -169,6 +176,11 @@ namespace fusefs
 
 	int xmp_open(const char *path, struct fuse_file_info *fi)
 	{
+		// Check whether this is a hash map query path.
+		const hmap::query::request req = hmap::query::parse_request_path(path);
+		if (req.mode != hmap::query::MODE::UNDEFINED)
+			return 0;
+
 		// Check if file is being opened in truncate mode.
 		if (fi->flags & O_TRUNC)
 			fuse_vfs::truncate(path, 0);
@@ -179,6 +191,11 @@ namespace fusefs
 	int xmp_read(const char *path, char *buf, size_t size, off_t offset,
 				 struct fuse_file_info *fi)
 	{
+		// Check whether this is a hash map query path.
+		const hmap::query::request req = hmap::query::parse_request_path(path);
+		if (req.mode != hmap::query::MODE::UNDEFINED)
+			return hmap::query::read(req, buf, size);
+
 		return fuse_vfs::read(path, buf, size, offset);
 	}
 
