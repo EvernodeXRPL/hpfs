@@ -1,16 +1,18 @@
 #!/bin/bash
+# Test script to test hpfs filesystem operations.
+# Usage: ./test.sh
 
-fsdir=~/fs
-rwdir=~/rw
-rodir=~/ro
+fsdir=./testrun/fs
+rwdir=./testrun/rw
+rodir=./testrun/ro
 hpfs=./build/hpfs
 
-rm -r $fsdir > /dev/null 2>&1
+rm -r ./testrun > /dev/null 2>&1
 mkdir -p $fsdir/seed > /dev/null 2>&1
-mkdir $rwdir > /dev/null 2>&1
-mkdir $rodir > /dev/null 2>&1
+mkdir -p $rwdir > /dev/null 2>&1
+mkdir -p $rodir > /dev/null 2>&1
 
-echo "Create a seed text file with text."
+echo "Create a seed text file with random text."
 tr -dc A-Za-z0-9 </dev/urandom | head -c 10240 > $fsdir/seed/sample.txt
 
 echo "Start MERGE session."
@@ -68,6 +70,9 @@ kill $pid_merge
 sleep 1
 
 echo "Verify whether operations are merged to seed."
-echo "Reading dir2_renamed/copied.txt"
+echo "Reading seed/dir2_renamed/copied.txt"
 head -c 10 $fsdir/seed/dir2_renamed/copied.txt
 echo ""
+
+# Clean up test directory.
+rm -r ./testrun > /dev/null 2>&1
