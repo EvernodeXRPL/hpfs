@@ -2,6 +2,7 @@
 #include <limits.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <unistd.h>
 #include "hpfs.hpp"
 #include "util.hpp"
 #include "fusefs.hpp"
@@ -24,8 +25,8 @@ namespace hpfs
         {
             std::cerr << "Invalid arguments.\n";
             std::cout << "Usage:\n"
-                      << "hpfs [rw|merge|rdlog] [fsdir]\n"
-                      << "hpfs ro [fsdir] [mountdir]\n";
+                      << "hpfs [merge|rdlog] [fsdir]\n"
+                      << "hpfs [ro|rw] [fsdir] [mountdir] hmap=[true|false]\n";
             return -1;
         }
 
@@ -54,6 +55,16 @@ namespace hpfs
     int run_ro_rw_session(char *arg0)
     {
         int ret = 0;
+        bool remove_mount_dir = false;
+
+        if (!util::is_dir_exists(ctx.mount_dir))
+        {
+            // If specified mount directory does not exist, we will create it
+            // now and remove it upon exit.
+            if (mkdir(ctx.mount_dir.c_str(), DIR_PERMS) == -1)
+                return -1;
+            remove_mount_dir = true;
+        }
 
         if (vfs::init() == -1)
         {
@@ -67,12 +78,17 @@ namespace hpfs
             goto deinit_hmap;
         }
 
+        // This is a blocking call. This will exit when fuse_main receives a signal.
         ret = fusefs::init(arg0);
 
     deinit_hmap:
         hmap::deinit();
     deinit_vfs:
         vfs::deinit();
+
+        if (remove_mount_dir)
+            rmdir(ctx.mount_dir.c_str());
+
         return ret;
     }
 
@@ -81,12 +97,6 @@ namespace hpfs
         if (!util::is_dir_exists(ctx.fs_dir))
         {
             std::cerr << "Directory " << ctx.fs_dir << " does not exist.\n";
-            return -1;
-        }
-
-        if ((ctx.run_mode == RUN_MODE::RO || ctx.run_mode == RUN_MODE::RW) && !util::is_dir_exists(ctx.mount_dir))
-        {
-            std::cerr << "Directory " << ctx.mount_dir << " does not exist.\n";
             return -1;
         }
 
@@ -103,7 +113,7 @@ namespace hpfs
 
     int parse_cmd(int argc, char **argv)
     {
-        if (argc == 3 || argc == 4)
+        if (argc == 3 || argc == 5)
         {
             if (strcmp(argv[1], "ro") == 0)
                 ctx.run_mode = RUN_MODE::RO;
@@ -124,8 +134,15 @@ namespace hpfs
             {
                 return 0;
             }
-            else if (argc == 4 && (ctx.run_mode == RUN_MODE::RO || ctx.run_mode == RUN_MODE::RW))
+            else if (argc == 5 && (ctx.run_mode == RUN_MODE::RO || ctx.run_mode == RUN_MODE::RW))
             {
+                if (strcmp(argv[4], "hmap=true") == 0)
+                    ctx.hmap_enabled = true;
+                else if (strcmp(argv[4], "hmap=false") == 0)
+                    ctx.hmap_enabled = false;
+                else
+                    return -1;
+
                 realpath(argv[3], buf);
                 ctx.mount_dir = buf;
                 return 0;

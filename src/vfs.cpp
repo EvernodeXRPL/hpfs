@@ -39,9 +39,12 @@ namespace vfs
         stat(hpfs::ctx.seed_dir.c_str(), &default_stat);
         default_stat.st_nlink = 0;
         default_stat.st_size = 0;
-        default_stat.st_mode ^= S_IFDIR;
+        default_stat.st_mode ^= S_IFDIR; // Negate the entry type.
 
-        if (build_vfs() == -1)
+        // We always add the root ("/") as a very first entry in the vfs so
+        // it always have its inode number as 1.
+        vnode_map::iterator iter;
+        if (add_vnode_from_seed("/", iter) == -1 || build_vfs() == -1)
             return -1;
     }
 

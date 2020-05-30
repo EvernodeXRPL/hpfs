@@ -5,6 +5,7 @@
 #include <iostream>
 #include "../util.hpp"
 #include "../vfs.hpp"
+#include "../hpfs.hpp"
 #include "query.hpp"
 #include "hasher.hpp"
 #include "hmap.hpp"
@@ -22,6 +23,9 @@ namespace hmap::query
     request parse_request_path(const char *request_path)
     {
         request req{MODE::UNDEFINED};
+        if (!hpfs::ctx.hmap_enabled)
+            return req;
+
         const size_t len = strlen(request_path);
 
         const char *hash_match_start = request_path + len - HASH_REQUEST_PATTERN_LEN;
@@ -45,6 +49,9 @@ namespace hmap::query
 
     int getattr(const request &req, struct stat *stbuf)
     {
+        if (!hpfs::ctx.hmap_enabled)
+            return -1;
+
         vnode_hmap *node_hmap;
         if (get_vnode_hmap(&node_hmap, req.vpath) == -1)
             return -1;
@@ -82,6 +89,9 @@ namespace hmap::query
 
     int read(const request &req, char *buf, const size_t size)
     {
+        if (!hpfs::ctx.hmap_enabled)
+            return -1;
+
         vnode_hmap *node_hmap;
         if (get_vnode_hmap(&node_hmap, req.vpath) == -1)
             return -1;
@@ -106,6 +116,9 @@ namespace hmap::query
 
     int read_file_block_hashes(const vnode_hmap &node_hmap, char *buf, const size_t size)
     {
+        if (!hpfs::ctx.hmap_enabled)
+            return -1;
+
         const size_t read_len = MIN(size, sizeof(hmap::hasher::h32) * node_hmap.block_hashes.size());
         memcpy(buf, node_hmap.block_hashes.data(), read_len);
         return read_len;
@@ -113,6 +126,9 @@ namespace hmap::query
 
     int read_dir_children_hashes(const std::string &vpath, char *buf, const size_t size)
     {
+        if (!hpfs::ctx.hmap_enabled)
+            return -1;
+
         vfs::vdir_children_map dir_children;
         if (vfs::get_dir_children(vpath.c_str(), dir_children) == -1)
             return -1;

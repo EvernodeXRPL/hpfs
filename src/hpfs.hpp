@@ -18,8 +18,9 @@ namespace hpfs
     {
         RUN_MODE run_mode;
         std::string fs_dir;
-        std::string mount_dir;
         std::string seed_dir;
+        std::string mount_dir;
+        bool hmap_enabled;
     };
     extern hpfs_context ctx;
 
