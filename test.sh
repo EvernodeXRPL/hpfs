@@ -9,8 +9,6 @@ hpfs=./build/hpfs
 
 rm -r ./testrun > /dev/null 2>&1
 mkdir -p $fsdir/seed > /dev/null 2>&1
-mkdir -p $rwdir > /dev/null 2>&1
-mkdir -p $rodir > /dev/null 2>&1
 
 echo "Create a seed text file with random text."
 tr -dc A-Za-z0-9 </dev/urandom | head -c 10240 > $fsdir/seed/sample.txt
@@ -21,11 +19,11 @@ pid_merge=$!
 sleep 1
 
 echo "Start RW session."
-./$hpfs rw $fsdir $rwdir &
+./$hpfs rw $fsdir $rwdir hmap=true &
 pid_rw=$!
 
 echo "Start RO session 1."
-./$hpfs ro $fsdir $rodir &
+./$hpfs ro $fsdir $rodir hmap=true &
 pid_ro=$!
 
 sleep 1
@@ -55,7 +53,7 @@ kill $pid_ro
 sleep 1
 
 echo "Start RO session 2."
-./$hpfs ro $fsdir $rodir &
+./$hpfs ro $fsdir $rodir hmap=true &
 pid_ro=$!
 sleep 1
 
