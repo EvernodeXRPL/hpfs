@@ -25,8 +25,8 @@ namespace hpfs
         {
             std::cerr << "Invalid arguments.\n";
             std::cout << "Usage:\n"
-                      << "hpfs [rw|merge|rdlog] [fsdir]\n"
-                      << "hpfs ro [fsdir] [mountdir]\n";
+                      << "hpfs [merge|rdlog] [fsdir]\n"
+                      << "hpfs [ro|rw] [fsdir] [mountdir] hmap=[true|false]\n";
             return -1;
         }
 
@@ -113,7 +113,7 @@ namespace hpfs
 
     int parse_cmd(int argc, char **argv)
     {
-        if (argc == 3 || argc == 4)
+        if (argc == 3 || argc == 5)
         {
             if (strcmp(argv[1], "ro") == 0)
                 ctx.run_mode = RUN_MODE::RO;
@@ -134,8 +134,15 @@ namespace hpfs
             {
                 return 0;
             }
-            else if (argc == 4 && (ctx.run_mode == RUN_MODE::RO || ctx.run_mode == RUN_MODE::RW))
+            else if (argc == 5 && (ctx.run_mode == RUN_MODE::RO || ctx.run_mode == RUN_MODE::RW))
             {
+                if (strcmp(argv[4], "hmap=true") == 0)
+                    ctx.hmap_enabled = true;
+                else if (strcmp(argv[4], "hmap=false") == 0)
+                    ctx.hmap_enabled = false;
+                else
+                    return -1;
+
                 realpath(argv[3], buf);
                 ctx.mount_dir = buf;
                 return 0;
