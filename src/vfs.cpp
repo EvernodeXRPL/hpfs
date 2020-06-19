@@ -128,6 +128,10 @@ namespace vfs
 
     int build_vfs()
     {
+        // Return immediately if we have already reached last checkpoint in ReadOnly mode.
+        if (hpfs::ctx.run_mode == hpfs::RUN_MODE::RO && log_scanned_upto >= last_checkpoint)
+            return 0;
+
         // Scan log records and build up vnodes relevant to log records.
         off_t next_log_offset = log_scanned_upto;
 
