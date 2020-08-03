@@ -22,6 +22,11 @@ hpfs is a [FUSE](https://www.kernel.org/doc/html/latest/filesystems/fuse.html)-b
 1. `sudo apt-get install -y autoconf libtool libtool-bin`
 2. Clone the [blake2b library](https://github.com/BLAKE2/libb2) and follow installation isntructions.
 
+#### Install plog
+1. Download and extract [plog1.1.5](https://github.com/SergiusTheBest/plog/archive/1.1.5.zip)
+2. Navigate into the extracted directory in a terminal.
+3. Run `sudo cp -r include/plog /usr/local/include/`
+
 #### Run ldconfig
 `sudo ldconfig`
 

@@ -5,7 +5,6 @@
 
 namespace hpfs
 {
-
     enum RUN_MODE
     {
         RO,
@@ -14,9 +13,18 @@ namespace hpfs
         RDLOG
     };
 
+    enum TRACE_LEVEL
+    {
+        DEBUG,
+        INFO,
+        WARN,
+        ERROR
+    };
+
     struct hpfs_context
     {
         RUN_MODE run_mode;
+        TRACE_LEVEL trace_level;
         std::string fs_dir;
         std::string seed_dir;
         std::string mount_dir;
