@@ -302,7 +302,7 @@ namespace logger
         eof += record_len;
 
         LOG_DEBUG << "Appended log record."
-                  << "ts:" << std::to_string(rh.timestamp)
+                  << " ts:" << std::to_string(rh.timestamp)
                   << ", op:" << std::to_string(rh.operation)
                   << ", " << vpath
                   << ", payload_len: " << std::to_string(rh.payload_len)
@@ -323,7 +323,10 @@ namespace logger
         log_record_header rh;
         lseek(fd, read_offset, SEEK_SET);
         if (read(fd, &rh, sizeof(rh)) < sizeof(rh))
+        {
+            LOG_ERROR << errno << ": error reading log file.";
             return -1;
+        }
 
         record.offset = read_offset;
         record.size = sizeof(rh) + rh.vpath_len + rh.payload_len + rh.block_data_padding_len + rh.block_data_len;
@@ -339,7 +342,11 @@ namespace logger
         std::string vpath;
         vpath.resize(rh.vpath_len);
         if (read(fd, vpath.data(), rh.vpath_len) < rh.vpath_len)
+        {
+            LOG_ERROR << errno << ": error reading log file.";
             return -1;
+        }
+
         record.vpath = std::move(vpath);
 
         if (record.offset + record.size == eof)
@@ -356,7 +363,10 @@ namespace logger
         {
             payload.resize(record.payload_len);
             if (pread(fd, payload.data(), record.payload_len, record.payload_offset) < record.payload_len)
+            {
+                LOG_ERROR << errno << ": error reading log record payload.";
                 return -1;
+            }
         }
 
         return 0;
@@ -364,9 +374,14 @@ namespace logger
 
     int purge_log(const log_record &record)
     {
+        LOG_DEBUG << "Purging log record... [" << record.vpath << " op:" << record.operation << "]";
+
         if (fallocate(fd, FALLOC_FL_PUNCH_HOLE | FALLOC_FL_KEEP_SIZE,
                       record.offset, record.size) == -1)
+        {
+            LOG_ERROR << errno << ": fallocate error in purging log record.";
             return -1;
+        }
 
         if (record.offset == header.last_record) // This was the last remaining record
         {
@@ -381,7 +396,12 @@ namespace logger
         }
 
         if (commit_header() == -1)
+        {
+            LOG_ERROR << errno << ": error when updating header after purge.";
             return -1;
+        }
+
+        LOG_DEBUG << "Purge complete.";
 
         return 0;
     }

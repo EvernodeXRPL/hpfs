@@ -59,14 +59,20 @@ namespace hpfs
     {
         int ret = 0;
         bool remove_mount_dir = false;
+        
+        LOG_INFO << "Starting hpfs " << ((ctx.run_mode == RUN_MODE::RW) ? "RW" : "RO") << " session...";
 
         if (!util::is_dir_exists(ctx.mount_dir))
         {
             // If specified mount directory does not exist, we will create it
             // now and remove it upon exit.
             if (mkdir(ctx.mount_dir.c_str(), DIR_PERMS) == -1)
+            {
+                LOG_ERROR << errno << ": Error creating mount dir: " << ctx.mount_dir;
                 return -1;
+            }
             remove_mount_dir = true;
+            LOG_DEBUG << "Mount dir created: " << ctx.mount_dir;
         }
 
         if (vfs::init() == -1)
@@ -75,14 +81,22 @@ namespace hpfs
             goto deinit_vfs;
         }
 
+        LOG_DEBUG << "VFS init complete.";
+
         if (hmap::init() == -1)
         {
             ret = -1;
             goto deinit_hmap;
         }
 
+        LOG_DEBUG << "Hashmap init complete.";
+
+        LOG_INFO << "hpfs " << ((ctx.run_mode == RUN_MODE::RW) ? "RW" : "RO") << " session started.";
+
         // This is a blocking call. This will exit when fuse_main receives a signal.
         ret = fusefs::init(arg0);
+
+        LOG_INFO << "Ended FUSE session.";
 
     deinit_hmap:
         hmap::deinit();
