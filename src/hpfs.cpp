@@ -31,7 +31,8 @@ namespace hpfs
             return -1;
         }
 
-        tracelog::init();
+        if (tracelog::init() == -1)
+            std::cerr << errno << ": hpfs trace log init failed.";
 
         if (vaidate_context() == -1 || logger::init() == -1)
             return -1;
@@ -59,7 +60,7 @@ namespace hpfs
     {
         int ret = 0;
         bool remove_mount_dir = false;
-        
+
         LOG_INFO << "Starting hpfs " << ((ctx.run_mode == RUN_MODE::RW) ? "RW" : "RO") << " session...";
 
         if (!util::is_dir_exists(ctx.mount_dir))
@@ -150,6 +151,8 @@ namespace hpfs
             const char *trace_arg = argv[argc - 1];
             if (strcmp(trace_arg, "trace=debug") == 0)
                 ctx.trace_level = TRACE_LEVEL::DEBUG;
+            else if (strcmp(trace_arg, "trace=none") == 0)
+                ctx.trace_level = TRACE_LEVEL::NONE;
             else if (strcmp(trace_arg, "trace=info") == 0)
                 ctx.trace_level = TRACE_LEVEL::INFO;
             else if (strcmp(trace_arg, "trace=warn") == 0)

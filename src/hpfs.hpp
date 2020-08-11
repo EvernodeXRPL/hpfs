@@ -15,6 +15,7 @@ namespace hpfs
 
     enum TRACE_LEVEL
     {
+        NONE,
         DEBUG,
         INFO,
         WARN,

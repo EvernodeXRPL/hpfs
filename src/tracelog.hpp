@@ -6,7 +6,7 @@
 namespace tracelog
 {
 
-    void init();
+    int init();
 
 } // namespace tracelog
 
