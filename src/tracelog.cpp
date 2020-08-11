@@ -8,6 +8,52 @@ namespace tracelog
     constexpr size_t MAX_TRACE_FILECOUNT = 10;
     constexpr int DIR_PERMS = 0755;
 
+    // Custom formatter adopted from:
+    // https://github.com/SergiusTheBest/plog/blob/master/include/plog/Formatters/TxtFormatter.h
+    class hpfs_plog_formatter
+    {
+    public:
+        static plog::util::nstring header()
+        {
+            return plog::util::nstring();
+        }
+
+        static inline const char *severityToString(plog::Severity severity)
+        {
+            switch (severity)
+            {
+            case plog::Severity::fatal:
+                return "fat";
+            case plog::Severity::error:
+                return "err";
+            case plog::Severity::warning:
+                return "wrn";
+            case plog::Severity::info:
+                return "inf";
+            case plog::Severity::debug:
+                return "dbg";
+            case plog::Severity::verbose:
+                return "ver";
+            default:
+                return "def";
+            }
+        }
+
+        static plog::util::nstring format(const plog::Record &record)
+        {
+            tm t;
+            plog::util::localtime_s(&t, &record.getTime().time); // local time
+
+            plog::util::nostringstream ss;
+            ss << t.tm_year + 1900 << std::setfill(PLOG_NSTR('0')) << std::setw(2) << t.tm_mon + 1 << std::setfill(PLOG_NSTR('0')) << std::setw(2) << t.tm_mday << PLOG_NSTR(" ");
+            ss << std::setfill(PLOG_NSTR('0')) << std::setw(2) << t.tm_hour << PLOG_NSTR(":") << std::setfill(PLOG_NSTR('0')) << std::setw(2) << t.tm_min << PLOG_NSTR(":") << std::setfill(PLOG_NSTR('0')) << std::setw(2) << t.tm_sec << PLOG_NSTR(" ");
+            ss << PLOG_NSTR("[") << severityToString(record.getSeverity()) << PLOG_NSTR("] ");
+            ss << record.getMessage() << PLOG_NSTR("\n");
+
+            return ss.str();
+        }
+    };
+
     int init()
     {
         if (hpfs::ctx.trace_level == hpfs::TRACE_LEVEL::NONE)
@@ -36,7 +82,7 @@ namespace tracelog
         std::string trace_file;
         trace_file.append(trace_dir).append(pid_str).append(".log");
 
-        plog::init(level, trace_file.c_str(), MAX_TRACE_FILESIZE, MAX_TRACE_FILECOUNT);
+        plog::init<hpfs_plog_formatter>(level, trace_file.c_str(), MAX_TRACE_FILESIZE, MAX_TRACE_FILECOUNT);
         return 0;
     }
 
