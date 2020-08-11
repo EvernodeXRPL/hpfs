@@ -10,6 +10,7 @@
 #include "merger.hpp"
 #include "vfs.hpp"
 #include "hmap/hmap.hpp"
+#include "tracelog.hpp"
 
 namespace hpfs
 {
@@ -25,10 +26,13 @@ namespace hpfs
         {
             std::cerr << "Invalid arguments.\n";
             std::cout << "Usage:\n"
-                      << "hpfs [merge|rdlog] [fsdir]\n"
-                      << "hpfs [ro|rw] [fsdir] [mountdir] hmap=[true|false]\n";
+                      << "hpfs [merge|rdlog] [fsdir] trace=[debug|info|warn|error]\n"
+                      << "hpfs [ro|rw] [fsdir] [mountdir] hmap=[true|false] trace=[debug|info|warn|error]\n";
             return -1;
         }
+
+        if (tracelog::init() == -1)
+            std::cerr << errno << ": hpfs trace log init failed.";
 
         if (vaidate_context() == -1 || logger::init() == -1)
             return -1;
@@ -57,13 +61,19 @@ namespace hpfs
         int ret = 0;
         bool remove_mount_dir = false;
 
+        LOG_INFO << "Starting hpfs " << ((ctx.run_mode == RUN_MODE::RW) ? "RW" : "RO") << " session...";
+
         if (!util::is_dir_exists(ctx.mount_dir))
         {
             // If specified mount directory does not exist, we will create it
             // now and remove it upon exit.
             if (mkdir(ctx.mount_dir.c_str(), DIR_PERMS) == -1)
+            {
+                LOG_ERROR << errno << ": Error creating mount dir: " << ctx.mount_dir;
                 return -1;
+            }
             remove_mount_dir = true;
+            LOG_DEBUG << "Mount dir created: " << ctx.mount_dir;
         }
 
         if (vfs::init() == -1)
@@ -72,14 +82,22 @@ namespace hpfs
             goto deinit_vfs;
         }
 
+        LOG_DEBUG << "VFS init complete.";
+
         if (hmap::init() == -1)
         {
             ret = -1;
             goto deinit_hmap;
         }
 
+        LOG_DEBUG << "Hashmap init complete.";
+
+        LOG_INFO << "hpfs " << ((ctx.run_mode == RUN_MODE::RW) ? "RW" : "RO") << " session started.";
+
         // This is a blocking call. This will exit when fuse_main receives a signal.
         ret = fusefs::init(arg0);
+
+        LOG_INFO << "Ended FUSE session.";
 
     deinit_hmap:
         hmap::deinit();
@@ -113,7 +131,7 @@ namespace hpfs
 
     int parse_cmd(int argc, char **argv)
     {
-        if (argc == 3 || argc == 5)
+        if (argc == 4 || argc == 6)
         {
             if (strcmp(argv[1], "ro") == 0)
                 ctx.run_mode = RUN_MODE::RO;
@@ -130,11 +148,25 @@ namespace hpfs
             realpath(argv[2], buf);
             ctx.fs_dir = buf;
 
-            if (argc == 3 && (ctx.run_mode == RUN_MODE::MERGE || ctx.run_mode == RUN_MODE::RDLOG))
+            const char *trace_arg = argv[argc - 1];
+            if (strcmp(trace_arg, "trace=debug") == 0)
+                ctx.trace_level = TRACE_LEVEL::DEBUG;
+            else if (strcmp(trace_arg, "trace=none") == 0)
+                ctx.trace_level = TRACE_LEVEL::NONE;
+            else if (strcmp(trace_arg, "trace=info") == 0)
+                ctx.trace_level = TRACE_LEVEL::INFO;
+            else if (strcmp(trace_arg, "trace=warn") == 0)
+                ctx.trace_level = TRACE_LEVEL::WARN;
+            else if (strcmp(trace_arg, "trace=error") == 0)
+                ctx.trace_level = TRACE_LEVEL::ERROR;
+            else
+                return -1;
+
+            if (argc == 4 && (ctx.run_mode == RUN_MODE::MERGE || ctx.run_mode == RUN_MODE::RDLOG))
             {
                 return 0;
             }
-            else if (argc == 5 && (ctx.run_mode == RUN_MODE::RO || ctx.run_mode == RUN_MODE::RW))
+            else if (argc == 6 && (ctx.run_mode == RUN_MODE::RO || ctx.run_mode == RUN_MODE::RW))
             {
                 if (strcmp(argv[4], "hmap=true") == 0)
                     ctx.hmap_enabled = true;

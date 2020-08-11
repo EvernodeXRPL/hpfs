@@ -10,6 +10,7 @@
 #include "hpfs.hpp"
 #include "logger.hpp"
 #include "util.hpp"
+#include "tracelog.hpp"
 
 namespace logger
 {
@@ -32,8 +33,12 @@ namespace logger
         if ((hpfs::ctx.run_mode == hpfs::RUN_MODE::RW ||
              hpfs::ctx.run_mode == hpfs::RUN_MODE::RO) &&
             set_lock(session_lock, LOCK_TYPE::SESSION_LOCK) == -1)
+        {
+            LOG_ERROR << errno << ": eror acquiring RO/RW session lock.";
             return -1;
+        }
 
+        LOG_INFO << "Initialized log file.";
         return 0;
     }
 
@@ -57,6 +62,8 @@ namespace logger
             release_lock(session_lock);
 
         close(fd);
+
+        LOG_INFO << "Log file deinit complete.";
     }
 
     int load_log_file()
@@ -66,39 +73,57 @@ namespace logger
         // Open or create the log file.
         const int res = open(log_file_path.c_str(), O_CREAT | O_RDWR, FILE_PERMS);
         if (res == -1)
+        {
+            LOG_ERROR << errno << ": log file open error.";
             return -1;
+        }
         fd = res;
 
         flock header_lock;
 
         // Acquire header rw lock.
         if (set_lock(header_lock, LOCK_TYPE::UPDATE_LOCK) == -1)
+        {
+            LOG_ERROR << errno << ": error acquiring header write lock.";
             return -1;
+        }
 
         struct stat st;
         if (fstat(fd, &st) == -1)
+        {
+            LOG_ERROR << errno << ": error in stat of log file.";
             return -1;
+        }
 
         if (st.st_size == 0) // If file is empty, write the initial header.
         {
             memset(&header, 0, sizeof(header));
             header.version = HPFS_VERSION;
             if (commit_header() == -1)
+            {
+                LOG_ERROR << errno << ": error when writing header.";
                 return -1;
+            }
 
             eof = sizeof(header);
         }
         else
         {
             if (read_header() == -1)
+            {
+                LOG_ERROR << errno << ": error when reading header.";
                 return -1;
+            }
 
             eof = st.st_size;
         }
 
         // Release header rw lock.
         if (release_lock(header_lock) == -1)
+        {
+            LOG_ERROR << errno << ": error when releasing header write lock.";
             return -1;
+        }
 
         return 0;
     }
@@ -215,7 +240,10 @@ namespace logger
         // Append log record at current end of file.
         if (ftruncate(fd, eof + record_len) == -1 || // Extend the file size to fit entire record.
             pwritev(fd, record_bufs.data(), record_bufs.size(), eof) == -1)
+        {
+            LOG_ERROR << errno << ": error appending log record.";
             return -1;
+        }
 
         // Punch hole for block data padding.
         if (rh.block_data_padding_len > 0)
@@ -225,7 +253,10 @@ namespace logger
                           FALLOC_FL_PUNCH_HOLE | FALLOC_FL_KEEP_SIZE,
                           block_data_padding_start,
                           rh.block_data_padding_len) == -1)
+            {
+                LOG_ERROR << errno << ": error in punch hole of block data padding.";
                 return -1;
+            }
         }
 
         // Append block data bufs.
@@ -236,13 +267,18 @@ namespace logger
             {
                 iovec block_buf = block_bufs[i];
                 if (block_buf.iov_base && pwrite(fd, block_buf.iov_base, block_buf.iov_len, write_offset) == -1)
+                {
+                    LOG_ERROR << errno << ": error in writing block data.";
                     return -1;
-
+                }
                 else if (!block_buf.iov_base && fallocate(fd,
                                                           FALLOC_FL_PUNCH_HOLE | FALLOC_FL_KEEP_SIZE,
                                                           write_offset,
                                                           block_buf.iov_len) == -1)
+                {
+                    LOG_ERROR << errno << ": error in punch hole of block data.";
                     return -1;
+                }
 
                 write_offset += block_buf.iov_len;
             }
@@ -257,11 +293,20 @@ namespace logger
         if (set_lock(header_lock, LOCK_TYPE::UPDATE_LOCK) == -1 ||
             commit_header() == -1 ||
             release_lock(header_lock) == -1)
+        {
+            LOG_ERROR << errno << ": error updating header during append log.";
             return -1;
+        }
 
         // Calculate new end of file.
         eof += record_len;
 
+        LOG_DEBUG << "Appended log record."
+                  << " ts:" << std::to_string(rh.timestamp)
+                  << ", op:" << std::to_string(rh.operation)
+                  << ", " << vpath
+                  << ", payload_len: " << std::to_string(rh.payload_len)
+                  << ", blkdata_len: " << std::to_string(rh.block_data_len);
         return 0;
     }
 
@@ -278,7 +323,10 @@ namespace logger
         log_record_header rh;
         lseek(fd, read_offset, SEEK_SET);
         if (read(fd, &rh, sizeof(rh)) < sizeof(rh))
+        {
+            LOG_ERROR << errno << ": error reading log file.";
             return -1;
+        }
 
         record.offset = read_offset;
         record.size = sizeof(rh) + rh.vpath_len + rh.payload_len + rh.block_data_padding_len + rh.block_data_len;
@@ -294,7 +342,11 @@ namespace logger
         std::string vpath;
         vpath.resize(rh.vpath_len);
         if (read(fd, vpath.data(), rh.vpath_len) < rh.vpath_len)
+        {
+            LOG_ERROR << errno << ": error reading log file.";
             return -1;
+        }
+
         record.vpath = std::move(vpath);
 
         if (record.offset + record.size == eof)
@@ -311,7 +363,10 @@ namespace logger
         {
             payload.resize(record.payload_len);
             if (pread(fd, payload.data(), record.payload_len, record.payload_offset) < record.payload_len)
+            {
+                LOG_ERROR << errno << ": error reading log record payload.";
                 return -1;
+            }
         }
 
         return 0;
@@ -319,9 +374,14 @@ namespace logger
 
     int purge_log(const log_record &record)
     {
+        LOG_DEBUG << "Purging log record... [" << record.vpath << " op:" << record.operation << "]";
+
         if (fallocate(fd, FALLOC_FL_PUNCH_HOLE | FALLOC_FL_KEEP_SIZE,
                       record.offset, record.size) == -1)
+        {
+            LOG_ERROR << errno << ": fallocate error in purging log record.";
             return -1;
+        }
 
         if (record.offset == header.last_record) // This was the last remaining record
         {
@@ -336,7 +396,12 @@ namespace logger
         }
 
         if (commit_header() == -1)
+        {
+            LOG_ERROR << errno << ": error when updating header after purge.";
             return -1;
+        }
+
+        LOG_DEBUG << "Purge complete.";
 
         return 0;
     }

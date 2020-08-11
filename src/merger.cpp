@@ -7,6 +7,7 @@
 #include "merger.hpp"
 #include "hpfs.hpp"
 #include "logger.hpp"
+#include "tracelog.hpp"
 
 namespace merger
 {
@@ -14,6 +15,8 @@ namespace merger
 
     int init()
     {
+        LOG_INFO << "hpfs merge process started.";
+
         while (true)
         {
             if (usleep(CHECK_INTERVAL) == -1)
@@ -46,13 +49,22 @@ namespace merger
         if (logger::set_lock(header_lock, logger::LOCK_TYPE::MERGE_LOCK) == -1)
             return -1;
 
-        if (logger::read_header() == -1 ||                 // Read the latest header information.
-            logger::header.first_record == 0 ||            // No records in log file.
-            logger::read_log_at(off, off, record) == -1 || // Read the first log record (oldest).
-            logger::read_payload(payload, record) == -1 || // Read any associated payload.
+        if (logger::read_header() == -1 ||               // Read the latest header information.
+            logger::header.first_record == 0 ||          // No records in log file.
+            logger::read_log_at(off, off, record) == -1) // Read the first log record (oldest).
+        {
+            // There no records to read.
+            
+            logger::release_lock(header_lock);
+            return -1;
+        }
+
+        if (logger::read_payload(payload, record) == -1 || // Read any associated payload.
             merge_log_record(record, payload) == -1 ||     // Merge the record with the seed.
             logger::purge_log(record) == -1)               // Purge the log record and update the header.
         {
+            LOG_ERROR << errno << ": Error merging log record.";
+
             // Release the header lock even if something fails.
             logger::release_lock(header_lock);
             return -1;
@@ -66,6 +78,8 @@ namespace merger
      */
     int merge_log_record(const logger::log_record &record, const std::vector<uint8_t> payload)
     {
+        LOG_DEBUG << "Merging log record... [" << record.vpath << " op:" << record.operation << "]";
+
         const std::string seed_path_str = std::string(hpfs::ctx.seed_dir).append(record.vpath);
         const char *seed_path = seed_path_str.c_str();
 
@@ -131,6 +145,8 @@ namespace merger
             break;
         }
         }
+
+        LOG_DEBUG << "Merge complete.";
 
         return 0;
     }
