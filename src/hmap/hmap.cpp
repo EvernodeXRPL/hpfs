@@ -8,6 +8,7 @@
 #include <libgen.h>
 #include <math.h>
 #include "hasher.hpp"
+#include "store.hpp"
 #include "hmap.hpp"
 #include "../hpfs.hpp"
 #include "../util.hpp"
@@ -16,24 +17,16 @@
 namespace hmap
 {
     constexpr size_t BLOCK_SIZE = 4194304; // 4MB
-    constexpr const char *HASH_MAP_CACHE_FILE_EXT = ".hcache";
-    constexpr int FILE_PERMS = 0644;
 
     // Hash maps of vnodes keyed by the vpath.
     std::unordered_map<std::string, vnode_hmap> hash_map;
-
-    // List of vpaths with modifications (including deletions) during the session.
-    std::unordered_set<std::string> dirty_vpaths;
 
     int init()
     {
         if (!hpfs::ctx.hmap_enabled)
             return 0;
 
-        // Calculate the hash map for the filesystem from scratch.
-        // TODO: We need to load the hash map from persisted cache.
-        hasher::h32 root_hash;
-        return calculate_dir_hash(root_hash, "/");
+        return 0;
     }
 
     void deinit()
@@ -42,7 +35,7 @@ namespace hmap
             return;
 
         // Persist any hash map updates to the disk.
-        persist_hash_maps();
+        store::persist_hash_maps();
     }
 
     int get_vnode_hmap(vnode_hmap **node_hmap, const std::string &vpath)
@@ -131,7 +124,7 @@ namespace hmap
         const hasher::h32 parent_old_hash = parent_hmap.node_hash;
         parent_hmap.node_hash ^= old_hash;
         parent_hmap.node_hash ^= new_hash;
-        dirty_vpaths.emplace(parent_path);
+        store::set_dirty(parent_path);
 
         if (strcmp(parent_path, "/") != 0)
             propogate_hash_update(parent_path, parent_old_hash, parent_hmap.node_hash);
@@ -153,7 +146,7 @@ namespace hmap
         if (hash_buf(hash, vpath.c_str(), vpath.length()) == -1)
             return -1;
         hash_map.try_emplace(vpath, vnode_hmap{is_file, hash, hash});
-        dirty_vpaths.emplace(vpath);
+        store::set_dirty(vpath);
 
         propogate_hash_update(vpath, hasher::h32_empty, hash);
     }
@@ -247,7 +240,7 @@ namespace hmap
         const auto iter = hash_map.find(from_vpath);
         vnode_hmap node_hmap = iter->second;
         hash_map.erase(iter);
-        dirty_vpaths.emplace(from_vpath);
+        store::set_dirty(from_vpath);
 
         // Update hash map with removed node hash.
         propogate_hash_update(from_vpath, node_hmap.node_hash, hasher::h32_empty);
@@ -262,61 +255,7 @@ namespace hmap
         propogate_hash_update(to_vpath, hasher::h32_empty, node_hmap.node_hash);
 
         hash_map.try_emplace(to_vpath, std::move(node_hmap));
-        dirty_vpaths.emplace(to_vpath);
-
-        return 0;
-    }
-
-    int persist_hash_maps()
-    {
-        for (const std::string &vpath : dirty_vpaths)
-        {
-            hasher::h32 vpath_hash;
-            const auto iter = hash_map.find(vpath);
-
-            if (iter == hash_map.end())
-                hash_buf(vpath_hash, vpath.data(), vpath.size());
-            else
-                vpath_hash = iter->second.vpath_hash;
-
-            std::string cache_filename;
-            cache_filename
-                .append(hpfs::ctx.hmap_dir)
-                .append("/")
-                .append(vpath_hash.to_hex())
-                .append(HASH_MAP_CACHE_FILE_EXT);
-
-            if (iter == hash_map.end())
-            {
-                // This means the hash map has been deleted. So we should erase the cache file.
-                if (unlink(cache_filename.c_str()) == -1)
-                    return -1;
-            }
-            else
-            {
-                if (persist_hash_map_cache_file(iter->second, cache_filename) == -1)
-                    return -1;
-            }
-        }
-
-        return 0;
-    }
-
-    int persist_hash_map_cache_file(const vnode_hmap &node_hmap, const std::string &filename)
-    {
-        const int fd = open(filename.c_str(), O_CREAT | O_TRUNC | O_RDWR, FILE_PERMS);
-        if (fd == -1)
-            return -1;
-
-        const uint8_t is_file = node_hmap.is_file ? 1 : 0;
-
-        iovec memsegs[4] = {{(void *)&is_file, sizeof(is_file)},
-                            {(void *)&node_hmap.node_hash, sizeof(hasher::h32)},
-                            {(void *)&node_hmap.vpath_hash, sizeof(hasher::h32)},
-                            {(void *)node_hmap.block_hashes.data(), sizeof(hasher::h32) * node_hmap.block_hashes.size()}};
-
-        if (writev(fd, memsegs, 4) == -1)
-            return -1;
+        store::set_dirty(to_vpath);
 
         return 0;
     }
