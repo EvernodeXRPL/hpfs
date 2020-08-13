@@ -29,6 +29,8 @@ namespace hmap
                                const off_t update_offset, const size_t update_size);
     int apply_vnode_delete(const std::string &vpath);
     int apply_vnode_rename(const std::string &from_vpath, const std::string &to_vpath);
+    int persist_hash_maps();
+    int persist_hash_map_cache_file(const vnode_hmap &node_hmap, const std::string &filename);
 
 } // namespace hmap
 

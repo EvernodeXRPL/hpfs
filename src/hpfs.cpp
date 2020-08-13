@@ -17,6 +17,7 @@ namespace hpfs
 
     constexpr const char *SEED_DIR_NAME = "seed";
     constexpr const char *TRACE_DIR_NAME = "trace";
+    constexpr const char *HMAP_DIR_NAME = "hmap";
     constexpr int DIR_PERMS = 0755;
 
     hpfs_context ctx;
@@ -118,6 +119,7 @@ namespace hpfs
 
         ctx.seed_dir.append(ctx.fs_dir).append("/").append(SEED_DIR_NAME);
         ctx.trace_dir.append(ctx.fs_dir).append("/").append(TRACE_DIR_NAME);
+        ctx.hmap_dir.append(ctx.fs_dir).append("/").append(HMAP_DIR_NAME);
 
         if (!util::is_dir_exists(ctx.seed_dir) && mkdir(ctx.seed_dir.c_str(), DIR_PERMS) == -1)
         {
@@ -129,6 +131,13 @@ namespace hpfs
             !util::is_dir_exists(ctx.trace_dir) && mkdir(ctx.trace_dir.c_str(), DIR_PERMS) == -1)
         {
             std::cerr << "Directory " << ctx.trace_dir << " cannot be located.\n";
+            return -1;
+        }
+
+        if (ctx.hmap_enabled &&
+            !util::is_dir_exists(ctx.hmap_dir) && mkdir(ctx.hmap_dir.c_str(), DIR_PERMS) == -1)
+        {
+            std::cerr << "Directory " << ctx.hmap_dir << " cannot be located.\n";
             return -1;
         }
 

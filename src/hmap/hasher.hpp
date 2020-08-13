@@ -16,6 +16,7 @@ namespace hmap::hasher
         bool operator==(const h32 rhs) const;
         bool operator!=(const h32 rhs) const;
         void operator^=(const h32 rhs);
+        std::string to_hex() const;
     };
     extern h32 h32_empty;
 
