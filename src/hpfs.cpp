@@ -16,6 +16,7 @@ namespace hpfs
 {
 
     constexpr const char *SEED_DIR_NAME = "seed";
+    constexpr const char *TRACE_DIR_NAME = "trace";
     constexpr int DIR_PERMS = 0755;
 
     hpfs_context ctx;
@@ -31,10 +32,7 @@ namespace hpfs
             return -1;
         }
 
-        if (tracelog::init() == -1)
-            std::cerr << errno << ": hpfs trace log init failed.";
-
-        if (vaidate_context() == -1 || logger::init() == -1)
+        if (vaidate_context() == -1 || tracelog::init() == -1 || logger::init() == -1)
             return -1;
 
         int ret = 0;
@@ -119,10 +117,18 @@ namespace hpfs
         }
 
         ctx.seed_dir.append(ctx.fs_dir).append("/").append(SEED_DIR_NAME);
+        ctx.trace_dir.append(ctx.fs_dir).append("/").append(TRACE_DIR_NAME);
 
         if (!util::is_dir_exists(ctx.seed_dir) && mkdir(ctx.seed_dir.c_str(), DIR_PERMS) == -1)
         {
             std::cerr << "Directory " << ctx.seed_dir << " cannot be located.\n";
+            return -1;
+        }
+
+        if (ctx.trace_level != TRACE_LEVEL::NONE &&
+            !util::is_dir_exists(ctx.trace_dir) && mkdir(ctx.trace_dir.c_str(), DIR_PERMS) == -1)
+        {
+            std::cerr << "Directory " << ctx.trace_dir << " cannot be located.\n";
             return -1;
         }
 
