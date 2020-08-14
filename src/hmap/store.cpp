@@ -67,14 +67,12 @@ namespace hmap::store
 
             if (iter == hash_map.end())
             {
-                std::cout << "Deleted " << vpath << "\n";
                 // This means the hash map has been deleted. So we should erase the cache file.
                 if (unlink(cache_filename.c_str()) == -1)
                     return -1;
             }
             else
             {
-                std::cout << "updated " << vpath << "\n";
                 if (persist_hash_map_cache_file(iter->second, cache_filename) == -1)
                     return -1;
             }
