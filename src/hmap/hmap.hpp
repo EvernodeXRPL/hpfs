@@ -12,8 +12,6 @@ namespace hmap
     int init();
     void deinit();
     int get_vnode_hmap(store::vnode_hmap **node_hmap, const std::string &vpath);
-    int calculate_dir_hash(hasher::h32 &node_hash, const std::string &vpath);
-    int calculate_file_hash(hasher::h32 &node_hash, const std::string &vpath);
     void propogate_hash_update(const std::string &vpath, const hasher::h32 &old_hash, const hasher::h32 &new_hash);
     int apply_vnode_create(const std::string &vpath);
     int apply_vnode_update(const std::string &vpath, const vfs::vnode &vn,
