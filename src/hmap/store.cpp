@@ -10,12 +10,32 @@ namespace hmap::store
     constexpr const char *HASH_MAP_CACHE_FILE_EXT = ".hcache";
     constexpr int FILE_PERMS = 0644;
 
+    // Hash maps of vnodes keyed by the vpath.
+    std::unordered_map<std::string, vnode_hmap> hash_map;
+
     // List of vpaths with modifications (including deletions) during the session.
     std::unordered_set<std::string> dirty_vpaths;
 
     void set_dirty(const std::string &vpath)
     {
         dirty_vpaths.emplace(vpath);
+    }
+
+    vnode_hmap *find_hash_map(const std::string &vpath)
+    {
+        const auto iter = hash_map.find(vpath);
+        vnode_hmap *node_hmap = (iter == hash_map.end()) ? NULL : &iter->second;
+        return node_hmap;
+    }
+
+    void erase_hash_map(const std::string &vpath)
+    {
+        hash_map.erase(vpath);
+    }
+
+    void insert_hash_map(const std::string &vpath, vnode_hmap &&node_hmap)
+    {
+        hash_map.try_emplace(vpath, std::move(node_hmap));
     }
 
     int persist_hash_maps()

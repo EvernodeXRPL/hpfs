@@ -25,6 +25,7 @@ add_executable(hpfs
     src/fusefs.cpp
     src/merger.cpp
     src/hmap/hasher.cpp
+    src/hmap/store.cpp
     src/hmap/query.cpp
     src/hmap/hmap.cpp
     src/hpfs.cpp
