@@ -21,7 +21,8 @@ namespace hmap::store
     void insert_hash_map(const std::string &vpath, vnode_hmap &&node_hmap);
     int persist_hash_maps();
     int persist_hash_map_cache_file(const vnode_hmap &node_hmap, const std::string &filename);
-    std::string get_vpath_hash_name(const std::string &vpath);
+    int read_hash_map_cache_file(vnode_hmap &node_hmap, const std::string &vpath);
+    std::string get_vpath_cache_filename(const hasher::h32 vpath_hash);
 } // namespace hmap::store
 
 #endif

@@ -23,7 +23,20 @@ namespace hmap::store
 
     vnode_hmap *find_hash_map(const std::string &vpath)
     {
-        const auto iter = hash_map.find(vpath);
+        auto iter = hash_map.find(vpath);
+
+        if (iter == hash_map.end())
+        {
+            // Attempt to load from persisted cache.
+            vnode_hmap cached_hmap;
+            int res = read_hash_map_cache_file(cached_hmap, vpath);
+            if (res == 1)
+            {
+                const auto [insert_iter, success] = hash_map.try_emplace(vpath, std::move(cached_hmap));
+                iter = insert_iter;
+            }
+        }
+
         vnode_hmap *node_hmap = (iter == hash_map.end()) ? NULL : &iter->second;
         return node_hmap;
     }
@@ -50,12 +63,7 @@ namespace hmap::store
             else
                 vpath_hash = iter->second.vpath_hash;
 
-            std::string cache_filename;
-            cache_filename
-                .append(hpfs::ctx.hmap_dir)
-                .append("/")
-                .append(vpath_hash.to_hex())
-                .append(HASH_MAP_CACHE_FILE_EXT);
+            const std::string cache_filename = get_vpath_cache_filename(vpath_hash);
 
             if (iter == hash_map.end())
             {
@@ -92,11 +100,51 @@ namespace hmap::store
         return 0;
     }
 
-    std::string get_vpath_hash_name(const std::string &vpath)
+    /**
+     * Attempts to read a hash map from the persisted cache file (if exists).
+     * @return 0 if cache file not exists. 1 if cache file read success. -1 on error.
+     */
+    int read_hash_map_cache_file(vnode_hmap &node_hmap, const std::string &vpath)
     {
         hasher::h32 vpath_hash;
         hash_buf(vpath_hash, vpath.data(), vpath.size());
-        return vpath_hash.to_hex();
+        const std::string cache_filename = get_vpath_cache_filename(vpath_hash);
+
+        const int fd = open(cache_filename.c_str(), O_RDONLY);
+        if (fd == -1)
+            return errno == ENOENT ? 0 : -1;
+
+        struct stat st;
+        if (fstat(fd, &st) == -1)
+            return -1;
+
+        const size_t file_size = st.st_size;
+
+        // 65 bytes are taken for the is_file flag, node hash and vpath hash.
+        const uint32_t block_count = (file_size - 65) / 4;
+        node_hmap.block_hashes.resize(block_count);
+        uint8_t is_file = 0;
+
+        iovec memsegs[4] = {{(void *)&is_file, sizeof(is_file)},
+                            {(void *)&node_hmap.node_hash, sizeof(hasher::h32)},
+                            {(void *)&node_hmap.vpath_hash, sizeof(hasher::h32)},
+                            {(void *)node_hmap.block_hashes.data(), sizeof(hasher::h32) * node_hmap.block_hashes.size()}};
+
+        if (readv(fd, memsegs, 4) == -1)
+            return -1;
+
+        return 1;
+    }
+
+    std::string get_vpath_cache_filename(const hasher::h32 vpath_hash)
+    {
+        std::string cache_filename;
+        cache_filename
+            .append(hpfs::ctx.hmap_dir)
+            .append("/")
+            .append(vpath_hash.to_hex())
+            .append(HASH_MAP_CACHE_FILE_EXT);
+        return cache_filename;
     }
 
 } // namespace hmap::store
