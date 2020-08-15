@@ -1,4 +1,5 @@
 #include <plog/Log.h>
+#include <plog/Appenders/ColorConsoleAppender.h>
 #include "hpfs.hpp"
 #include "util.hpp"
 
@@ -6,6 +7,9 @@ namespace tracelog
 {
     constexpr size_t MAX_TRACE_FILESIZE = 10 * 1024 * 1024; // 10MB
     constexpr size_t MAX_TRACE_FILECOUNT = 10;
+
+    class hpfs_plog_formatter;
+    static plog::ConsoleAppender<hpfs_plog_formatter> consoleAppender;
 
     // Custom formatter adopted from:
     // https://github.com/SergiusTheBest/plog/blob/master/include/plog/Formatters/TxtFormatter.h
@@ -72,7 +76,9 @@ namespace tracelog
         std::string trace_file;
         trace_file.append(hpfs::ctx.trace_dir).append("/").append(pid_str).append(".log");
 
-        plog::init<hpfs_plog_formatter>(level, trace_file.c_str(), MAX_TRACE_FILESIZE, MAX_TRACE_FILECOUNT);
+        plog::init<hpfs_plog_formatter>(level, trace_file.c_str(), MAX_TRACE_FILESIZE, MAX_TRACE_FILECOUNT)
+            .addAppender(&consoleAppender);
+
         return 0;
     }
 
