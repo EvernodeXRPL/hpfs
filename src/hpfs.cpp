@@ -16,6 +16,8 @@ namespace hpfs
 {
 
     constexpr const char *SEED_DIR_NAME = "seed";
+    constexpr const char *TRACE_DIR_NAME = "trace";
+    constexpr const char *HMAP_DIR_NAME = "hmap";
     constexpr int DIR_PERMS = 0755;
 
     hpfs_context ctx;
@@ -31,10 +33,7 @@ namespace hpfs
             return -1;
         }
 
-        if (tracelog::init() == -1)
-            std::cerr << errno << ": hpfs trace log init failed.";
-
-        if (vaidate_context() == -1 || logger::init() == -1)
+        if (vaidate_context() == -1 || tracelog::init() == -1 || logger::init() == -1)
             return -1;
 
         int ret = 0;
@@ -63,19 +62,6 @@ namespace hpfs
 
         LOG_INFO << "Starting hpfs " << ((ctx.run_mode == RUN_MODE::RW) ? "RW" : "RO") << " session...";
 
-        if (!util::is_dir_exists(ctx.mount_dir))
-        {
-            // If specified mount directory does not exist, we will create it
-            // now and remove it upon exit.
-            if (mkdir(ctx.mount_dir.c_str(), DIR_PERMS) == -1)
-            {
-                LOG_ERROR << errno << ": Error creating mount dir: " << ctx.mount_dir;
-                return -1;
-            }
-            remove_mount_dir = true;
-            LOG_DEBUG << "Mount dir created: " << ctx.mount_dir;
-        }
-
         if (vfs::init() == -1)
         {
             ret = -1;
@@ -91,6 +77,20 @@ namespace hpfs
         }
 
         LOG_DEBUG << "Hashmap init complete.";
+
+        // Check and create fuse mount dir.
+        if (!util::is_dir_exists(ctx.mount_dir))
+        {
+            // If specified mount directory does not exist, we will create it
+            // now and remove it upon exit.
+            if (mkdir(ctx.mount_dir.c_str(), DIR_PERMS) == -1)
+            {
+                LOG_ERROR << errno << ": Error creating mount dir: " << ctx.mount_dir;
+                return -1;
+            }
+            remove_mount_dir = true;
+            LOG_DEBUG << "Mount dir created: " << ctx.mount_dir;
+        }
 
         LOG_INFO << "hpfs " << ((ctx.run_mode == RUN_MODE::RW) ? "RW" : "RO") << " session started.";
 
@@ -119,10 +119,26 @@ namespace hpfs
         }
 
         ctx.seed_dir.append(ctx.fs_dir).append("/").append(SEED_DIR_NAME);
+        ctx.trace_dir.append(ctx.fs_dir).append("/").append(TRACE_DIR_NAME);
+        ctx.hmap_dir.append(ctx.fs_dir).append("/").append(HMAP_DIR_NAME);
 
         if (!util::is_dir_exists(ctx.seed_dir) && mkdir(ctx.seed_dir.c_str(), DIR_PERMS) == -1)
         {
             std::cerr << "Directory " << ctx.seed_dir << " cannot be located.\n";
+            return -1;
+        }
+
+        if (ctx.trace_level != TRACE_LEVEL::NONE &&
+            !util::is_dir_exists(ctx.trace_dir) && mkdir(ctx.trace_dir.c_str(), DIR_PERMS) == -1)
+        {
+            std::cerr << "Directory " << ctx.trace_dir << " cannot be located.\n";
+            return -1;
+        }
+
+        if (ctx.hmap_enabled &&
+            !util::is_dir_exists(ctx.hmap_dir) && mkdir(ctx.hmap_dir.c_str(), DIR_PERMS) == -1)
+        {
+            std::cerr << "Directory " << ctx.hmap_dir << " cannot be located.\n";
             return -1;
         }
 

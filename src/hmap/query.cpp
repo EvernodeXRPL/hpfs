@@ -52,7 +52,7 @@ namespace hmap::query
         if (!hpfs::ctx.hmap_enabled)
             return -1;
 
-        vnode_hmap *node_hmap;
+        store::vnode_hmap *node_hmap;
         if (get_vnode_hmap(&node_hmap, req.vpath) == -1)
             return -1;
         if (!node_hmap)
@@ -92,7 +92,7 @@ namespace hmap::query
         if (!hpfs::ctx.hmap_enabled)
             return -1;
 
-        vnode_hmap *node_hmap;
+        store::vnode_hmap *node_hmap;
         if (get_vnode_hmap(&node_hmap, req.vpath) == -1)
             return -1;
         if (!node_hmap)
@@ -114,7 +114,7 @@ namespace hmap::query
         }
     }
 
-    int read_file_block_hashes(const vnode_hmap &node_hmap, char *buf, const size_t size)
+    int read_file_block_hashes(const store::vnode_hmap &node_hmap, char *buf, const size_t size)
     {
         if (!hpfs::ctx.hmap_enabled)
             return -1;
@@ -144,7 +144,7 @@ namespace hmap::query
                 child_vpath.append("/");
             child_vpath.append(child_name);
 
-            vnode_hmap *node_hmap;
+            store::vnode_hmap *node_hmap;
             if (get_vnode_hmap(&node_hmap, child_vpath) == -1 || !node_hmap)
                 return -1;
 

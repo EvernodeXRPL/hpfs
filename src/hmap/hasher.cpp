@@ -32,6 +32,13 @@ namespace hmap::hasher
         this->data[3] ^= rhs.data[3];
     }
 
+    std::string h32::to_hex() const
+    {
+        std::stringstream ss;
+        ss << *this;
+        return ss.str();
+    }
+
     std::ostream &operator<<(std::ostream &output, const h32 &h)
     {
         const uint8_t *buf = reinterpret_cast<const uint8_t *>(&h);
