@@ -25,6 +25,8 @@ namespace hmap
         if (!hpfs::ctx.hmap_enabled)
             return 0;
 
+        LOG_INFO << "Initializing hash map...";
+
         // Check whether there's already a persisted root hash map.
         const store::vnode_hmap *root_hmap = store::find_hash_map(ROOT_VPATH);
         if (root_hmap == NULL)
