@@ -186,9 +186,13 @@ namespace hmap
 
         // If this is a file update operation, update the block hashes and recalculate
         // the file hash.
-        if (S_ISREG(vn.st.st_mode) &&
-            apply_file_data_update(node_hmap, vn, file_update_offset, file_update_size) == -1)
-            return -1;
+        if (S_ISREG(vn.st.st_mode))
+        {
+            if (apply_file_data_update(node_hmap, vn, file_update_offset, file_update_size) == -1)
+                return -1;
+
+            store::set_dirty(vpath);
+        }
 
         propogate_hash_update(vpath, old_hash, node_hmap.node_hash);
         return 0;
