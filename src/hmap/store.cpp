@@ -67,9 +67,8 @@ namespace hmap::store
 
             if (iter == hash_map.end())
             {
-                // This means the hash map has been deleted. So we should erase the cache file.
-                if (unlink(cache_filename.c_str()) == -1)
-                    return -1;
+                // This means the hash map has been deleted. So we should erase the cache file (if exists).
+                unlink(cache_filename.c_str());
             }
             else
             {
