@@ -121,7 +121,8 @@ namespace hmap::store
         const size_t file_size = st.st_size;
 
         // 65 bytes are taken for the is_file flag, node hash and vpath hash.
-        const uint32_t block_count = (file_size - 65) / 4;
+        // Rest of the bytes are block hashes.
+        const uint32_t block_count = (file_size - 65) / sizeof(hasher::h32);
         node_hmap.block_hashes.resize(block_count);
         uint8_t is_file = 0;
 
@@ -132,6 +133,8 @@ namespace hmap::store
 
         if (readv(fd, memsegs, 4) == -1)
             return -1;
+
+        node_hmap.is_file = (is_file == 1);
 
         return 1;
     }
