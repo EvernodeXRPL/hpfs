@@ -14,16 +14,16 @@ echo "Create a seed text file with random text."
 tr -dc A-Za-z0-9 </dev/urandom | head -c 10240 > $fsdir/seed/sample.txt
 
 echo "Start MERGE session."
-./$hpfs merge $fsdir &
+./$hpfs merge $fsdir trace=debug &
 pid_merge=$!
 sleep 1
 
 echo "Start RW session."
-./$hpfs rw $fsdir $rwdir hmap=true &
+./$hpfs rw $fsdir $rwdir hmap=true trace=debug &
 pid_rw=$!
 
 echo "Start RO session 1."
-./$hpfs ro $fsdir $rodir hmap=true &
+./$hpfs ro $fsdir $rodir hmap=true trace=debug &
 pid_ro=$!
 
 sleep 1
@@ -53,7 +53,7 @@ kill $pid_ro
 sleep 1
 
 echo "Start RO session 2."
-./$hpfs ro $fsdir $rodir hmap=true &
+./$hpfs ro $fsdir $rodir hmap=true trace=debug &
 pid_ro=$!
 sleep 1
 
