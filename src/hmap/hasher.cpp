@@ -48,33 +48,27 @@ namespace hmap::hasher
         return output;
     }
 
-    int hash_buf(h32 &hash, const void *buf, const size_t len)
+    void hash_buf(h32 &hash, const void *buf, const size_t len)
     {
         // Initialize the hasher.
-		blake3_hasher hasher;
-		blake3_hasher_init(&hasher);
-		blake3_hasher_update(&hasher, buf, len);
+        blake3_hasher hasher;
+        blake3_hasher_init(&hasher);
+        blake3_hasher_update(&hasher, buf, len);
 
-		blake3_hasher_finalize(&hasher, reinterpret_cast<uint8_t *>(&hash), sizeof(h32));
-
-        // [todo] - need to do proper error handling since blake3 hash functions are void
-        return 0;
+        blake3_hasher_finalize(&hasher, reinterpret_cast<uint8_t *>(&hash), sizeof(h32));
     }
 
-    int hash_buf(h32 &hash, const void *buf1, const size_t len1, const void *buf2, const size_t len2)
+    void hash_buf(h32 &hash, const void *buf1, const size_t len1, const void *buf2, const size_t len2)
     {
 
         // Initialize the hasher.
-		blake3_hasher hasher;
-		blake3_hasher_init(&hasher);
+        blake3_hasher hasher;
+        blake3_hasher_init(&hasher);
         // update the hash with two buffers
-		blake3_hasher_update(&hasher, buf1, len1);
-		blake3_hasher_update(&hasher, buf2, len2);
-        // finalize the hash 
-		blake3_hasher_finalize(&hasher, reinterpret_cast<uint8_t *>(&hash), sizeof(h32));
-        
-        // [todo] - need to do proper error handling since blake3 hash functions are void
-        return 0;
+        blake3_hasher_update(&hasher, buf1, len1);
+        blake3_hasher_update(&hasher, buf2, len2);
+        // finalize the hash
+        blake3_hasher_finalize(&hasher, reinterpret_cast<uint8_t *>(&hash), sizeof(h32));
     }
 
 } // namespace hmap::hasher
