@@ -1,7 +1,7 @@
 # hpfs
 hpfs is a [FUSE](https://www.kernel.org/doc/html/latest/filesystems/fuse.html)-based userspace virtual filesystem intended for [Hot Pocket](https://github.com/HotPocketDev/core) state management. This is a checkpointing filesystem where you start with a seed (initial) state and subsequent writes will always be logged under separately tracked checkpoints without overriding seed state. Reads can be performed on any checkpoint giving the illusion of a coherent filesystem containing all the changes done up to the checkpoint. hpfs also offers the ability to merge-forward the seed state with logged writes thereby "collapsing" the logged writes onto the seed state.
 
-### [See wiki](https://github.com/ravinsp/hpfs/wiki)
+<!-- ### [See wiki](https://github.com/ravinsp/hpfs/wiki) -->
 
 ## Setup steps
 
@@ -18,9 +18,14 @@ hpfs is a [FUSE](https://www.kernel.org/doc/html/latest/filesystems/fuse.html)-b
 4. `meson .. && ninja`
 6. `sudo ninja install`
 
-#### Install blake2
-1. `sudo apt-get install -y autoconf libtool libtool-bin`
-2. Clone the [blake2b library](https://github.com/BLAKE2/libb2) and follow installation instructions.
+#### Install blake3
+1. Clone [blake3 library](https://github.com/BLAKE3-team/BLAKE3) repository
+2. Navigate into the directory in a terminal.
+3. `cd c` to navigate to the C implementation folder
+4. `gcc -shared -fPIC -O3 -o libblake3.so blake3.c blake3_dispatch.c blake3_portable.c \`
+    `blake3_sse41_x86-64_unix.S blake3_avx2_x86-64_unix.S blake3_avx512_x86-64_unix.S`
+5. `sudo cp blake3.h /usr/local/include/`
+6. `sudo cp libblake3.so /usr/local/lib/`
 
 #### Install plog
 1. Download and extract [plog1.1.5](https://github.com/SergiusTheBest/plog/archive/1.1.5.zip)

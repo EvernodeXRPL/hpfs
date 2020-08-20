@@ -21,8 +21,8 @@ namespace hmap::hasher
     extern h32 h32_empty;
 
     std::ostream &operator<<(std::ostream &output, const h32 &h);
-    int hash_buf(h32 &hash, const void *buf, const size_t len);
-    int hash_buf(h32 &hash, const void *buf1, const size_t len1, const void *buf2, const size_t len2);
+    void hash_buf(h32 &hash, const void *buf, const size_t len);
+    void hash_buf(h32 &hash, const void *buf1, const size_t len1, const void *buf2, const size_t len2);
 
 } // namespace hmap
 

@@ -75,8 +75,7 @@ namespace hmap
 
         // Initialize dir hash with the dir path hash.
         store::vnode_hmap dir_hmap{false};
-        if (hash_buf(dir_hmap.vpath_hash, vpath.c_str(), vpath.length()) == -1)
-            return -1;
+        hash_buf(dir_hmap.vpath_hash, vpath.c_str(), vpath.length());
 
         // Initial node hash is the vpath hash.
         dir_hmap.node_hash = dir_hmap.vpath_hash;
@@ -116,8 +115,8 @@ namespace hmap
             return -1;
 
         store::vnode_hmap file_hmap{true};
-        if (hash_buf(file_hmap.vpath_hash, vpath.c_str(), vpath.length()) == -1 || // vpath hash.
-            apply_file_data_update(file_hmap, *vn, 0, vn->st.st_size) == -1)       // File hash.
+        hash_buf(file_hmap.vpath_hash, vpath.c_str(), vpath.length());       // vpath hash.
+        if (apply_file_data_update(file_hmap, *vn, 0, vn->st.st_size) == -1) // File hash.
             return -1;
 
         node_hash = file_hmap.node_hash;
@@ -163,8 +162,7 @@ namespace hmap
 
         // Initial node hash is the vpath hash.
         hasher::h32 hash;
-        if (hash_buf(hash, vpath.c_str(), vpath.length()) == -1)
-            return -1;
+        hash_buf(hash, vpath.c_str(), vpath.length());
         store::insert_hash_map(vpath, store::vnode_hmap{is_file, hash, hash});
         store::set_dirty(vpath);
 
@@ -232,8 +230,7 @@ namespace hmap
             const void *read_buf = (uint8_t *)vn.mmap.ptr + block_offset;
             const int read_len = MIN(BLOCK_SIZE, (file_size - block_offset));
             hasher::h32 block_hash;
-            if (hash_buf(block_hash, &block_offset, sizeof(off_t), read_buf, read_len) == -1)
-                return -1;
+            hash_buf(block_hash, &block_offset, sizeof(off_t), read_buf, read_len);
 
             node_hmap.block_hashes[block_id] = block_hash;
         }
@@ -280,8 +277,7 @@ namespace hmap
 
         // Update the node hash for the new vpath.
         node_hmap.node_hash ^= node_hmap.vpath_hash; // XOR old vpath hash.
-        if (hash_buf(node_hmap.vpath_hash, to_vpath.c_str(), to_vpath.length()) == -1)
-            return -1;
+        hash_buf(node_hmap.vpath_hash, to_vpath.c_str(), to_vpath.length());
         node_hmap.node_hash ^= node_hmap.vpath_hash; // XOR new vpath hash.
 
         // Update hash map with new node hash.

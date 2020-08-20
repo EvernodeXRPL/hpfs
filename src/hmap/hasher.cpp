@@ -1,5 +1,5 @@
 #include "hasher.hpp"
-#include <blake2.h>
+#include <blake3.h>
 #include <string.h>
 #include <iomanip>
 
@@ -48,21 +48,27 @@ namespace hmap::hasher
         return output;
     }
 
-    int hash_buf(h32 &hash, const void *buf, const size_t len)
+    void hash_buf(h32 &hash, const void *buf, const size_t len)
     {
-        return blake2b(reinterpret_cast<uint8_t *>(&hash), buf, NULL, sizeof(h32), len, 0);
+        // Initialize the hasher.
+        blake3_hasher hasher;
+        blake3_hasher_init(&hasher);
+        blake3_hasher_update(&hasher, buf, len);
+
+        blake3_hasher_finalize(&hasher, reinterpret_cast<uint8_t *>(&hash), sizeof(h32));
     }
 
-    int hash_buf(h32 &hash, const void *buf1, const size_t len1, const void *buf2, const size_t len2)
+    void hash_buf(h32 &hash, const void *buf1, const size_t len1, const void *buf2, const size_t len2)
     {
-        blake2b_state b2state;
-        if (blake2b_init(&b2state, sizeof(h32)) == -1 ||
-            blake2b_update(&b2state, reinterpret_cast<const uint8_t *>(buf1), len1) == -1 ||
-            blake2b_update(&b2state, reinterpret_cast<const uint8_t *>(buf2), len2) == -1 ||
-            blake2b_final(&b2state, reinterpret_cast<uint8_t *>(&hash), sizeof(h32)) == -1)
-            return -1;
 
-        return 0;
+        // Initialize the hasher.
+        blake3_hasher hasher;
+        blake3_hasher_init(&hasher);
+        // update the hash with two buffers
+        blake3_hasher_update(&hasher, buf1, len1);
+        blake3_hasher_update(&hasher, buf2, len2);
+        // finalize the hash
+        blake3_hasher_finalize(&hasher, reinterpret_cast<uint8_t *>(&hash), sizeof(h32));
     }
 
 } // namespace hmap::hasher
