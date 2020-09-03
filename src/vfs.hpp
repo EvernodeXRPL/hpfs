@@ -5,6 +5,7 @@
 #include <sys/stat.h>
 #include <unordered_map>
 #include <vector>
+#include <cstring>
 #include "logger.hpp"
 
 namespace vfs
@@ -37,6 +38,12 @@ namespace vfs
 
         // Max file size that has been there for this vnode throughout the log history.
         size_t max_size = 0;
+
+        vnode()
+        {
+            memset(&st, 0, sizeof(struct stat));
+            memset(&mmap, 0, sizeof(struct vnode_mmap));
+        }
     };
 
     typedef std::unordered_map<std::string, vnode> vnode_map;
