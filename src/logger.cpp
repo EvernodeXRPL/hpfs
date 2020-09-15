@@ -321,6 +321,14 @@ namespace logger
         return 0;
     }
 
+    /**
+     * Reads the log record indicated by the offset if a record exists at that offset.
+     * @param offset Log record offset to be read. If 0 current first record will be read.
+     * @param next_offset Indicates the offset of next log record if read succesful or -1 if
+     *                    no record available at 'offset'.
+     * @param record Contains the log record if read successful.
+     * @return 0 on successful read or no record available. -1 on error.
+     */
     int read_log_at(const off_t offset, off_t &next_offset, log_record &record)
     {
         if (header.first_record == 0 || offset > header.last_record)

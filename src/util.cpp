@@ -3,6 +3,7 @@
 #include <string>
 #include <chrono>
 #include <math.h>
+#include <signal.h>
 #include "util.hpp"
 #include "tracelog.hpp"
 
@@ -59,6 +60,16 @@ namespace util
     {
         const double div = (double)raw_offset / (double)BLOCK_SIZE;
         return ((off_t)ceil(div)) * BLOCK_SIZE;
+    }
+
+    // Applies signal mask to the calling thread.
+    void mask_signal()
+    {
+        sigset_t mask;
+        sigemptyset(&mask);
+        sigaddset(&mask, SIGINT);
+        sigaddset(&mask, SIGPIPE);
+        pthread_sigmask(SIG_BLOCK, &mask, NULL);
     }
 
 } // namespace util
