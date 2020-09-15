@@ -35,7 +35,7 @@ namespace merger
         if (merger_thread.joinable())
             merger_thread.join();
 
-        LOG_INFO << "hpfs exiting due to interrupt.";
+        LOG_WARNING << "hpfs exiting due to interrupt.";
         exit(signum);
     }
 
@@ -59,7 +59,7 @@ namespace merger
             }
             else if (result == -1)
             {
-                LOG_ERROR << "Error merging log front.";
+                LOG_ERROR << "Error when merging log front.";
                 break;
             }
         }
