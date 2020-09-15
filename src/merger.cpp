@@ -3,8 +3,11 @@
 #include <string>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <signal.h>
 #include <sys/sendfile.h>
+#include <thread>
 #include "merger.hpp"
+#include "util.hpp"
 #include "hpfs.hpp"
 #include "logger.hpp"
 #include "tracelog.hpp"
@@ -12,65 +15,106 @@
 namespace merger
 {
     constexpr useconds_t CHECK_INTERVAL = 1000000; // 1 second.
+    bool should_stop = false;
+    std::thread merger_thread;
 
     int init()
     {
+        signal(SIGINT, signal_handler);
+
+        merger_thread = std::thread(merger_loop);
+        merger_thread.join();
+        return 0;
+    }
+
+    void signal_handler(int signum)
+    {
+        LOG_WARNING << "Interrupt signal (" << signum << ") received.\n";
+
+        should_stop = true;
+        if (merger_thread.joinable())
+            merger_thread.join();
+
+        LOG_WARNING << "hpfs exiting due to interrupt.";
+        exit(signum);
+    }
+
+    void merger_loop()
+    {
+        util::mask_signal();
         LOG_INFO << "hpfs merge process started.";
 
-        while (true)
+        while (!should_stop)
         {
-            if (usleep(CHECK_INTERVAL) == -1)
-                return -1;
+            // Keep processing the oldest record of the log as long as it succeeds.
 
-            while (true)
+            // Result  0 = There was no log record to process.
+            // Result  1 = There was a log record and it was succesfully merged.
+            // Result -1 = There was an error when processing log front.
+            const int result = merge_log_front();
+
+            if (result == 0) // If no records, wait for some time until log file has records.
             {
-                // Keep processing the oldest record of the log until it fails.
-                if (process_log_front() == -1)
-                    break;
+                usleep(CHECK_INTERVAL);
+            }
+            else if (result == -1)
+            {
+                LOG_ERROR << "Error when merging log front.";
+                break;
             }
         }
 
-        return 0;
+        LOG_INFO << "hpfs merge process stopped.";
     }
 
     /**
      * Merges the oldest log record to the seed.
-     * @return 0 on success. -1 on failure or no more log records available.
+     * @return 0 when no log records found. 1 on successful merge. -1 on failure.
      */
-    int process_log_front()
+    int merge_log_front()
     {
         flock header_lock;
-        off_t off = 0;
+        off_t offset = 0;
         logger::log_record record;
-        std::vector<uint8_t> payload;
 
-        // Process the oldest log record within a lock.
+        // In the following code, we lock the header and release it only after a record is merged.
+        // If an error is encountered mid way, then also we release the header lock.
 
+        // Acquire header lock.
         if (logger::set_lock(header_lock, logger::LOCK_TYPE::MERGE_LOCK) == -1)
             return -1;
 
-        if (logger::read_header() == -1 ||               // Read the latest header information.
-            logger::header.first_record == 0 ||          // No records in log file.
-            logger::read_log_at(off, off, record) == -1) // Read the first log record (oldest).
+        // Read the header and first log record (oldest).
+        if (logger::read_header() == -1 ||
+            logger::read_log_at(offset, offset, record) == -1)
         {
-            // There no records to read.
-            
+            // Release the lock on error.
             logger::release_lock(header_lock);
             return -1;
         }
 
+        if (offset == -1) // Offset would be set to -1 if no records were read.
+        {
+            logger::release_lock(header_lock);
+            return 0;
+        }
+
+        // Reaching here means a log record has been read.
+
+        std::vector<uint8_t> payload;
         if (logger::read_payload(payload, record) == -1 || // Read any associated payload.
             merge_log_record(record, payload) == -1 ||     // Merge the record with the seed.
             logger::purge_log(record) == -1)               // Purge the log record and update the header.
         {
             LOG_ERROR << errno << ": Error merging log record.";
 
-            // Release the header lock even if something fails.
+            // Release the lock on error.
             logger::release_lock(header_lock);
             return -1;
         }
 
-        return logger::release_lock(header_lock);
+        logger::release_lock(header_lock);
+        return 1;
     }
 
     /**
@@ -88,24 +132,28 @@ namespace merger
         case logger::FS_OPERATION::MKDIR:
         {
             const mode_t mode = *(mode_t *)payload.data();
-            return mkdir(seed_path, mode);
+            if (mkdir(seed_path, mode) == -1)
+                return -1;
             break;
         }
 
         case logger::FS_OPERATION::RMDIR:
-            return rmdir(seed_path);
+            if (rmdir(seed_path) == -1)
+                return -1;
             break;
 
         case logger::FS_OPERATION::RENAME:
         {
             const char *to_vpath = (char *)payload.data();
             const std::string to_seed_path = std::string(hpfs::ctx.seed_dir).append(to_vpath);
-            return rename(seed_path, to_seed_path.c_str());
+            if (rename(seed_path, to_seed_path.c_str()) == -1)
+                return -1;
             break;
         }
 
         case logger::FS_OPERATION::UNLINK:
-            return unlink(seed_path);
+            if (unlink(seed_path) == -1)
+                return -1;
             break;
 
         case logger::FS_OPERATION::CREATE:
@@ -141,12 +189,13 @@ namespace merger
         case logger::FS_OPERATION::TRUNCATE:
         {
             const logger::op_truncate_payload_header th = *(logger::op_truncate_payload_header *)payload.data();
-            return truncate(seed_path, th.size);
+            if (truncate(seed_path, th.size) == -1)
+                return -1;
             break;
         }
         }
 
-        LOG_DEBUG << "Merge complete.";
+        LOG_DEBUG << "Merge record complete.";
 
         return 0;
     }

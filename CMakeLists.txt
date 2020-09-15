@@ -32,5 +32,6 @@ add_executable(hpfs
     src/main.cpp
 )
 target_link_libraries(hpfs
+    pthread
     libfuse3.so.3
     libblake3.so)

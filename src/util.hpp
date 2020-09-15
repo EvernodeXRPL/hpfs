@@ -19,6 +19,7 @@ namespace util
     int release_lock(const int fd, struct flock &lock);
     off_t get_block_start(const off_t raw_offset);
     off_t get_block_end(const off_t raw_offset);
+    void mask_signal();
 
 } // namespace util
 

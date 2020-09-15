@@ -50,7 +50,7 @@ namespace tracelog
             plog::util::nostringstream ss;
             ss << t.tm_year + 1900 << std::setfill(PLOG_NSTR('0')) << std::setw(2) << t.tm_mon + 1 << std::setfill(PLOG_NSTR('0')) << std::setw(2) << t.tm_mday << PLOG_NSTR(" ");
             ss << std::setfill(PLOG_NSTR('0')) << std::setw(2) << t.tm_hour << PLOG_NSTR(":") << std::setfill(PLOG_NSTR('0')) << std::setw(2) << t.tm_min << PLOG_NSTR(":") << std::setfill(PLOG_NSTR('0')) << std::setw(2) << t.tm_sec << PLOG_NSTR(" ");
-            ss << PLOG_NSTR("[") << severityToString(record.getSeverity()) << PLOG_NSTR("] ");
+            ss << PLOG_NSTR("[") << severityToString(record.getSeverity()) << PLOG_NSTR("][fs] ");
             ss << record.getMessage() << PLOG_NSTR("\n");
 
             return ss.str();
@@ -74,7 +74,13 @@ namespace tracelog
 
         std::string pid_str = std::to_string(getpid());
         std::string trace_file;
-        trace_file.append(hpfs::ctx.trace_dir).append("/").append(pid_str).append(".log");
+        trace_file
+            .append(hpfs::ctx.trace_dir)
+            .append("/")
+            .append(std::to_string(hpfs::ctx.run_mode))
+            .append("_")
+            .append(pid_str)
+            .append(".log");
 
         plog::init<hpfs_plog_formatter>(level, trace_file.c_str(), MAX_TRACE_FILESIZE, MAX_TRACE_FILECOUNT)
             .addAppender(&consoleAppender);
