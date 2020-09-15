@@ -4,6 +4,7 @@
 #include <chrono>
 #include <math.h>
 #include "util.hpp"
+#include "tracelog.hpp"
 
 namespace util
 {
@@ -31,13 +32,21 @@ namespace util
         lock.l_whence = SEEK_SET;
         lock.l_start = start,
         lock.l_len = len;
-        return fcntl(fd, F_SETLKW, &lock);
+        const int ret = fcntl(fd, F_SETLKW, &lock);
+        if (ret == -1)
+            LOG_ERROR << errno << ": Error when setting lock. type:" << lock.l_type;
+
+        return ret;
     }
 
     int release_lock(const int fd, struct flock &lock)
     {
         lock.l_type = F_UNLCK;
-        return fcntl(fd, F_SETLKW, &lock);
+        const int ret = fcntl(fd, F_SETLKW, &lock);
+        if (ret == -1)
+            LOG_ERROR << errno << ": Error when releasing lock. type:" << lock.l_type;
+
+        return ret;
     }
 
     off_t get_block_start(const off_t raw_offset)

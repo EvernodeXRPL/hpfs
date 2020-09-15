@@ -84,14 +84,14 @@ namespace logger
         // Acquire header rw lock.
         if (set_lock(header_lock, LOCK_TYPE::UPDATE_LOCK) == -1)
         {
-            LOG_ERROR << errno << ": error acquiring header write lock.";
+            LOG_ERROR << errno << ": Error acquiring header write lock.";
             return -1;
         }
 
         struct stat st;
         if (fstat(fd, &st) == -1)
         {
-            LOG_ERROR << errno << ": error in stat of log file.";
+            LOG_ERROR << errno << ": Error in stat of log file.";
             return -1;
         }
 
@@ -101,7 +101,7 @@ namespace logger
             header.version = HPFS_VERSION;
             if (commit_header() == -1)
             {
-                LOG_ERROR << errno << ": error when writing header.";
+                LOG_ERROR << errno << ": Error when writing header.";
                 return -1;
             }
 
@@ -111,7 +111,7 @@ namespace logger
         {
             if (read_header() == -1)
             {
-                LOG_ERROR << errno << ": error when reading header.";
+                LOG_ERROR << errno << ": Error when reading header.";
                 return -1;
             }
 
@@ -121,7 +121,7 @@ namespace logger
         // Release header rw lock.
         if (release_lock(header_lock) == -1)
         {
-            LOG_ERROR << errno << ": error when releasing header write lock.";
+            LOG_ERROR << errno << ": Error when releasing header write lock.";
             return -1;
         }
 
@@ -189,14 +189,25 @@ namespace logger
     int read_header()
     {
         if (pread(fd, &header, sizeof(header), 0) < sizeof(header))
+        {
+            LOG_ERROR << errno << ": Error when reading header.";
             return -1;
+        }
+
         return 0;
     }
 
     int commit_header()
     {
         if (pwrite(fd, &header, sizeof(header), 0) < sizeof(header))
+        {
+            LOG_ERROR << errno << ": Error when updating header.";
             return -1;
+        }
+
+        LOG_DEBUG << "Header updated. first:" << header.first_record
+                  << " last:" << header.last_checkpoint
+                  << " lastchk:" << header.last_checkpoint;
         return 0;
     }
 
@@ -241,7 +252,7 @@ namespace logger
         if (ftruncate(fd, eof + record_len) == -1 || // Extend the file size to fit entire record.
             pwritev(fd, record_bufs.data(), record_bufs.size(), eof) == -1)
         {
-            LOG_ERROR << errno << ": error appending log record.";
+            LOG_ERROR << errno << ": Error appending log record.";
             return -1;
         }
 
@@ -254,7 +265,7 @@ namespace logger
                           block_data_padding_start,
                           rh.block_data_padding_len) == -1)
             {
-                LOG_ERROR << errno << ": error in punch hole of block data padding.";
+                LOG_ERROR << errno << ": Error in punch hole of block data padding.";
                 return -1;
             }
         }
@@ -268,7 +279,7 @@ namespace logger
                 iovec block_buf = block_bufs[i];
                 if (block_buf.iov_base && pwrite(fd, block_buf.iov_base, block_buf.iov_len, write_offset) == -1)
                 {
-                    LOG_ERROR << errno << ": error in writing block data.";
+                    LOG_ERROR << errno << ": Error in writing block data.";
                     return -1;
                 }
                 else if (!block_buf.iov_base && fallocate(fd,
@@ -276,7 +287,7 @@ namespace logger
                                                           write_offset,
                                                           block_buf.iov_len) == -1)
                 {
-                    LOG_ERROR << errno << ": error in punch hole of block data.";
+                    LOG_ERROR << errno << ": Error in punch hole of block data.";
                     return -1;
                 }
 
@@ -294,7 +305,7 @@ namespace logger
             commit_header() == -1 ||
             release_lock(header_lock) == -1)
         {
-            LOG_ERROR << errno << ": error updating header during append log.";
+            LOG_ERROR << errno << ": Error updating header during append log.";
             return -1;
         }
 
@@ -324,7 +335,7 @@ namespace logger
         lseek(fd, read_offset, SEEK_SET);
         if (read(fd, &rh, sizeof(rh)) < sizeof(rh))
         {
-            LOG_ERROR << errno << ": error reading log file.";
+            LOG_ERROR << errno << ": Error reading log file.";
             return -1;
         }
 
@@ -343,7 +354,7 @@ namespace logger
         vpath.resize(rh.vpath_len);
         if (read(fd, vpath.data(), rh.vpath_len) < rh.vpath_len)
         {
-            LOG_ERROR << errno << ": error reading log file.";
+            LOG_ERROR << errno << ": Error reading log file.";
             return -1;
         }
 
@@ -364,7 +375,7 @@ namespace logger
             payload.resize(record.payload_len);
             if (pread(fd, payload.data(), record.payload_len, record.payload_offset) < record.payload_len)
             {
-                LOG_ERROR << errno << ": error reading log record payload.";
+                LOG_ERROR << errno << ": Error reading log record payload.";
                 return -1;
             }
         }
@@ -374,7 +385,7 @@ namespace logger
 
     int purge_log(const log_record &record)
     {
-        LOG_DEBUG << "Purging log record... [" << record.vpath << " op:" << record.operation << "]";
+        LOG_DEBUG << "Purging log record... [ts:" << record.timestamp << " path:" << record.vpath << " op:" << record.operation << "]";
 
         if (fallocate(fd, FALLOC_FL_PUNCH_HOLE | FALLOC_FL_KEEP_SIZE,
                       record.offset, record.size) == -1)
@@ -397,11 +408,11 @@ namespace logger
 
         if (commit_header() == -1)
         {
-            LOG_ERROR << errno << ": error when updating header after purge.";
+            LOG_ERROR << errno << ": Error when updating header after purge.";
             return -1;
         }
 
-        LOG_DEBUG << "Purge complete.";
+        LOG_DEBUG << "Purge record complete.";
 
         return 0;
     }

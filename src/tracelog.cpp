@@ -74,7 +74,13 @@ namespace tracelog
 
         std::string pid_str = std::to_string(getpid());
         std::string trace_file;
-        trace_file.append(hpfs::ctx.trace_dir).append("/").append(pid_str).append(".log");
+        trace_file
+            .append(hpfs::ctx.trace_dir)
+            .append("/")
+            .append(std::to_string(hpfs::ctx.run_mode))
+            .append("_")
+            .append(pid_str)
+            .append(".log");
 
         plog::init<hpfs_plog_formatter>(level, trace_file.c_str(), MAX_TRACE_FILESIZE, MAX_TRACE_FILECOUNT)
             .addAppender(&consoleAppender);
