@@ -31,7 +31,3 @@ target_link_libraries(hpfs
     pthread
     libfuse3.so.3
     libblake3.so)
-
-add_custom_command(TARGET hpfs POST_BUILD
-    COMMAND strip ./build/hpfs
-)
