@@ -14,7 +14,6 @@
 
 namespace hpfs
 {
-
     constexpr const char *SEED_DIR_NAME = "seed";
     constexpr const char *TRACE_DIR_NAME = "trace";
     constexpr const char *HMAP_DIR_NAME = "hmap";
@@ -164,7 +163,7 @@ namespace hpfs
                 return -1;
 
             char buf[PATH_MAX];
-            const char *resolved = realpath(argv[2], buf);
+            realpath(argv[2], buf);
             ctx.fs_dir = buf;
 
             const char *trace_arg = argv[argc - 1];
@@ -194,7 +193,7 @@ namespace hpfs
                 else
                     return -1;
 
-                const char *resolved = realpath(argv[3], buf);
+                realpath(argv[3], buf);
                 ctx.mount_dir = buf;
                 return 0;
             }
@@ -204,8 +203,8 @@ namespace hpfs
     }
 
     /**
- * Global exception handler for std exceptions.
- */
+     * Global exception handler for std exceptions.
+     */
     void std_terminate() noexcept
     {
         std::exception_ptr exptr = std::current_exception();

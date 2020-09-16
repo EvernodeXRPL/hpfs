@@ -20,7 +20,7 @@ namespace merger
 
     int init()
     {
-        signal(SIGINT, signal_handler);
+        signal(SIGINT, &signal_handler);
 
         merger_thread = std::thread(merger_loop);
         merger_thread.join();
