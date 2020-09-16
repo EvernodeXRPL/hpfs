@@ -1,20 +1,16 @@
 cmake_minimum_required(VERSION 3.16)
 project(hpfs)
 
-# Check for gold linker for faster linking time.
-execute_process(COMMAND ${CMAKE_CXX_COMPILER} -fuse-ld=gold -Wl -ldl,--version OUTPUT_VARIABLE stdout ERROR_QUIET)
-if("${stdout}" MATCHES "GNU gold")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fuse-ld=gold")
-else()
-    message(WARNING "GNU gold linker isn't available, using the default system linker.")
-endif()
+# Force build type to Release build.
+set(CMAKE_BUILD_TYPE Release)
 
-add_definitions("-std=c++17 -ldl")  #-ldl to support printing stack trace at runtime
-set(CMAKE_CXX_FLAGS_DEBUG  "-g")    # ensure debug symbols are added
-set(CMAKE_BUILD_TYPE Debug)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY build)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY build)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY build)
+
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-unused-result")
 
 add_executable(hpfs
     src/util.cpp

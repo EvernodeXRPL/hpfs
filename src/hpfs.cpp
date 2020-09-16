@@ -14,7 +14,6 @@
 
 namespace hpfs
 {
-
     constexpr const char *SEED_DIR_NAME = "seed";
     constexpr const char *TRACE_DIR_NAME = "trace";
     constexpr const char *HMAP_DIR_NAME = "hmap";
@@ -32,9 +31,12 @@ namespace hpfs
                       << "hpfs [ro|rw] [fsdir] [mountdir] hmap=[true|false] trace=[debug|info|warn|error]\n";
             return -1;
         }
-
         if (vaidate_context() == -1 || tracelog::init() == -1 || logger::init() == -1)
             return -1;
+
+        // Register exception handler for std exceptions.
+        // This needs to be done after trace log init because we are logging exceptions there.
+        std::set_terminate(&std_terminate);
 
         int ret = 0;
 
@@ -198,6 +200,35 @@ namespace hpfs
         }
 
         return -1;
+    }
+
+    /**
+     * Global exception handler for std exceptions.
+     */
+    void std_terminate() noexcept
+    {
+        std::exception_ptr exptr = std::current_exception();
+        if (exptr != 0)
+        {
+            try
+            {
+                std::rethrow_exception(exptr);
+            }
+            catch (std::exception &ex)
+            {
+                LOG_ERROR << "std error: " << ex.what();
+            }
+            catch (...)
+            {
+                LOG_ERROR << "std error: Terminated due to unknown exception.";
+            }
+        }
+        else
+        {
+            LOG_ERROR << "std error: Terminated due to unknown reason.";
+        }
+
+        exit(1);
     }
 
 } // namespace hpfs

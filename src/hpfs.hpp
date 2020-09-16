@@ -39,6 +39,8 @@ namespace hpfs
     int run_ro_rw_session(char *arg0);
     int vaidate_context();
     int parse_cmd(int argc, char **argv);
+    void std_terminate() noexcept;
+    
 } // namespace hpfs
 
 #endif
