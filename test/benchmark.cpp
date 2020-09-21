@@ -113,12 +113,10 @@ void benchmark_writes()
     const std::string path = op_dir + "/file";
     const int fd = open(path.c_str(), O_RDWR | O_CREAT, 0655);
 
-    for (int i = 0; i < 10000; i++)
+    for (int i = 0; i < 5000; i++)
     {
         off_t off = rand() % MAX_FILE_SIZE;
         pwrite(fd, "Hello", 5, off);
-        //char buf[5];
-        //pread(fd, buf, 5, off);
     }
     close(fd);
 }
@@ -128,13 +126,25 @@ void benchmark_reads()
     const std::string path = op_dir + "/file";
     const int fd = open(path.c_str(), O_RDWR | O_CREAT, 0655);
 
-    for (int i = 0; i < 10000; i++)
+    for (int i = 0; i < 5000; i++)
     {
         off_t off = rand() % MAX_FILE_SIZE;
         char buf[5];
         pread(fd, buf, 5, off);
     }
     close(fd);
+}
+
+void benchmark_file_creations()
+{
+    const size_t fsize = 4096;
+    for (int i = 0; i < 5000; i++)
+    {
+        const std::string path = op_dir + "/file" + std::to_string(i);
+        const int fd = open(path.c_str(), O_RDWR | O_CREAT, 0655);
+        ftruncate(fd, fsize);
+        close(fd);
+    }
 }
 
 int main(int argc, char **argv)
@@ -154,26 +164,35 @@ int main(int argc, char **argv)
 
     set_title("Random reads");
 
-    init_test_dir();
-    start_hpfs("rw", false);
+    start_op(true, false);
     benchmark_writes();
     stop_hpfs();
     start_op(true, false);
     benchmark_reads();
     finish_op();
 
-    init_test_dir();
-    start_hpfs("rw", true);
+    start_op(true, true);
     benchmark_writes();
     stop_hpfs();
     start_op(true, true);
     benchmark_reads();
     finish_op();
 
-    init_test_dir();
+    start_op(false, false);
     benchmark_writes();
     start_op(false, false);
     benchmark_reads();
+    finish_op();
+
+    set_title("File creations");
+    start_op(true, false);
+    benchmark_file_creations();
+    finish_op();
+    start_op(true, true);
+    benchmark_file_creations();
+    finish_op();
+    start_op(false, false);
+    benchmark_file_creations();
     finish_op();
 
     return 0;
