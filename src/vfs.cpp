@@ -416,9 +416,9 @@ namespace vfs
         if (wr_end < block_buf_end)
         {
             // If write end offset is before file end, add a segment containing existing
-            // file data after write end.
+            // file data after write end upto block end.
             if (wr_end < fsize)
-                block_buf_segs.push_back({(mmap_ptr + wr_end), (fsize - wr_end)});
+                block_buf_segs.push_back({(mmap_ptr + wr_end), (MIN(fsize, block_buf_end) - wr_end)});
 
             // Append segment for NULL data until block end.
             const off_t null_data_start = MAX(wr_end, fsize);

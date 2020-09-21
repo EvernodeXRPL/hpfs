@@ -10,3 +10,5 @@ build
 **/cmake_install.cmake
 **/CMakeFiles
 testrun
+test/benchmark
+test/temp
