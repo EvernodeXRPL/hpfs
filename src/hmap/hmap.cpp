@@ -167,6 +167,7 @@ namespace hmap
         store::set_dirty(vpath);
 
         propogate_hash_update(vpath, hasher::h32_empty, hash);
+        return 0;
     }
 
     int apply_vnode_update(const std::string &vpath, const vfs::vnode &vn,

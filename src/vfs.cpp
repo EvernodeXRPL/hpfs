@@ -46,6 +46,8 @@ namespace vfs
         vnode_map::iterator iter;
         if (add_vnode_from_seed("/", iter) == -1 || build_vfs() == -1)
             return -1;
+
+        return 0;
     }
 
     void deinit()
