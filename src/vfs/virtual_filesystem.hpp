@@ -14,6 +14,7 @@ namespace hpfs::vfs
     class virtual_filesystem
     {
     private:
+        bool moved = false;
         bool initialized = false; // Indicates that the instance has been initialized properly.
         const bool readonly;
         std::string_view seed_dir;
@@ -37,6 +38,8 @@ namespace hpfs::vfs
     public:
         static std::optional<virtual_filesystem> create(const bool readonly, std::string_view seed_dir,
                                                         hpfs::audit::audit_logger &logger);
+        virtual_filesystem(const virtual_filesystem &) = delete; // No copy constructor;
+        virtual_filesystem(virtual_filesystem &&old);
         int get_vnode(const std::string &vpath, vnode **vn);
         void add_vnode(const std::string &vpath, vnode_map::iterator &vnode_iter);
         int add_vnode_from_seed(const std::string &vpath, vnode_map::iterator &vnode_iter);

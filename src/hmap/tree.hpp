@@ -14,6 +14,7 @@ namespace hpfs::hmap::tree
     class hmap_tree
     {
     private:
+        bool moved = false;
         bool initialized = false; // Indicates that the instance has been initialized properly.
         store::hmap_store store;
         hpfs::vfs::virtual_filesystem &virt_fs;
@@ -22,6 +23,8 @@ namespace hpfs::hmap::tree
 
     public:
         static std::optional<hmap_tree> create(hpfs::vfs::virtual_filesystem &virt_fs);
+        hmap_tree(const hmap_tree &) = delete; // No copy constructor;
+        hmap_tree(hmap_tree &&old);
         int get_vnode_hmap(store::vnode_hmap **node_hmap, const std::string &vpath);
         int calculate_dir_hash(hasher::h32 &node_hash, const std::string &vpath);
         int calculate_file_hash(hasher::h32 &node_hash, const std::string &vpath);

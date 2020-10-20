@@ -25,14 +25,14 @@ namespace hpfs::session
                                                         ctx.log_file_path);
         if (!audit_logger)
             return -1;
-        //default_session->audit_logger.swap(audit_logger);
+        session.audit_logger.emplace(std::move(audit_logger.value()));
 
         auto virt_fs = vfs::virtual_filesystem::create(readonly,
                                                        ctx.seed_dir,
                                                        session.audit_logger.value());
         if (!virt_fs)
             return -1;
-        //session.virt_fs.swap(virt_fs);
+        session.virt_fs.emplace(std::move(virt_fs.value()));
         LOG_DEBUG << "VFS init complete.";
 
         if (ctx.hmap_enabled)
@@ -40,7 +40,7 @@ namespace hpfs::session
             auto hmap_tree = hmap::tree::hmap_tree::create(session.virt_fs.value());
             if (!hmap_tree)
                 return -1;
-            //session.hmap_tree.swap(hmap_tree);
+            session.hmap_tree.emplace(std::move(hmap_tree.value()));
             session.hmap_query.emplace(hmap::query::hmap_query(session.hmap_tree.value(),
                                                                session.virt_fs.value()));
             LOG_DEBUG << "Hashmap init complete.";

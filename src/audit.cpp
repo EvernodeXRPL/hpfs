@@ -32,6 +32,17 @@ namespace hpfs::audit
     {
     }
 
+    audit_logger::audit_logger(audit_logger &&old) : initialized(initialized),
+                                                     run_mode(run_mode),
+                                                     log_file_path(log_file_path),
+                                                     fd(fd),
+                                                     eof(eof),
+                                                     header(std::move(header)),
+                                                     session_lock(std::move(session_lock))
+    {
+        old.moved = true;
+    }
+
     int audit_logger::init()
     {
         if (load_log_file() == -1)
@@ -429,7 +440,7 @@ namespace hpfs::audit
 
     audit_logger::~audit_logger()
     {
-        if (initialized)
+        if (initialized && !moved)
         {
             // In ReadWrite session, mark the eof offset as last checkpoint.
             if (run_mode == hpfs::RUN_MODE::RW && eof > header.last_checkpoint)

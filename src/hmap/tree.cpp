@@ -34,6 +34,13 @@ namespace hpfs::hmap::tree
     {
     }
 
+    hmap_tree::hmap_tree(hmap_tree &&old) : initialized(initialized),
+                                            store(std::move(store)),
+                                            virt_fs(virt_fs)
+    {
+        old.moved = true;
+    }
+
     int hmap_tree::init()
     {
         LOG_INFO << "Initializing hash map...";
@@ -268,11 +275,11 @@ namespace hpfs::hmap::tree
 
     hmap_tree::~hmap_tree()
     {
-        if (initialized)
+        if (initialized && !moved)
         {
             // Persist any hash map updates to the disk.
             store.persist_hash_maps();
         }
     }
 
-} // namespace hpfs::hmap
+} // namespace hpfs::hmap::tree

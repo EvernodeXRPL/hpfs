@@ -35,6 +35,20 @@ namespace hpfs::vfs
     {
     }
 
+    virtual_filesystem::virtual_filesystem(virtual_filesystem &&old) : initialized(initialized),
+                                                                       readonly(readonly),
+                                                                       seed_dir(seed_dir),
+                                                                       next_ino(next_ino),
+                                                                       vnodes(std::move(vnodes)),
+                                                                       default_stat(std::move(default_stat)),
+                                                                       loaded_vpaths(std::move(loaded_vpaths)),
+                                                                       logger(logger),
+                                                                       last_checkpoint(last_checkpoint),
+                                                                       log_scanned_upto(log_scanned_upto)
+    {
+        old.moved = true;
+    }
+
     int virtual_filesystem::init()
     {
         // In ReadOnly session, remember the last checkpoint record offset during initialisation.
@@ -432,7 +446,7 @@ namespace hpfs::vfs
 
     virtual_filesystem::~virtual_filesystem()
     {
-        if (initialized)
+        if (initialized && !moved)
         {
             for (const auto &[vpath, vnode] : vnodes)
             {

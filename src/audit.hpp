@@ -91,12 +91,13 @@ namespace hpfs::audit
     class audit_logger
     {
     private:
+        bool moved = false;
         bool initialized = false; // Indicates that the instance has been initialized properly.
         const hpfs::RUN_MODE run_mode;
         std::string_view log_file_path;
-        int fd = 0;         // The log file fd used throughout the session.
-        off_t eof = 0;      // End of file (End offset of log file).
-        log_header header;  // The log file header loaded into memory.
+        int fd = 0;                // The log file fd used throughout the session.
+        off_t eof = 0;             // End of file (End offset of log file).
+        log_header header;         // The log file header loaded into memory.
         struct flock session_lock; // Session lock placed on the log file.
 
         audit_logger(const hpfs::RUN_MODE run_mode, std::string_view log_file_path);
@@ -105,6 +106,8 @@ namespace hpfs::audit
 
     public:
         static std::optional<audit_logger> create(const hpfs::RUN_MODE run_mode, std::string_view log_file_path);
+        audit_logger(const audit_logger &) = delete; // No copy constructor;
+        audit_logger(audit_logger &&old);
         int get_fd();
         const log_header &get_header();
         void print_log();
