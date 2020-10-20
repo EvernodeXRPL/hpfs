@@ -32,13 +32,13 @@ namespace hpfs::audit
     {
     }
 
-    audit_logger::audit_logger(audit_logger &&old) : initialized(initialized),
-                                                     run_mode(run_mode),
-                                                     log_file_path(log_file_path),
-                                                     fd(fd),
-                                                     eof(eof),
-                                                     header(std::move(header)),
-                                                     session_lock(std::move(session_lock))
+    audit_logger::audit_logger(audit_logger &&old) : initialized(old.initialized),
+                                                     run_mode(old.run_mode),
+                                                     log_file_path(old.log_file_path),
+                                                     fd(old.fd),
+                                                     eof(old.eof),
+                                                     header(std::move(old.header)),
+                                                     session_lock(std::move(old.session_lock))
     {
         old.moved = true;
     }

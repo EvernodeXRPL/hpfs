@@ -35,16 +35,16 @@ namespace hpfs::vfs
     {
     }
 
-    virtual_filesystem::virtual_filesystem(virtual_filesystem &&old) : initialized(initialized),
-                                                                       readonly(readonly),
-                                                                       seed_dir(seed_dir),
-                                                                       next_ino(next_ino),
-                                                                       vnodes(std::move(vnodes)),
-                                                                       default_stat(std::move(default_stat)),
-                                                                       loaded_vpaths(std::move(loaded_vpaths)),
-                                                                       logger(logger),
-                                                                       last_checkpoint(last_checkpoint),
-                                                                       log_scanned_upto(log_scanned_upto)
+    virtual_filesystem::virtual_filesystem(virtual_filesystem &&old) : initialized(old.initialized),
+                                                                       readonly(old.readonly),
+                                                                       seed_dir(old.seed_dir),
+                                                                       next_ino(old.next_ino),
+                                                                       vnodes(std::move(old.vnodes)),
+                                                                       default_stat(std::move(old.default_stat)),
+                                                                       loaded_vpaths(std::move(old.loaded_vpaths)),
+                                                                       logger(old.logger),
+                                                                       last_checkpoint(old.last_checkpoint),
+                                                                       log_scanned_upto(old.log_scanned_upto)
     {
         old.moved = true;
     }

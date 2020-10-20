@@ -34,9 +34,9 @@ namespace hpfs::hmap::tree
     {
     }
 
-    hmap_tree::hmap_tree(hmap_tree &&old) : initialized(initialized),
-                                            store(std::move(store)),
-                                            virt_fs(virt_fs)
+    hmap_tree::hmap_tree(hmap_tree &&old) : initialized(old.initialized),
+                                            store(std::move(old.store)),
+                                            virt_fs(old.virt_fs)
     {
         old.moved = true;
     }
