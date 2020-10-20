@@ -9,7 +9,7 @@
 #include "store.hpp"
 #include "hasher.hpp"
 
-namespace hpfs::hmap
+namespace hpfs::hmap::store
 {
     constexpr const char *HASH_MAP_CACHE_FILE_EXT = ".hcache";
     constexpr int FILE_PERMS = 0644;

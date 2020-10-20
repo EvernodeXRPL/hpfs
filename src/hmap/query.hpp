@@ -32,15 +32,15 @@ namespace hpfs::hmap::query
     class hmap_query
     {
         private:
-            hmap_tree &tree;
+            tree::hmap_tree &tree;
             vfs::virtual_filesystem &virt_fs;
 
         public:
-        hmap_query(hmap_tree &tree, vfs::virtual_filesystem &virt_fs);
+        hmap_query(tree::hmap_tree &tree, vfs::virtual_filesystem &virt_fs);
         request parse_request_path(const char *request_path);
         int getattr(const request &req, struct stat *stbuf);
         int read(const request &req, char *buf, const size_t size);
-        int read_file_block_hashes(const vnode_hmap &node_hmap, char *buf, const size_t size);
+        int read_file_block_hashes(const store::vnode_hmap &node_hmap, char *buf, const size_t size);
         int read_dir_children_hashes(const std::string &vpath, char *buf, const size_t size);
     };
 

@@ -16,7 +16,7 @@ namespace hpfs::hmap::query
     constexpr const char *CHILDREN_REQUEST_PATTERN = "::hpfs.hmap.children";
     constexpr const size_t CHILDREN_REQUEST_PATTERN_LEN = 20;
 
-    hmap_query::hmap_query(hmap_tree &tree, vfs::virtual_filesystem &virt_fs) : tree(tree), virt_fs(virt_fs)
+    hmap_query::hmap_query(tree::hmap_tree &tree, vfs::virtual_filesystem &virt_fs) : tree(tree), virt_fs(virt_fs)
     {
     }
 
@@ -50,7 +50,7 @@ namespace hpfs::hmap::query
 
     int hmap_query::getattr(const request &req, struct stat *stbuf)
     {
-        vnode_hmap *node_hmap;
+        store::vnode_hmap *node_hmap;
         if (tree.get_vnode_hmap(&node_hmap, req.vpath) == -1)
             return -1;
         if (!node_hmap)
@@ -87,7 +87,7 @@ namespace hpfs::hmap::query
 
     int hmap_query::read(const request &req, char *buf, const size_t size)
     {
-        vnode_hmap *node_hmap;
+        store::vnode_hmap *node_hmap;
         if (tree.get_vnode_hmap(&node_hmap, req.vpath) == -1)
             return -1;
         if (!node_hmap)
@@ -109,7 +109,7 @@ namespace hpfs::hmap::query
         }
     }
 
-    int hmap_query::read_file_block_hashes(const vnode_hmap &node_hmap, char *buf, const size_t size)
+    int hmap_query::read_file_block_hashes(const store::vnode_hmap &node_hmap, char *buf, const size_t size)
     {
         const size_t read_len = MIN(size, sizeof(hmap::hasher::h32) * node_hmap.block_hashes.size());
         memcpy(buf, node_hmap.block_hashes.data(), read_len);
@@ -133,7 +133,7 @@ namespace hpfs::hmap::query
                 child_vpath.append("/");
             child_vpath.append(child_name);
 
-            vnode_hmap *node_hmap;
+            store::vnode_hmap *node_hmap;
             if (tree.get_vnode_hmap(&node_hmap, child_vpath) == -1 || !node_hmap)
                 return -1;
 

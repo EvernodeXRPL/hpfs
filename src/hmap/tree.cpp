@@ -15,7 +15,7 @@
 #include "../util.hpp"
 #include "../vfs.hpp"
 
-namespace hpfs::hmap
+namespace hpfs::hmap::tree
 {
     constexpr size_t BLOCK_SIZE = 4194304; // 4MB
     constexpr const char *ROOT_VPATH = "/";
@@ -38,7 +38,7 @@ namespace hpfs::hmap
         LOG_INFO << "Initializing hash map...";
 
         // Check whether there's already a persisted root hash map.
-        const vnode_hmap *root_hmap = store.find_hash_map(ROOT_VPATH);
+        const store::vnode_hmap *root_hmap = store.find_hash_map(ROOT_VPATH);
         if (root_hmap == NULL)
         {
             // Calculate entire filesystem hash from scratch.
@@ -57,7 +57,7 @@ namespace hpfs::hmap
         return 0;
     }
 
-    int hmap_tree::get_vnode_hmap(vnode_hmap **node_hmap, const std::string &vpath)
+    int hmap_tree::get_vnode_hmap(store::vnode_hmap **node_hmap, const std::string &vpath)
     {
         *node_hmap = store.find_hash_map(vpath);
         return 0;
@@ -70,7 +70,7 @@ namespace hpfs::hmap
             return -1;
 
         // Initialize dir hash with the dir path hash.
-        vnode_hmap dir_hmap{false};
+        store::vnode_hmap dir_hmap{false};
         hash_buf(dir_hmap.vpath_hash, vpath.c_str(), vpath.length());
 
         // Initial node hash is the vpath hash.
@@ -107,7 +107,7 @@ namespace hpfs::hmap
         if (virt_fs.get_vnode(vpath, &vn) == -1 || !vn)
             return -1;
 
-        vnode_hmap file_hmap{true};
+        store::vnode_hmap file_hmap{true};
         hash_buf(file_hmap.vpath_hash, vpath.c_str(), vpath.length());       // vpath hash.
         if (apply_file_data_update(file_hmap, *vn, 0, vn->st.st_size) == -1) // File hash.
             return -1;
@@ -123,10 +123,10 @@ namespace hpfs::hmap
     {
         char *path2 = strdup(vpath.c_str());
         const char *parent_path = dirname(path2);
-        vnode_hmap *hmap_entry = store.find_hash_map(parent_path);
+        store::vnode_hmap *hmap_entry = store.find_hash_map(parent_path);
         if (hmap_entry == NULL)
             return;
-        vnode_hmap &parent_hmap = *hmap_entry;
+        store::vnode_hmap &parent_hmap = *hmap_entry;
 
         // XOR old hash and new hash into parent hash.
         // Remember the old parent hash before updating it.
@@ -150,7 +150,7 @@ namespace hpfs::hmap
         // Initial node hash is the vpath hash.
         hasher::h32 hash;
         hash_buf(hash, vpath.c_str(), vpath.length());
-        store.insert_hash_map(vpath, vnode_hmap{is_file, hash, hash});
+        store.insert_hash_map(vpath, store::vnode_hmap{is_file, hash, hash});
         store.set_dirty(vpath);
 
         propogate_hash_update(vpath, hasher::h32_empty, hash);
@@ -160,11 +160,11 @@ namespace hpfs::hmap
     int hmap_tree::apply_vnode_update(const std::string &vpath, const vfs::vnode &vn,
                                       const off_t file_update_offset, const size_t file_update_size)
     {
-        vnode_hmap *hmap_entry = store.find_hash_map(vpath);
+        store::vnode_hmap *hmap_entry = store.find_hash_map(vpath);
         if (hmap_entry == NULL)
             return -1;
 
-        vnode_hmap &node_hmap = *hmap_entry;
+        store::vnode_hmap &node_hmap = *hmap_entry;
         const hasher::h32 old_hash = node_hmap.node_hash; // Remember old hash before we modify.
 
         // If this is a file update operation, update the block hashes and recalculate
@@ -181,7 +181,7 @@ namespace hpfs::hmap
         return 0;
     }
 
-    int hmap_tree::apply_file_data_update(vnode_hmap &node_hmap, const vfs::vnode &vn,
+    int hmap_tree::apply_file_data_update(store::vnode_hmap &node_hmap, const vfs::vnode &vn,
                                           const off_t update_offset, const size_t update_size)
     {
         const size_t file_size = vn.st.st_size;
@@ -226,7 +226,7 @@ namespace hpfs::hmap
 
     int hmap_tree::apply_vnode_delete(const std::string &vpath)
     {
-        vnode_hmap *hmap_entry = store.find_hash_map(vpath);
+        store::vnode_hmap *hmap_entry = store.find_hash_map(vpath);
         if (hmap_entry == NULL)
             return -1;
 
@@ -241,10 +241,10 @@ namespace hpfs::hmap
     int hmap_tree::apply_vnode_rename(const std::string &from_vpath, const std::string &to_vpath)
     {
         // Backup and delete the hashed node.
-        vnode_hmap *hmap_entry = store.find_hash_map(from_vpath);
+        store::vnode_hmap *hmap_entry = store.find_hash_map(from_vpath);
         if (hmap_entry == NULL)
             return -1;
-        vnode_hmap node_hmap = *hmap_entry; // Create a copy.
+        store::vnode_hmap node_hmap = *hmap_entry; // Create a copy.
         store.erase_hash_map(from_vpath);
         store.set_dirty(from_vpath);
 
