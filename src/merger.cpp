@@ -26,7 +26,7 @@ namespace hpfs::merger
         auto logger = hpfs::audit::audit_logger::create(RUN_MODE::MERGE, ctx.log_file_path);
         if (!logger)
             return -1;
-        audit_logger.emplace(std::move(logger.value()));
+        //audit_logger.swap(logger);
 
         merger_thread = std::thread(merger_loop);
         merger_thread.join();

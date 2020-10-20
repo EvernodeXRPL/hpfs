@@ -20,11 +20,11 @@ namespace hpfs::audit
 
     std::optional<audit_logger> audit_logger::create(const hpfs::RUN_MODE run_mode, std::string_view log_file_path)
     {
-        audit_logger logger(run_mode, log_file_path);
-        if (logger.init() == -1)
-            return std::optional<audit_logger>();
-        else
-            return std::optional<audit_logger>(std::move(logger));
+        std::optional<audit_logger> logger = std::optional<audit_logger>(audit_logger(run_mode, log_file_path));
+        if (logger->init() == -1)
+            logger.reset();
+
+        return logger;
     }
 
     audit_logger::audit_logger(const hpfs::RUN_MODE run_mode, std::string_view log_file_path) : run_mode(run_mode),
@@ -368,7 +368,7 @@ namespace hpfs::audit
             return -1;
         }
 
-        record.vpath = std::move(vpath);
+        record.vpath.swap(vpath);
 
         if (record.offset + record.size == eof)
             next_offset = 0;

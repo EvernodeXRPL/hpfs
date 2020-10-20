@@ -20,11 +20,11 @@ namespace hpfs::vfs
     std::optional<virtual_filesystem> virtual_filesystem::create(const bool readonly, std::string_view seed_dir,
                                                                  hpfs::audit::audit_logger &logger)
     {
-        virtual_filesystem virt_fs(readonly, seed_dir, logger);
-        if (virt_fs.init() != -1)
-            return std::optional<virtual_filesystem>(std::move(virt_fs));
-        else
-            return std::optional<virtual_filesystem>();
+        std::optional<virtual_filesystem> virt_fs = std::optional<virtual_filesystem>(virtual_filesystem(readonly, seed_dir, logger));
+        if (virt_fs->init() == -1)
+            virt_fs.reset();
+
+        return virt_fs;
     }
 
     virtual_filesystem::virtual_filesystem(const bool readonly,

@@ -23,11 +23,11 @@ namespace hpfs::hmap::tree
 
     std::optional<hmap_tree> hmap_tree::create(hpfs::vfs::virtual_filesystem &virt_fs)
     {
-        hmap_tree tree(virt_fs);
-        if (tree.init() == -1)
-            return std::optional<hmap_tree>();
-        else
-            return std::optional<hmap_tree>(std::move(tree));
+        std::optional<hmap_tree> tree = std::optional<hmap_tree>(hmap_tree(virt_fs));
+        if (tree->init() == -1)
+            tree.reset();
+
+        return tree;
     }
 
     hmap_tree::hmap_tree(hpfs::vfs::virtual_filesystem &virt_fs) : virt_fs(virt_fs)
