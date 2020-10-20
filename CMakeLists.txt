@@ -20,10 +20,8 @@ add_executable(hpfs
     src/util.cpp
     src/tracelog.cpp
     src/audit.cpp
-    src/vfs/vfs.cpp
     src/vfs/virtual_filesystem.cpp
     src/vfs/fuse_adapter.cpp
-    src/fuse_vfs.cpp
     src/fusefs.cpp
     src/merger.cpp
     src/hpfs.cpp

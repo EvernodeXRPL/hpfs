@@ -5,6 +5,7 @@
 #include <sys/stat.h>
 #include <string.h>
 #include <vector>
+#include <stdint.h>
 
 namespace hpfs::vfs
 {

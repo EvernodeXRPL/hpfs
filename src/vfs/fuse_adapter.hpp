@@ -1,7 +1,7 @@
 #ifndef _HPFS_VFS_FUSE_ADAPTER_
 #define _HPFS_VFS_FUSE_ADAPTER_
 
-#include "vfs/virtual_filesystem.hpp"
+#include "virtual_filesystem.hpp"
 #include "../hmap/tree.hpp"
 #include "../audit.hpp"
 

@@ -52,8 +52,9 @@
 #include <iostream>
 #include <string>
 #include "hpfs.hpp"
-#include "vfs.hpp"
-#include "fuse_vfs.hpp"
+#include "session.hpp"
+#include "vfs/vfs.hpp"
+#include "vfs/fuse_adapter.hpp"
 #include "hmap/query.hpp"
 
 namespace fusefs

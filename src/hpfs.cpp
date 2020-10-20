@@ -9,6 +9,7 @@
 #include "merger.hpp"
 #include "tracelog.hpp"
 #include "audit.hpp"
+#include "session.hpp"
 
 namespace hpfs
 {
@@ -41,7 +42,7 @@ namespace hpfs
 
         if (ctx.run_mode == RUN_MODE::RDLOG)
         {
-            std::optional<audit::audit_logger> audit_logger = audit::audit_logger::create();
+            std::optional<audit::audit_logger> audit_logger = audit::audit_logger::create(ctx.run_mode, ctx.log_file_path);
             if (audit_logger)
                 audit_logger->print_log();
             else
@@ -61,28 +62,14 @@ namespace hpfs
 
     int run_ro_rw_session(char *arg0)
     {
-        int ret = 0;
-        bool remove_mount_dir = false;
-
-        LOG_INFO << "Starting hpfs " << ((ctx.run_mode == RUN_MODE::RW) ? "RW" : "RO") << " session...";
-
-        if (vfs::init() == -1)
+        if (session::start() == -1)
         {
-            ret = -1;
-            goto deinit_vfs;
+            LOG_ERROR << "Failed to start session";
+            return -1;
         }
-
-        LOG_DEBUG << "VFS init complete.";
-
-        if (hmap::init() == -1)
-        {
-            ret = -1;
-            goto deinit_hmap;
-        }
-
-        LOG_DEBUG << "Hashmap init complete.";
 
         // Check and create fuse mount dir.
+        bool remove_mount_dir = false;
         if (!util::is_dir_exists(ctx.mount_dir))
         {
             // If specified mount directory does not exist, we will create it
@@ -96,17 +83,11 @@ namespace hpfs
             LOG_DEBUG << "Mount dir created: " << ctx.mount_dir;
         }
 
-        LOG_INFO << "hpfs " << ((ctx.run_mode == RUN_MODE::RW) ? "RW" : "RO") << " session started.";
-
         // This is a blocking call. This will exit when fuse_main receives a signal.
-        ret = fusefs::init(arg0);
-
+        const int ret = fusefs::init(arg0);
         LOG_INFO << "Ended FUSE session.";
 
-    deinit_hmap:
-        hmap::deinit();
-    deinit_vfs:
-        vfs::deinit();
+        session::stop();
 
         if (remove_mount_dir)
             rmdir(ctx.mount_dir.c_str());
