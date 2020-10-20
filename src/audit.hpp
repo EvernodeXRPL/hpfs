@@ -101,7 +101,7 @@ namespace hpfs::audit
         int load_log_file();
 
     public:
-        static const std::optional<audit_logger> create();
+        static std::optional<audit_logger> create();
         int get_fd();
         const log_header &get_header();
         void print_log();

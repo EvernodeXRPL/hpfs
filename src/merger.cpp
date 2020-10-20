@@ -9,7 +9,7 @@
 #include "merger.hpp"
 #include "util.hpp"
 #include "hpfs.hpp"
-#include "audit_logger.hpp"
+#include "audit.hpp"
 #include "tracelog.hpp"
 
 namespace hpfs::merger

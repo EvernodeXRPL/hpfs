@@ -11,14 +11,14 @@
 #include "hpfs.hpp"
 #include "util.hpp"
 #include "tracelog.hpp"
-#include "audit_logger.hpp"
+#include "audit.hpp"
 
 namespace hpfs::audit
 {
     constexpr int FILE_PERMS = 0644;
     constexpr uint16_t HPFS_VERSION = 1;
 
-    const std::optional<audit_logger> audit_logger::create()
+    std::optional<audit_logger> audit_logger::create()
     {
         audit_logger logger;
         if (logger.init() == -1)

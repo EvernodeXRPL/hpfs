@@ -15,6 +15,7 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-unused-result -Wreturn-type")
 add_executable(hpfs
     src/util.cpp
     src/tracelog.cpp
+    src/audit.cpp
     src/logger.cpp
     src/vfs.cpp
     src/fuse_vfs.cpp

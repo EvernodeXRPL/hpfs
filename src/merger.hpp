@@ -2,7 +2,7 @@
 #define _HPFS_MERGER_
 
 #include <vector>
-#include "audit_logger.hpp"
+#include "audit.hpp"
 
 namespace hpfs::merger
 {
