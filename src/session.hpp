@@ -21,7 +21,7 @@ namespace hpfs::session
 
     int start();
     int stop();
-    const std::optional<fs_session> &get();
+    std::optional<fs_session> &get();
 
 } // namespace hpfs::session
 

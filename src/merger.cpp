@@ -23,9 +23,10 @@ namespace hpfs::merger
     {
         signal(SIGINT, &signal_handler);
 
-        audit_logger = hpfs::audit::audit_logger::create();
-        if (!audit_logger)
+        auto logger = hpfs::audit::audit_logger::create(RUN_MODE::MERGE, ctx.log_file_path);
+        if (!logger)
             return -1;
+        audit_logger.emplace(std::move(logger.value()));
 
         merger_thread = std::thread(merger_loop);
         merger_thread.join();
@@ -111,7 +112,7 @@ namespace hpfs::merger
 
         std::vector<uint8_t> payload;
         if (logger.read_payload(payload, record) == -1 || // Read any associated payload.
-            merge_log_record(record, payload) == -1 ||     // Merge the record with the seed.
+            merge_log_record(record, payload) == -1 ||    // Merge the record with the seed.
             logger.purge_log(record) == -1)               // Purge the log record and update the header.
         {
             LOG_ERROR << errno << ": Error merging log record.";
@@ -209,4 +210,4 @@ namespace hpfs::merger
         return 0;
     }
 
-} // namespace merger
+} // namespace hpfs::merger

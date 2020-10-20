@@ -61,7 +61,7 @@ namespace hpfs::session
         return 0;
     }
 
-    const std::optional<fs_session> &get()
+    std::optional<fs_session> &get()
     {
         return default_session;
     }

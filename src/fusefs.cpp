@@ -57,7 +57,15 @@
 #include "vfs/fuse_adapter.hpp"
 #include "hmap/query.hpp"
 
-namespace fusefs
+/**
+ * Sets the 'session' local variable if session exists. Otherwise returns error code.
+ */
+#define CHECK_SESSION()                   \
+	auto &session = hpfs::session::get(); \
+	if (!session)                         \
+		return -ECANCELED;
+
+namespace hpfs::fusefs
 {
 
 	void *xmp_init(struct fuse_conn_info *conn,
@@ -81,26 +89,32 @@ namespace fusefs
 		return NULL;
 	}
 
-	int xmp_getattr(const char *path, struct stat *stbuf,
-					struct fuse_file_info *fi)
+	int xmp_getattr(const char *path, struct stat *stbuf, struct fuse_file_info *fi)
 	{
 		(void)fi;
 
-		// Check whether this is a hash map query path.
-		const hmap::query::request req = hmap::query::parse_request_path(path);
-		if (req.mode != hmap::query::MODE::UNDEFINED)
-			return hmap::query::getattr(req, stbuf);
+		CHECK_SESSION();
+		if (session->hmap_query)
+		{
+			// Check whether this is a hash map query path.
+			const hmap::query::hmap_query &hmap_query = session->hmap_query.value();
+			const hmap::query::request req = hmap_query.parse_request_path(path);
+			if (req.mode != hmap::query::MODE::UNDEFINED)
+				return hmap_query.getattr(req, stbuf);
+		}
 
-		return fuse_vfs::getattr(path, stbuf);
+		return session->fuse_adapter->getattr(path, stbuf);
 	}
 
 	int xmp_access(const char *path, int mask)
 	{
+		CHECK_SESSION();
 		return 0;
 	}
 
 	int xmp_readlink(const char *path, char *buf, size_t size)
 	{
+		CHECK_SESSION();
 		return 0;
 	}
 
@@ -108,8 +122,10 @@ namespace fusefs
 					off_t offset, struct fuse_file_info *fi,
 					enum fuse_readdir_flags flags)
 	{
+		CHECK_SESSION();
+
 		vfs::vdir_children_map children;
-		int res = fuse_vfs::readdir(path, children);
+		int res = session->fuse_adapter->readdir(path, children);
 		if (res < 0)
 			return res;
 
@@ -121,70 +137,86 @@ namespace fusefs
 
 	int xmp_mkdir(const char *path, mode_t mode)
 	{
-		return fuse_vfs::mkdir(path, mode);
+		CHECK_SESSION();
+		return session->fuse_adapter->mkdir(path, mode);
 	}
 
 	int xmp_rmdir(const char *path)
 	{
-		return fuse_vfs::rmdir(path);
+		CHECK_SESSION();
+		return session->fuse_adapter->rmdir(path);
 	}
 
 	int xmp_symlink(const char *from, const char *to)
 	{
+		CHECK_SESSION();
 		return 0;
 	}
 
 	int xmp_rename(const char *from, const char *to, unsigned int flags)
 	{
+		CHECK_SESSION();
+
 		if (flags)
 			return -EINVAL;
 
-		return fuse_vfs::rename(from, to);
+		return session->fuse_adapter->rename(from, to);
 	}
 
 	int xmp_link(const char *from, const char *to)
 	{
+		CHECK_SESSION();
 		return 0;
 	}
 
 	int xmp_unlink(const char *path)
 	{
-		return fuse_vfs::unlink(path);
+		CHECK_SESSION();
+		return session->fuse_adapter->unlink(path);
 	}
 
 	int xmp_chmod(const char *path, mode_t mode,
 				  struct fuse_file_info *fi)
 	{
+		CHECK_SESSION();
 		return 0;
 	}
 
 	int xmp_chown(const char *path, uid_t uid, gid_t gid,
 				  struct fuse_file_info *fi)
 	{
+		CHECK_SESSION();
 		return 0;
 	}
 
 	int xmp_utimens(const char *path, const struct timespec ts[2],
 					struct fuse_file_info *fi)
 	{
+		CHECK_SESSION();
 		return 0;
 	}
 
 	int xmp_create(const char *path, mode_t mode, struct fuse_file_info *fi)
 	{
-		return fuse_vfs::create(path, mode);
+		CHECK_SESSION();
+		return session->fuse_adapter->create(path, mode);
 	}
 
 	int xmp_open(const char *path, struct fuse_file_info *fi)
 	{
-		// Check whether this is a hash map query path.
-		const hmap::query::request req = hmap::query::parse_request_path(path);
-		if (req.mode != hmap::query::MODE::UNDEFINED)
-			return 0;
+		CHECK_SESSION();
+
+		if (session->hmap_query)
+		{
+			// Check whether this is a hash map query path.
+			const hmap::query::request req = session->hmap_query->parse_request_path(path);
+			if (req.mode != hmap::query::MODE::UNDEFINED)
+				return 0;
+		}
 
 		// Check if file is being opened in truncate mode.
 		if (fi->flags & O_TRUNC)
-			fuse_vfs::truncate(path, 0);
+			session->fuse_adapter->truncate(path, 0);
 
 		return 0;
 	}
@@ -192,36 +224,46 @@ namespace fusefs
 	int xmp_read(const char *path, char *buf, size_t size, off_t offset,
 				 struct fuse_file_info *fi)
 	{
-		// Check whether this is a hash map query path.
-		const hmap::query::request req = hmap::query::parse_request_path(path);
-		if (req.mode != hmap::query::MODE::UNDEFINED)
-			return hmap::query::read(req, buf, size);
+		CHECK_SESSION();
 
-		return fuse_vfs::read(path, buf, size, offset);
+		if (session->hmap_query)
+		{
+			// Check whether this is a hash map query path.
+			const hmap::query::hmap_query &hmap_query = session->hmap_query.value();
+			const hmap::query::request req = hmap_query.parse_request_path(path);
+			if (req.mode != hmap::query::MODE::UNDEFINED)
+				return hmap_query.read(req, buf, size);
+		}
+
+		return session->fuse_adapter->read(path, buf, size, offset);
 	}
 
 	int xmp_write(const char *path, const char *buf, size_t size,
 				  off_t offset, struct fuse_file_info *fi)
 	{
-		return fuse_vfs::write(path, buf, size, offset);
+		CHECK_SESSION();
+		return session->fuse_adapter->write(path, buf, size, offset);
 	}
 
 	int xmp_statfs(const char *path, struct statvfs *stbuf)
 	{
+		CHECK_SESSION();
 		return 0;
 	}
 
 	static int xmp_flush(const char *path, struct fuse_file_info *fi)
 	{
-		int res;
-
 		(void)path;
+
+		CHECK_SESSION();
+
 		/* This is called from every close on an open file, so call the
 	   close on the underlying filesystem.	But since flush may be
 	   called multiple times for an open file, this must not really
 	   close the file.  This is important if used on a network
 	   filesystem like NFS which flush the data/metadata on close() */
-		close(dup(fi->fh));
+		if (fi->fh > 0)
+			close(dup(fi->fh));
 
 		return 0;
 	}
@@ -229,19 +271,24 @@ namespace fusefs
 	int xmp_release(const char *path, struct fuse_file_info *fi)
 	{
 		(void)path;
-		close(fi->fh);
+		CHECK_SESSION();
+
+		if (fi->fh > 0)
+			close(fi->fh);
 		return 0;
 	}
 
 	int xmp_truncate(const char *path, off_t size,
 					 struct fuse_file_info *fi)
 	{
-		return fuse_vfs::truncate(path, size);
+		CHECK_SESSION();
+		return session->fuse_adapter->truncate(path, size);
 	}
 
 	int xmp_fsync(const char *path, int isdatasync,
 				  struct fuse_file_info *fi)
 	{
+		CHECK_SESSION();
 		return 0;
 	}
 
@@ -249,6 +296,7 @@ namespace fusefs
 	int xmp_fallocate(const char *path, int mode,
 					  off_t offset, off_t length, struct fuse_file_info *fi)
 	{
+		CHECK_SESSION();
 		return 0;
 	}
 #endif
@@ -258,22 +306,26 @@ namespace fusefs
 	int xmp_setxattr(const char *path, const char *name, const char *value,
 					 size_t size, int flags)
 	{
+		CHECK_SESSION();
 		return 0;
 	}
 
 	int xmp_getxattr(const char *path, const char *name, char *value,
 					 size_t size)
 	{
+		CHECK_SESSION();
 		return 0;
 	}
 
 	int xmp_listxattr(const char *path, char *list, size_t size)
 	{
+		CHECK_SESSION();
 		return 0;
 	}
 
 	int xmp_removexattr(const char *path, const char *name)
 	{
+		CHECK_SESSION();
 		return 0;
 	}
 #endif /* HAVE_SETXATTR */
@@ -282,12 +334,14 @@ namespace fusefs
 	int xmp_lock(const char *path, struct fuse_file_info *fi, int cmd,
 				 struct flock *lock)
 	{
+		CHECK_SESSION();
 		return 0;
 	}
 #endif
 
 	int xmp_flock(const char *path, struct fuse_file_info *fi, int op)
 	{
+		CHECK_SESSION();
 		return 0;
 	}
 
@@ -298,12 +352,14 @@ namespace fusefs
 								struct fuse_file_info *fi_out,
 								off_t off_out, size_t len, int flags)
 	{
+		CHECK_SESSION();
 		return 0;
 	}
 #endif
 
 	off_t xmp_lseek(const char *path, off_t off, int whence, struct fuse_file_info *fi)
 	{
+		CHECK_SESSION();
 		return 0;
 	}
 
@@ -379,4 +435,4 @@ namespace fusefs
 		return fuse_main(args.argc, args.argv, &xmp_oper, NULL);
 	}
 
-} // namespace fusefs
+} // namespace hpfs::fusefs

@@ -24,7 +24,7 @@ namespace hpfs::hmap::query
     /**
      * Match the last portion of the request path with request patterns.
      */
-    request hmap_query::parse_request_path(const char *request_path)
+    request hmap_query::parse_request_path(const char *request_path) const
     {
         request req{MODE::UNDEFINED};
 
@@ -49,7 +49,7 @@ namespace hpfs::hmap::query
         return req; // Return the request struct with 'undefined' request type.
     }
 
-    int hmap_query::getattr(const request &req, struct stat *stbuf)
+    int hmap_query::getattr(const request &req, struct stat *stbuf) const
     {
         store::vnode_hmap *node_hmap;
         if (tree.get_vnode_hmap(&node_hmap, req.vpath) == -1)
@@ -86,7 +86,7 @@ namespace hpfs::hmap::query
         return 0;
     }
 
-    int hmap_query::read(const request &req, char *buf, const size_t size)
+    int hmap_query::read(const request &req, char *buf, const size_t size) const
     {
         store::vnode_hmap *node_hmap;
         if (tree.get_vnode_hmap(&node_hmap, req.vpath) == -1)
@@ -110,14 +110,14 @@ namespace hpfs::hmap::query
         }
     }
 
-    int hmap_query::read_file_block_hashes(const store::vnode_hmap &node_hmap, char *buf, const size_t size)
+    int hmap_query::read_file_block_hashes(const store::vnode_hmap &node_hmap, char *buf, const size_t size) const
     {
         const size_t read_len = MIN(size, sizeof(hmap::hasher::h32) * node_hmap.block_hashes.size());
         memcpy(buf, node_hmap.block_hashes.data(), read_len);
         return read_len;
     }
 
-    int hmap_query::read_dir_children_hashes(const std::string &vpath, char *buf, const size_t size)
+    int hmap_query::read_dir_children_hashes(const std::string &vpath, char *buf, const size_t size) const
     {
         vfs::vdir_children_map dir_children;
         if (virt_fs.get_dir_children(vpath.c_str(), dir_children) == -1)

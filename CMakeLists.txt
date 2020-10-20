@@ -24,6 +24,7 @@ add_executable(hpfs
     src/vfs/fuse_adapter.cpp
     src/fusefs.cpp
     src/merger.cpp
+    src/session.cpp
     src/hpfs.cpp
     src/main.cpp
 )
