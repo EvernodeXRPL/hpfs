@@ -7,7 +7,7 @@
 #include <unordered_map>
 #include "hasher.hpp"
 
-namespace hpfs::hmap::store
+namespace hpfs::hmap
 {
     struct vnode_hmap
     {
