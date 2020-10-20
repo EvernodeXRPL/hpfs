@@ -5,7 +5,7 @@
 #include "hasher.hpp"
 #include "tree.hpp"
 #include "store.hpp"
-#include "../vfs.hpp"
+#include "../vfs/virtual_filesystem.hpp"
 
 namespace hpfs::hmap::query
 {

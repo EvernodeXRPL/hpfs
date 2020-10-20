@@ -6,10 +6,7 @@
 #include "hpfs.hpp"
 #include "util.hpp"
 #include "fusefs.hpp"
-#include "logger.hpp"
 #include "merger.hpp"
-#include "vfs.hpp"
-#include "hmap/hmap.hpp"
 #include "tracelog.hpp"
 
 namespace hpfs

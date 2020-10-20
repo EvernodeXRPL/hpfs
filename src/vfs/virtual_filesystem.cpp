@@ -11,6 +11,7 @@
 #include <libgen.h>
 #include <optional>
 #include "vfs.hpp"
+#include "virtual_filesystem.hpp"
 #include "hpfs.hpp"
 #include "audit.hpp"
 #include "util.hpp"

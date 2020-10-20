@@ -13,7 +13,8 @@
 #include "tree.hpp"
 #include "../tracelog.hpp"
 #include "../util.hpp"
-#include "../vfs.hpp"
+#include "../vfs/vfs.hpp"
+#include "../vfs/virtual_filesystem.hpp"
 
 namespace hpfs::hmap::tree
 {

@@ -4,7 +4,8 @@
 #include <sys/stat.h>
 #include <iostream>
 #include "../util.hpp"
-#include "../vfs.hpp"
+#include "../vfs/vfs.hpp"
+#include "../vfs/virtual_filesystem.hpp"
 #include "query.hpp"
 #include "hasher.hpp"
 #include "tree.hpp"

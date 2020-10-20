@@ -6,7 +6,8 @@
 #include <optional>
 #include "hasher.hpp"
 #include "store.hpp"
-#include "../vfs.hpp"
+#include "../vfs/vfs.hpp"
+#include "../vfs/virtual_filesystem.hpp"
 
 namespace hpfs::hmap::tree
 {
