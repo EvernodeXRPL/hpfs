@@ -5,26 +5,27 @@
 #include <iostream>
 #include "../util.hpp"
 #include "../vfs.hpp"
-#include "../hpfs.hpp"
 #include "query.hpp"
 #include "hasher.hpp"
-#include "hmap.hpp"
+#include "tree.hpp"
 
-namespace hmap::query
+namespace hpfs::hmap::query
 {
     constexpr const char *HASH_REQUEST_PATTERN = "::hpfs.hmap.hash";
     constexpr const size_t HASH_REQUEST_PATTERN_LEN = 16;
     constexpr const char *CHILDREN_REQUEST_PATTERN = "::hpfs.hmap.children";
     constexpr const size_t CHILDREN_REQUEST_PATTERN_LEN = 20;
 
+    hmap_query::hmap_query(hmap_tree &tree, vfs::virtual_filesystem &virt_fs) : tree(tree), virt_fs(virt_fs)
+    {
+    }
+
     /**
      * Match the last portion of the request path with request patterns.
      */
-    request parse_request_path(const char *request_path)
+    request hmap_query::parse_request_path(const char *request_path)
     {
         request req{MODE::UNDEFINED};
-        if (!hpfs::ctx.hmap_enabled)
-            return req;
 
         const size_t len = strlen(request_path);
 
@@ -44,16 +45,13 @@ namespace hmap::query
             req.vpath = std::string_view(request_path, len - CHILDREN_REQUEST_PATTERN_LEN);
         }
 
-        return req; // Retuen the request struct with 'undefined' request type.
+        return req; // Return the request struct with 'undefined' request type.
     }
 
-    int getattr(const request &req, struct stat *stbuf)
+    int hmap_query::getattr(const request &req, struct stat *stbuf)
     {
-        if (!hpfs::ctx.hmap_enabled)
-            return -1;
-
-        store::vnode_hmap *node_hmap;
-        if (get_vnode_hmap(&node_hmap, req.vpath) == -1)
+        vnode_hmap *node_hmap;
+        if (tree.get_vnode_hmap(&node_hmap, req.vpath) == -1)
             return -1;
         if (!node_hmap)
             return -ENOENT;
@@ -77,7 +75,7 @@ namespace hmap::query
             {
                 // Get how many children the directory has.
                 vfs::vdir_children_map dir_children;
-                if (vfs::get_dir_children(req.vpath.c_str(), dir_children) == -1)
+                if (virt_fs.get_dir_children(req.vpath.c_str(), dir_children) == -1)
                     return -1;
 
                 stbuf->st_size = sizeof(child_hash_node) * dir_children.size();
@@ -87,13 +85,10 @@ namespace hmap::query
         return 0;
     }
 
-    int read(const request &req, char *buf, const size_t size)
+    int hmap_query::read(const request &req, char *buf, const size_t size)
     {
-        if (!hpfs::ctx.hmap_enabled)
-            return -1;
-
-        store::vnode_hmap *node_hmap;
-        if (get_vnode_hmap(&node_hmap, req.vpath) == -1)
+        vnode_hmap *node_hmap;
+        if (tree.get_vnode_hmap(&node_hmap, req.vpath) == -1)
             return -1;
         if (!node_hmap)
             return -ENOENT;
@@ -114,23 +109,17 @@ namespace hmap::query
         }
     }
 
-    int read_file_block_hashes(const store::vnode_hmap &node_hmap, char *buf, const size_t size)
+    int hmap_query::read_file_block_hashes(const vnode_hmap &node_hmap, char *buf, const size_t size)
     {
-        if (!hpfs::ctx.hmap_enabled)
-            return -1;
-
         const size_t read_len = MIN(size, sizeof(hmap::hasher::h32) * node_hmap.block_hashes.size());
         memcpy(buf, node_hmap.block_hashes.data(), read_len);
         return read_len;
     }
 
-    int read_dir_children_hashes(const std::string &vpath, char *buf, const size_t size)
+    int hmap_query::read_dir_children_hashes(const std::string &vpath, char *buf, const size_t size)
     {
-        if (!hpfs::ctx.hmap_enabled)
-            return -1;
-
         vfs::vdir_children_map dir_children;
-        if (vfs::get_dir_children(vpath.c_str(), dir_children) == -1)
+        if (virt_fs.get_dir_children(vpath.c_str(), dir_children) == -1)
             return -1;
 
         // This is the collection that will be written to the read buf.
@@ -144,8 +133,8 @@ namespace hmap::query
                 child_vpath.append("/");
             child_vpath.append(child_name);
 
-            store::vnode_hmap *node_hmap;
-            if (get_vnode_hmap(&node_hmap, child_vpath) == -1 || !node_hmap)
+            vnode_hmap *node_hmap;
+            if (tree.get_vnode_hmap(&node_hmap, child_vpath) == -1 || !node_hmap)
                 return -1;
 
             children_hashes[idx].is_file = node_hmap->is_file;
@@ -158,4 +147,4 @@ namespace hmap::query
         memcpy(buf, children_hashes, read_len);
         return read_len;
     }
-} // namespace hmap::query
+} // namespace hpfs::hmap::query

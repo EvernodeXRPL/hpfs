@@ -3,10 +3,11 @@
 
 #include <string>
 #include "hasher.hpp"
+#include "tree.hpp"
 #include "store.hpp"
-#include "hmap.hpp"
+#include "../vfs.hpp"
 
-namespace hmap::query
+namespace hpfs::hmap::query
 {
     enum MODE
     {
@@ -25,15 +26,24 @@ namespace hmap::query
     {
         bool is_file;
         char name[256];
-        hmap::hasher::h32 node_hash;
+        hasher::h32 node_hash;
     };
 
-    request parse_request_path(const char *request_path);
-    int getattr(const request &req, struct stat *stbuf);
-    int read(const request &req, char *buf, const size_t size);
-    int read_file_block_hashes(const store::vnode_hmap &node_hmap, char *buf, const size_t size);
-    int read_dir_children_hashes(const std::string &vpath, char *buf, const size_t size);
+    class hmap_query
+    {
+        private:
+            hmap_tree &tree;
+            vfs::virtual_filesystem &virt_fs;
 
-} // namespace hmap::query
+        public:
+        hmap_query(hmap_tree &tree, vfs::virtual_filesystem &virt_fs);
+        request parse_request_path(const char *request_path);
+        int getattr(const request &req, struct stat *stbuf);
+        int read(const request &req, char *buf, const size_t size);
+        int read_file_block_hashes(const vnode_hmap &node_hmap, char *buf, const size_t size);
+        int read_dir_children_hashes(const std::string &vpath, char *buf, const size_t size);
+    };
+
+} // namespace hpfs::hmap::query
 
 #endif
