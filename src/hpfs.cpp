@@ -32,7 +32,7 @@ namespace hpfs
                       << "hpfs [ro|rw] [fsdir] [mountdir] hmap=[true|false] trace=[debug|info|warn|error]\n";
             return -1;
         }
-        if (vaidate_context() == -1 || tracelog::init() == -1 || logger::init() == -1)
+        if (vaidate_context() == -1 || tracelog::init() == -1)
             return -1;
 
         // Register exception handler for std exceptions.
@@ -54,7 +54,6 @@ namespace hpfs
             ret = run_ro_rw_session(argv[0]);
         }
 
-        logger::deinit();
         return ret;
     }
 
