@@ -6,6 +6,7 @@
 #include <fcntl.h>
 #include <vector>
 #include <optional>
+#include "hpfs.hpp"
 
 namespace hpfs::audit
 {
@@ -91,17 +92,19 @@ namespace hpfs::audit
     {
     private:
         bool initialized = false; // Indicates that the instance has been initialized properly.
+        const hpfs::RUN_MODE run_mode;
+        std::string_view log_file_path;
         int fd = 0;         // The log file fd used throughout the session.
         off_t eof = 0;      // End of file (End offset of log file).
         log_header header;  // The log file header loaded into memory.
         flock session_lock; // Session lock placed on the log file.
 
-        audit_logger();
+        audit_logger(const hpfs::RUN_MODE run_mode, std::string_view log_file_path);
         int init();
         int load_log_file();
 
     public:
-        static std::optional<audit_logger> create();
+        static std::optional<audit_logger> create(const hpfs::RUN_MODE run_mode, std::string_view log_file_path);
         int get_fd();
         const log_header &get_header();
         void print_log();

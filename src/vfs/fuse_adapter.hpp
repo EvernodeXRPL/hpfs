@@ -10,12 +10,14 @@ namespace hpfs::vfs
     class fuse_adapter
     {
     private:
+        const bool readonly;
         virtual_filesystem &virt_fs;
         hpfs::audit::audit_logger &logger;
-        std::optional<hpfs::hmap::tree::hmap_tree> htree;
+        std::optional<hpfs::hmap::tree::hmap_tree> &htree;
 
     public:
-        fuse_adapter(virtual_filesystem &virt_fs, hpfs::audit::audit_logger &logger, std::optional<hpfs::hmap::tree::hmap_tree> htree);
+        fuse_adapter(const bool readonly, virtual_filesystem &virt_fs,
+                     hpfs::audit::audit_logger &logger, std::optional<hpfs::hmap::tree::hmap_tree> &htree);
         int getattr(const char *vpath, struct stat *stbuf);
         int readdir(const char *vpath, vfs::vdir_children_map &children);
         int mkdir(const char *vpath, mode_t mode);

@@ -8,6 +8,7 @@
 #include "fusefs.hpp"
 #include "merger.hpp"
 #include "tracelog.hpp"
+#include "audit.hpp"
 
 namespace hpfs
 {
@@ -40,7 +41,11 @@ namespace hpfs
 
         if (ctx.run_mode == RUN_MODE::RDLOG)
         {
-            logger::print_log();
+            std::optional<audit::audit_logger> audit_logger = audit::audit_logger::create();
+            if (audit_logger)
+                audit_logger->print_log();
+            else
+                ret = -1;
         }
         else if (ctx.run_mode == RUN_MODE::MERGE)
         {

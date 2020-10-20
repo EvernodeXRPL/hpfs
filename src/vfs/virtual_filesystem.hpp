@@ -15,11 +15,13 @@ namespace hpfs::vfs
     {
     private:
         bool initialized = false; // Indicates that the instance has been initialized properly.
+        const bool readonly;
+        std::string_view seed_dir;
         ino_t next_ino = 1;
         vnode_map vnodes;
         struct stat default_stat;
         std::unordered_set<std::string> loaded_vpaths;
-        hpfs::audit::audit_logger logger;
+        hpfs::audit::audit_logger &logger;
 
         // Last checkpoint offset for the use of ReadOnly session
         // (inclusive of the checkpointed log record).
@@ -29,11 +31,12 @@ namespace hpfs::vfs
         // (inclusive of log record).
         off_t log_scanned_upto = 0;
 
-        virtual_filesystem(hpfs::audit::audit_logger &&logger);
+        virtual_filesystem(const bool readonly, std::string_view seed_dir, hpfs::audit::audit_logger &logger);
         int init();
 
     public:
-        static std::optional<virtual_filesystem> create();
+        static std::optional<virtual_filesystem> create(const bool readonly, std::string_view seed_dir,
+                                                        hpfs::audit::audit_logger &logger);
         int get_vnode(const std::string &vpath, vnode **vn);
         void add_vnode(const std::string &vpath, vnode_map::iterator &vnode_iter);
         int add_vnode_from_seed(const std::string &vpath, vnode_map::iterator &vnode_iter);

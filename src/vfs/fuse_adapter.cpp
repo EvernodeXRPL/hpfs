@@ -4,7 +4,6 @@
 #include "vfs/virtual_filesystem.hpp"
 #include "../hmap/tree.hpp"
 #include "../audit.hpp"
-#include "../hpfs.hpp"
 #include "../util.hpp"
 
 /**
@@ -13,9 +12,10 @@
 
 namespace hpfs::vfs
 {
-    fuse_adapter::fuse_adapter(virtual_filesystem &virt_fs,
+    fuse_adapter::fuse_adapter(const bool readonly, virtual_filesystem &virt_fs,
                                hpfs::audit::audit_logger &logger,
-                               std::optional<hpfs::hmap::tree::hmap_tree> htree) : virt_fs(virt_fs),
+                               std::optional<hpfs::hmap::tree::hmap_tree> &htree) : readonly(readonly),
+                                                                                   virt_fs(virt_fs),
                                                                                    logger(logger),
                                                                                    htree(htree)
     {
@@ -48,7 +48,7 @@ namespace hpfs::vfs
 
     int fuse_adapter::mkdir(const char *vpath, mode_t mode)
     {
-        if (hpfs::ctx.run_mode != hpfs::RUN_MODE::RW)
+        if (readonly)
             return -EACCES;
 
         vfs::vnode *vn;
@@ -68,7 +68,7 @@ namespace hpfs::vfs
 
     int fuse_adapter::rmdir(const char *vpath)
     {
-        if (hpfs::ctx.run_mode != hpfs::RUN_MODE::RW)
+        if (readonly)
             return -EACCES;
 
         vfs::vnode *vn;
@@ -92,7 +92,7 @@ namespace hpfs::vfs
 
     int fuse_adapter::rename(const char *from_vpath, const char *to_vpath)
     {
-        if (hpfs::ctx.run_mode != hpfs::RUN_MODE::RW)
+        if (readonly)
             return -EACCES;
 
         vfs::vnode *vn;
@@ -112,7 +112,7 @@ namespace hpfs::vfs
 
     int fuse_adapter::unlink(const char *vpath)
     {
-        if (hpfs::ctx.run_mode != hpfs::RUN_MODE::RW)
+        if (readonly)
             return -EACCES;
 
         vfs::vnode *vn;
@@ -131,7 +131,7 @@ namespace hpfs::vfs
 
     int fuse_adapter::create(const char *vpath, mode_t mode)
     {
-        if (hpfs::ctx.run_mode != hpfs::RUN_MODE::RW)
+        if (readonly)
             return -EACCES;
 
         vfs::vnode *vn;
@@ -171,7 +171,7 @@ namespace hpfs::vfs
 
     int fuse_adapter::write(const char *vpath, const char *buf, size_t wr_size, off_t wr_start)
     {
-        if (hpfs::ctx.run_mode != hpfs::RUN_MODE::RW)
+        if (readonly)
             return -EACCES;
 
         vfs::vnode *vn;
@@ -188,11 +188,11 @@ namespace hpfs::vfs
 
         const size_t block_buf_size = block_buf_end - block_buf_start;
         hpfs::audit::op_write_payload_header wh{wr_size, wr_start, block_buf_size,
-                                           block_buf_start, (wr_start - block_buf_start)};
+                                                block_buf_start, (wr_start - block_buf_start)};
 
         iovec payload{&wh, sizeof(wh)};
         if (logger.append_log(vpath, hpfs::audit::FS_OPERATION::WRITE, &payload,
-                               block_buf_segs.data(), block_buf_segs.size()) == -1 ||
+                              block_buf_segs.data(), block_buf_segs.size()) == -1 ||
             virt_fs.build_vfs() == -1 ||
             (htree && htree->apply_vnode_update(vpath, *vn, wr_start, wr_size) == -1))
             return -1;
@@ -202,7 +202,7 @@ namespace hpfs::vfs
 
     int fuse_adapter::truncate(const char *vpath, const off_t new_size)
     {
-        if (hpfs::ctx.run_mode != hpfs::RUN_MODE::RW)
+        if (readonly)
             return -EACCES;
 
         vfs::vnode *vn;
@@ -233,11 +233,11 @@ namespace hpfs::vfs
 
         iovec payload{&th, sizeof(th)};
         if (logger.append_log(vpath, hpfs::audit::FS_OPERATION::TRUNCATE, &payload,
-                               block_buf_segs.data(), block_buf_segs.size()) == -1 ||
+                              block_buf_segs.data(), block_buf_segs.size()) == -1 ||
             virt_fs.build_vfs() == -1 ||
             (htree && htree->apply_vnode_update(vpath, *vn,
-                                     MIN(new_size, current_size),
-                                     MAX(0, new_size - current_size)) == -1))
+                                                MIN(new_size, current_size),
+                                                MAX(0, new_size - current_size)) == -1))
             return -1;
 
         return 0;

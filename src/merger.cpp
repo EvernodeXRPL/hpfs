@@ -24,7 +24,7 @@ namespace hpfs::merger
         signal(SIGINT, &signal_handler);
 
         audit_logger = hpfs::audit::audit_logger::create();
-        if (!audit_logger.has_value())
+        if (!audit_logger)
             return -1;
 
         merger_thread = std::thread(merger_loop);

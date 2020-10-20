@@ -12,36 +12,36 @@
 #include <optional>
 #include "vfs.hpp"
 #include "virtual_filesystem.hpp"
-#include "hpfs.hpp"
 #include "audit.hpp"
 #include "util.hpp"
 
 namespace hpfs::vfs
 {
-    std::optional<virtual_filesystem> virtual_filesystem::create()
+    std::optional<virtual_filesystem> virtual_filesystem::create(const bool readonly, std::string_view seed_dir,
+                                                                 hpfs::audit::audit_logger &logger)
     {
-        std::optional<hpfs::audit::audit_logger> logger = hpfs::audit::audit_logger::create();
-        if (logger.has_value())
-        {
-            virtual_filesystem virt_fs(std::move(logger.value()));
-            if (virt_fs.init() != -1)
-                return std::optional<virtual_filesystem>(std::move(virt_fs));
-        }
-
-        return std::optional<virtual_filesystem>();
+        virtual_filesystem virt_fs(readonly, seed_dir, logger);
+        if (virt_fs.init() != -1)
+            return std::optional<virtual_filesystem>(std::move(virt_fs));
+        else
+            return std::optional<virtual_filesystem>();
     }
 
-    virtual_filesystem::virtual_filesystem(hpfs::audit::audit_logger &&logger) : logger(logger)
+    virtual_filesystem::virtual_filesystem(const bool readonly,
+                                           std::string_view seed_dir,
+                                           hpfs::audit::audit_logger &logger) : readonly(readonly),
+                                                                                seed_dir(seed_dir),
+                                                                                logger(logger)
     {
     }
 
     int virtual_filesystem::init()
     {
         // In ReadOnly session, remember the last checkpoint record offset during initialisation.
-        if (hpfs::ctx.run_mode == hpfs::RUN_MODE::RO)
+        if (readonly)
             last_checkpoint = logger.get_header().last_checkpoint;
 
-        stat(hpfs::ctx.seed_dir.c_str(), &default_stat);
+        stat(seed_dir.data(), &default_stat);
         default_stat.st_nlink = 0;
         default_stat.st_size = 0;
         default_stat.st_mode ^= S_IFDIR; // Negate the entry type.
@@ -89,7 +89,7 @@ namespace hpfs::vfs
 
     int virtual_filesystem::add_vnode_from_seed(const std::string &vpath, vnode_map::iterator &vnode_iter)
     {
-        const std::string seed_path = std::string(hpfs::ctx.seed_dir).append(vpath);
+        const std::string seed_path = std::string(seed_dir).append(vpath);
 
         struct stat st;
         const int res = stat(seed_path.c_str(), &st);
@@ -132,7 +132,7 @@ namespace hpfs::vfs
     int virtual_filesystem::build_vfs()
     {
         // Return immediately if we have already reached last checkpoint in ReadOnly mode.
-        if (hpfs::ctx.run_mode == hpfs::RUN_MODE::RO && log_scanned_upto >= last_checkpoint)
+        if (readonly && log_scanned_upto >= last_checkpoint)
             return 0;
 
         // Scan log records and build up vnodes relevant to log records.
@@ -155,7 +155,7 @@ namespace hpfs::vfs
             log_scanned_upto = record.offset + record.size;
 
         } while (next_log_offset > 0 &&
-                 (hpfs::ctx.run_mode == hpfs::RUN_MODE::RW || log_scanned_upto < last_checkpoint));
+                 (!readonly || log_scanned_upto < last_checkpoint));
 
         return 0;
     }
@@ -327,7 +327,7 @@ namespace hpfs::vfs
 
         {
             // Read possible children from seed dir;
-            const std::string seed_path = std::string(hpfs::ctx.seed_dir).append(vpath);
+            const std::string seed_path = std::string(seed_dir).append(vpath);
             DIR *dirp = opendir(seed_path.c_str());
             if (dirp != NULL)
             {

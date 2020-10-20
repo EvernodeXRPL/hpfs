@@ -8,26 +8,27 @@
 #include <iostream>
 #include <vector>
 #include <optional>
-#include "hpfs.hpp"
 #include "util.hpp"
 #include "tracelog.hpp"
 #include "audit.hpp"
+#include "hpfs.hpp"
 
 namespace hpfs::audit
 {
     constexpr int FILE_PERMS = 0644;
     constexpr uint16_t HPFS_VERSION = 1;
 
-    std::optional<audit_logger> audit_logger::create()
+    std::optional<audit_logger> audit_logger::create(const hpfs::RUN_MODE run_mode, std::string_view log_file_path)
     {
-        audit_logger logger;
+        audit_logger logger(run_mode, log_file_path);
         if (logger.init() == -1)
             return std::optional<audit_logger>();
         else
             return std::optional<audit_logger>(std::move(logger));
     }
 
-    audit_logger::audit_logger()
+    audit_logger::audit_logger(const hpfs::RUN_MODE run_mode, std::string_view log_file_path) : run_mode(run_mode),
+                                                                                                log_file_path(log_file_path)
     {
     }
 
@@ -38,8 +39,8 @@ namespace hpfs::audit
 
         // RW sessions acquire a read lock on first byte of the log file.
         // This is to prevent merge operation from running when any RO/RW sessions are live.
-        if ((hpfs::ctx.run_mode == hpfs::RUN_MODE::RW ||
-             hpfs::ctx.run_mode == hpfs::RUN_MODE::RO) &&
+        if ((run_mode == hpfs::RUN_MODE::RW ||
+             run_mode == hpfs::RUN_MODE::RO) &&
             set_lock(session_lock, LOCK_TYPE::SESSION_LOCK) == -1)
         {
             close(fd);
@@ -431,7 +432,7 @@ namespace hpfs::audit
         if (initialized)
         {
             // In ReadWrite session, mark the eof offset as last checkpoint.
-            if (hpfs::ctx.run_mode == hpfs::RUN_MODE::RW && eof > header.last_checkpoint)
+            if (run_mode == hpfs::RUN_MODE::RW && eof > header.last_checkpoint)
             {
                 header.last_checkpoint = eof;
 
@@ -443,8 +444,8 @@ namespace hpfs::audit
                 }
             }
 
-            if (hpfs::ctx.run_mode == hpfs::RUN_MODE::RW ||
-                hpfs::ctx.run_mode == hpfs::RUN_MODE::RO)
+            if (run_mode == hpfs::RUN_MODE::RW ||
+                run_mode == hpfs::RUN_MODE::RO)
                 release_lock(session_lock);
 
             close(fd);
