@@ -31,6 +31,7 @@ namespace hpfs
         std::string mount_dir;
         std::string hmap_dir;
         std::string trace_dir;
+        std::string log_file_path;
         bool hmap_enabled;
     };
     extern hpfs_context ctx;

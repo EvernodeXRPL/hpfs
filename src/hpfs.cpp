@@ -17,6 +17,7 @@ namespace hpfs
     constexpr const char *SEED_DIR_NAME = "seed";
     constexpr const char *TRACE_DIR_NAME = "trace";
     constexpr const char *HMAP_DIR_NAME = "hmap";
+    constexpr const char *LOG_FILE_NAME = "log.hpfs";
     constexpr int DIR_PERMS = 0755;
 
     hpfs_context ctx;
@@ -123,6 +124,7 @@ namespace hpfs
         ctx.seed_dir.append(ctx.fs_dir).append("/").append(SEED_DIR_NAME);
         ctx.trace_dir.append(ctx.fs_dir).append("/").append(TRACE_DIR_NAME);
         ctx.hmap_dir.append(ctx.fs_dir).append("/").append(HMAP_DIR_NAME);
+        ctx.log_file_path.append(ctx.fs_dir).append("/").append(LOG_FILE_NAME);
 
         if (!util::is_dir_exists(ctx.seed_dir) && mkdir(ctx.seed_dir.c_str(), DIR_PERMS) == -1)
         {
