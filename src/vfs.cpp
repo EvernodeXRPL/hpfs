@@ -9,32 +9,36 @@
 #include <vector>
 #include <unordered_set>
 #include <libgen.h>
+#include <optional>
 #include "vfs.hpp"
 #include "hpfs.hpp"
-#include "logger.hpp"
+#include "audit.hpp"
 #include "util.hpp"
 
-namespace vfs
+namespace hpfs::vfs
 {
+    std::optional<virtual_filesystem> virtual_filesystem::create()
+    {
+        std::optional<hpfs::audit::audit_logger> logger = hpfs::audit::audit_logger::create();
+        if (logger.has_value())
+        {
+            virtual_filesystem virt_fs(std::move(logger.value()));
+            if (virt_fs.init() != -1)
+                return std::optional<virtual_filesystem>(std::move(virt_fs));
+        }
 
-    ino_t next_ino = 1;
-    vnode_map vnodes;
-    struct stat default_stat;
-    std::unordered_set<std::string> loaded_vpaths;
+        return std::optional<virtual_filesystem>();
+    }
 
-    // Last checkpoint offset for the use of ReadOnly session
-    // (inclusive of the checkpointed log record).
-    off_t last_checkpoint = 0;
+    virtual_filesystem::virtual_filesystem(hpfs::audit::audit_logger &&logger) : logger(logger)
+    {
+    }
 
-    // Log offset that has been scanned for vfs buildup
-    // (inclusive of log record).
-    off_t log_scanned_upto = 0;
-
-    int init()
+    int virtual_filesystem::init()
     {
         // In ReadOnly session, remember the last checkpoint record offset during initialisation.
         if (hpfs::ctx.run_mode == hpfs::RUN_MODE::RO)
-            last_checkpoint = logger::header.last_checkpoint;
+            last_checkpoint = logger.get_header().last_checkpoint;
 
         stat(hpfs::ctx.seed_dir.c_str(), &default_stat);
         default_stat.st_nlink = 0;
@@ -47,19 +51,11 @@ namespace vfs
         if (add_vnode_from_seed("/", iter) == -1 || build_vfs() == -1)
             return -1;
 
+        initialized = true;
         return 0;
     }
 
-    void deinit()
-    {
-        for (const auto &[vpath, vnode] : vnodes)
-        {
-            if (vnode.seed_fd > 0)
-                close(vnode.seed_fd);
-        }
-    }
-
-    int get_vnode(const std::string &vpath_ori, vnode **vn)
+    int virtual_filesystem::get_vnode(const std::string &vpath_ori, vnode **vn)
     {
         std::string vpath;
         if (vpath_ori.front() == '/' && vpath_ori.find_first_not_of('/') == std::string::npos)
@@ -79,7 +75,7 @@ namespace vfs
         return 0;
     }
 
-    void add_vnode(const std::string &vpath, vnode_map::iterator &vnode_iter)
+    void virtual_filesystem::add_vnode(const std::string &vpath, vnode_map::iterator &vnode_iter)
     {
         vnode vn;
         vn.st = default_stat;
@@ -90,7 +86,7 @@ namespace vfs
         loaded_vpaths.emplace(vpath);
     }
 
-    int add_vnode_from_seed(const std::string &vpath, vnode_map::iterator &vnode_iter)
+    int virtual_filesystem::add_vnode_from_seed(const std::string &vpath, vnode_map::iterator &vnode_iter)
     {
         const std::string seed_path = std::string(hpfs::ctx.seed_dir).append(vpath);
 
@@ -118,7 +114,11 @@ namespace vfs
             }
 
             if (update_vnode_mmap(vn) == -1)
+            {
+                if (vn.seed_fd > 0)
+                    close(vn.seed_fd);
                 return -1;
+            }
 
             auto [iter, success] = vnodes.try_emplace(vpath, std::move(vn));
             vnode_iter = iter;
@@ -128,7 +128,7 @@ namespace vfs
         return 0;
     }
 
-    int build_vfs()
+    int virtual_filesystem::build_vfs()
     {
         // Return immediately if we have already reached last checkpoint in ReadOnly mode.
         if (hpfs::ctx.run_mode == hpfs::RUN_MODE::RO && log_scanned_upto >= last_checkpoint)
@@ -139,15 +139,15 @@ namespace vfs
 
         do
         {
-            logger::log_record record;
-            if (logger::read_log_at(next_log_offset, next_log_offset, record) == -1)
+            hpfs::audit::log_record record;
+            if (logger.read_log_at(next_log_offset, next_log_offset, record) == -1)
                 return -1;
 
             if (next_log_offset == -1) // No log record was read. We are at end of log.
                 break;
 
             std::vector<uint8_t> payload;
-            if (logger::read_payload(payload, record) == -1 ||
+            if (logger.read_payload(payload, record) == -1 ||
                 apply_log_record(record, payload) == -1)
                 return -1;
 
@@ -159,14 +159,14 @@ namespace vfs
         return 0;
     }
 
-    int apply_log_record(const logger::log_record &record, const std::vector<uint8_t> payload)
+    int virtual_filesystem::apply_log_record(const hpfs::audit::log_record &record, const std::vector<uint8_t> payload)
     {
         vnode_map::iterator iter = vnodes.find(record.vpath);
         if (iter == vnodes.end())
         {
 
-            if (record.operation != logger::FS_OPERATION::MKDIR &&
-                record.operation != logger::FS_OPERATION::CREATE)
+            if (record.operation != hpfs::audit::FS_OPERATION::MKDIR &&
+                record.operation != hpfs::audit::FS_OPERATION::CREATE)
             {
                 if (add_vnode_from_seed(record.vpath, iter) == -1 || iter == vnodes.end())
                     return -1;
@@ -182,15 +182,15 @@ namespace vfs
 
         switch (record.operation)
         {
-        case logger::FS_OPERATION::MKDIR:
+        case hpfs::audit::FS_OPERATION::MKDIR:
             vn.st.st_mode = S_IFDIR | *(mode_t *)payload.data();
             break;
 
-        case logger::FS_OPERATION::RMDIR:
+        case hpfs::audit::FS_OPERATION::RMDIR:
             delete_vnode(iter);
             break;
 
-        case logger::FS_OPERATION::RENAME:
+        case hpfs::audit::FS_OPERATION::RENAME:
         {
             const char *to_vpath = (char *)payload.data();
 
@@ -208,20 +208,20 @@ namespace vfs
             break;
         }
 
-        case logger::FS_OPERATION::UNLINK:
+        case hpfs::audit::FS_OPERATION::UNLINK:
             delete_vnode(iter);
             break;
 
-        case logger::FS_OPERATION::CREATE:
+        case hpfs::audit::FS_OPERATION::CREATE:
             vn.st.st_mode = S_IFREG | *(mode_t *)payload.data();
             break;
 
-        case logger::FS_OPERATION::WRITE:
+        case hpfs::audit::FS_OPERATION::WRITE:
         {
-            const logger::op_write_payload_header wh = *(logger::op_write_payload_header *)payload.data();
+            const hpfs::audit::op_write_payload_header wh = *(hpfs::audit::op_write_payload_header *)payload.data();
 
             if (record.block_data_len > 0)
-                vn.data_segs.push_back(vdata_segment{logger::fd, record.block_data_len,
+                vn.data_segs.push_back(vdata_segment{logger.get_fd(), record.block_data_len,
                                                      record.block_data_offset, wh.mmap_block_offset});
 
             // Update stats, if the new data boundry is larger than current file size.
@@ -238,12 +238,12 @@ namespace vfs
             break;
         }
 
-        case logger::FS_OPERATION::TRUNCATE:
+        case hpfs::audit::FS_OPERATION::TRUNCATE:
         {
-            const logger::op_truncate_payload_header th = *(logger::op_truncate_payload_header *)payload.data();
+            const hpfs::audit::op_truncate_payload_header th = *(hpfs::audit::op_truncate_payload_header *)payload.data();
 
             if (record.block_data_len > 0)
-                vn.data_segs.push_back(vdata_segment{logger::fd, record.block_data_len,
+                vn.data_segs.push_back(vdata_segment{logger.get_fd(), record.block_data_len,
                                                      record.block_data_offset, th.mmap_block_offset});
 
             vn.st.st_size = th.size;
@@ -263,7 +263,7 @@ namespace vfs
         return 0;
     }
 
-    int delete_vnode(vnode_map::iterator &vnode_iter)
+    int virtual_filesystem::delete_vnode(vnode_map::iterator &vnode_iter)
     {
         vnode &vn = vnode_iter->second;
 
@@ -275,7 +275,7 @@ namespace vfs
         return 0;
     }
 
-    int update_vnode_mmap(vnode &vn)
+    int virtual_filesystem::update_vnode_mmap(vnode &vn)
     {
         if (vn.mapped_data_segs == vn.data_segs.size())
             return 0;
@@ -320,7 +320,7 @@ namespace vfs
         return 0;
     }
 
-    int get_dir_children(const char *vpath, vdir_children_map &children)
+    int virtual_filesystem::get_dir_children(const char *vpath, vdir_children_map &children)
     {
         std::unordered_set<std::string> possible_child_names;
 
@@ -381,10 +381,10 @@ namespace vfs
         return 0;
     }
 
-    void populate_block_buf_segs(std::vector<iovec> &block_buf_segs,
-                                 off_t &block_buf_start, off_t &block_buf_end,
-                                 const char *buf, const size_t wr_size,
-                                 const off_t wr_start, const size_t fsize, uint8_t *mmap_ptr)
+    void virtual_filesystem::populate_block_buf_segs(std::vector<iovec> &block_buf_segs,
+                                                     off_t &block_buf_start, off_t &block_buf_end,
+                                                     const char *buf, const size_t wr_size,
+                                                     const off_t wr_start, const size_t fsize, uint8_t *mmap_ptr)
     {
         const size_t wr_end = wr_start + wr_size;
 
@@ -429,4 +429,19 @@ namespace vfs
         }
     }
 
-} // namespace vfs
+    virtual_filesystem::~virtual_filesystem()
+    {
+        if (initialized)
+        {
+            for (const auto &[vpath, vnode] : vnodes)
+            {
+                if (vnode.seed_fd > 0)
+                    close(vnode.seed_fd);
+
+                if (vnode.mmap.ptr)
+                    munmap(vnode.mmap.ptr, vnode.mmap.size);
+            }
+        }
+    }
+
+} // namespace hpfs::vfs
