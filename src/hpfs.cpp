@@ -34,6 +34,17 @@ namespace hpfs
         if (vaidate_context() == -1 || tracelog::init() == -1)
             return -1;
 
+        // Populate default stat using seed dir stat.
+        if (stat(ctx.seed_dir.data(), &ctx.default_stat) == -1)
+        {
+            LOG_ERROR << errno << ":Failed to load seed dir stat.";
+            return -1;
+        }
+        ctx.default_stat.st_ino = 0;
+        ctx.default_stat.st_nlink = 0;
+        ctx.default_stat.st_size = 0;
+        ctx.default_stat.st_mode ^= S_IFDIR; // Negate the entry type.
+
         // Register exception handler for std exceptions.
         // This needs to be done after trace log init because we are logging exceptions there.
         std::set_terminate(&std_terminate);
@@ -62,12 +73,6 @@ namespace hpfs
 
     int run_ro_rw_session(char *arg0)
     {
-        if (session::start() == -1)
-        {
-            LOG_ERROR << "Failed to start session";
-            return -1;
-        }
-
         // Check and create fuse mount dir.
         bool remove_mount_dir = false;
         if (!util::is_dir_exists(ctx.mount_dir))
@@ -84,9 +89,15 @@ namespace hpfs
         }
 
         // This is a blocking call. This will exit when fuse_main receives a signal.
+        LOG_INFO << "Starting FUSE session...";
         const int ret = fusefs::init(arg0);
         LOG_INFO << "Ended FUSE session.";
 
+        // Even though FUSE is up, we do not automatically create a hpfs session. In order to be able to
+        // serve filesystem requests, user needs to start a session by sending a getattr request to a
+        // reserved filename format. (look in fusefs.cpp fs_getattr())
+
+        // Stop any ongoing session (if exists).
         session::stop();
 
         if (remove_mount_dir)

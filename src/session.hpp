@@ -19,6 +19,9 @@ namespace hpfs::session
         std::optional<hmap::query::hmap_query> hmap_query;
     };
 
+    int session_check_getattr(const char *path, struct stat *stbuf);
+    int session_check_create(const char *path);
+    int session_check_unlink(const char *path);
     int start();
     int stop();
     std::optional<fs_session> &get();

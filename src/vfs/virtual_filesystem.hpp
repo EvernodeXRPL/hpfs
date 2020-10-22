@@ -18,9 +18,8 @@ namespace hpfs::vfs
         bool initialized = false; // Indicates that the instance has been initialized properly.
         const bool readonly;
         std::string_view seed_dir;
-        ino_t next_ino = 1;
+        ino_t next_ino = hpfs::ROOT_INO; // inode numbers start from the root inode no.
         vnode_map vnodes;
-        struct stat default_stat;
         std::unordered_set<std::string> loaded_vpaths;
         hpfs::audit::audit_logger &logger;
 

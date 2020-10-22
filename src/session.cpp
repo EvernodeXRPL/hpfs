@@ -17,13 +17,115 @@
 
 namespace hpfs::session
 {
+
+    // User can start/stop sessions via the FUSE interface by creating and deleting a file with this reserved name.
+    // To check for an existance of a session, the existance of the same file can be checked with 'stat'.
+    constexpr const char *SESSION_METAFILE_PATH = "/::hpfs.session";
+
     std::optional<fs_session> default_session;
+    struct stat session_metafile_stat;
+
+    /**
+     * Checks getattr requests for any session-related metadata activity.
+     * @return 0 if request succesfully was interpreted by session control. 1 if the request
+     *         should be passed through to the virtual fs. <0 on error.
+     */
+    int session_check_getattr(const char *path, struct stat *stbuf)
+    {
+        // When there is no session, treat root path as success so we will return dummy stat for root.
+        // Filesystem will fail if we return error code for root.
+        if (!default_session && strcmp(path, "/") == 0)
+        {
+            // Create dummy stat for successful session control response.
+            *stbuf = ctx.default_stat;
+            stbuf->st_ino = hpfs::ROOT_INO;
+            stbuf->st_mode |= S_IFDIR;
+            return 0;
+        }
+        else if (strcmp(path, SESSION_METAFILE_PATH) == 0)
+        {
+            // If a session exists, we reply as session meta file exists.
+            if (default_session)
+            {
+                *stbuf = ctx.default_stat;
+                stbuf->st_ino = hpfs::SESSION_METAFILE_INO;
+                stbuf->st_mode |= S_IFREG;
+                return 0;
+            }
+            else
+            {
+                return -ENOENT;
+            }
+        }
+        else if (!default_session)
+        {
+            // Return error code for any incompatible session request and no session available.
+            return -ECANCELED;
+        }
+        else
+        {
+            // A session exists and the request should be handled by virtual fs.
+            return 1;
+        }
+    }
+
+    /**
+     * Checks file create requests for any session-related metadata activity.
+     * @return 0 if request succesfully was interpreted by session control. 1 if the request
+     *         should be passed through to the virtual fs. <0 on error.
+     */
+    int session_check_create(const char *path)
+    {
+        if (strcmp(path, SESSION_METAFILE_PATH) == 0)
+        {
+            if (default_session)
+                return -EEXIST;
+            else
+                return start();
+        }
+        else if (!default_session)
+        {
+            // Return error code for any incompatible session request and no session available.
+            return -ECANCELED;
+        }
+        else
+        {
+            // A session exists and the request should be handled by virtual fs.
+            return 1;
+        }
+    }
+
+    /**
+     * Checks file unlink requests for any session-related metadata activity.
+     * @return 0 if request succesfully was interpreted by session control. 1 if the request
+     *         should be passed through to the virtual fs. <0 on error.
+     */
+    int session_check_unlink(const char *path)
+    {
+        if (strcmp(path, SESSION_METAFILE_PATH) == 0)
+        {
+            if (!default_session)
+                return -ENOENT;
+            else
+                return stop();
+        }
+        else if (!default_session)
+        {
+            // Return error code for any incompatible session request and no session available.
+            return -ECANCELED;
+        }
+        else
+        {
+            // A session exists and the request should be handled by virtual fs.
+            return 1;
+        }
+    }
 
     int start()
     {
         // Silently return if session already exists.
         if (default_session.has_value())
-            return 0;
+            return -1;
 
         default_session.emplace(fs_session{});
         auto &session = default_session.value();
@@ -67,7 +169,14 @@ namespace hpfs::session
 
     int stop()
     {
+        if (!default_session)
+            return -1;
+
         default_session.reset();
+
+        const bool readonly = ctx.run_mode == RUN_MODE::RO;
+        LOG_INFO << "hpfs " << (readonly ? "RO" : "RW") << " session stopped.";
+
         return 0;
     }
 

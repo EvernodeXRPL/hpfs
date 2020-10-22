@@ -40,7 +40,6 @@ namespace hpfs::vfs
                                                                        seed_dir(old.seed_dir),
                                                                        next_ino(old.next_ino),
                                                                        vnodes(std::move(old.vnodes)),
-                                                                       default_stat(std::move(old.default_stat)),
                                                                        loaded_vpaths(std::move(old.loaded_vpaths)),
                                                                        logger(old.logger),
                                                                        last_checkpoint(old.last_checkpoint),
@@ -55,11 +54,6 @@ namespace hpfs::vfs
         if (readonly)
             last_checkpoint = logger.get_header().last_checkpoint;
 
-        stat(seed_dir.data(), &default_stat);
-        default_stat.st_nlink = 0;
-        default_stat.st_size = 0;
-        default_stat.st_mode ^= S_IFDIR; // Negate the entry type.
-
         // We always add the root ("/") as a very first entry in the vfs so
         // it always have its inode number as 1.
         vnode_map::iterator iter;
@@ -72,11 +66,10 @@ namespace hpfs::vfs
 
     int virtual_filesystem::get_vnode(const std::string &vpath_ori, vnode **vn)
     {
-        std::string vpath;
-        if (vpath_ori.front() == '/' && vpath_ori.find_first_not_of('/') == std::string::npos)
-            vpath = "/";
-        else
-            vpath = vpath_ori;
+        const std::string &vpath = (vpath_ori.front() == '/' &&
+                                    vpath_ori.find_first_not_of('/') == std::string::npos)
+                                       ? "/"
+                                       : vpath_ori;
 
         vnode_map::iterator iter = vnodes.find(vpath);
         if (iter == vnodes.end() &&
@@ -93,7 +86,7 @@ namespace hpfs::vfs
     void virtual_filesystem::add_vnode(const std::string &vpath, vnode_map::iterator &vnode_iter)
     {
         vnode vn;
-        vn.st = default_stat;
+        vn.st = ctx.default_stat;
         vn.st.st_ino = vn.ino = next_ino++;
 
         auto [iter, success] = vnodes.try_emplace(vpath, std::move(vn));
