@@ -136,6 +136,9 @@ namespace hpfs::vfs
         return 0;
     }
 
+    /**
+     * Playback any unread logs and build up the latest view of the virtual fs.
+     */
     int virtual_filesystem::build_vfs()
     {
         // Return immediately if we have already reached last checkpoint in ReadOnly mode.
@@ -201,11 +204,6 @@ namespace hpfs::vfs
         case hpfs::audit::FS_OPERATION::RENAME:
         {
             const char *to_vpath = (char *)payload.data();
-
-            // If "to" path already exists, delete it.
-            vnode_map::iterator ex_iter = vnodes.find(to_vpath);
-            if (ex_iter != vnodes.end() && delete_vnode(ex_iter) == -1)
-                return -1;
 
             // Rename this vnode. (erase it from the list and insert under new name)
             vnode vn2 = vn;     // Create a copy before erase.

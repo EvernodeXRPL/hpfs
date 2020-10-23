@@ -15,9 +15,9 @@ namespace hpfs::vfs
     fuse_adapter::fuse_adapter(const bool readonly, virtual_filesystem &virt_fs,
                                hpfs::audit::audit_logger &logger,
                                std::optional<hpfs::hmap::tree::hmap_tree> &htree) : readonly(readonly),
-                                                                                   virt_fs(virt_fs),
-                                                                                   logger(logger),
-                                                                                   htree(htree)
+                                                                                    virt_fs(virt_fs),
+                                                                                    logger(logger),
+                                                                                    htree(htree)
     {
     }
 
@@ -100,6 +100,18 @@ namespace hpfs::vfs
             return -1;
         if (!vn)
             return -ENOENT;
+
+        // If "to" path already exists, delete it first.
+        {
+            vfs::vnode *vn_to;
+            if (virt_fs.get_vnode(to_vpath, &vn_to) == -1)
+                return -1;
+
+            if (vn_to && (logger.append_log(to_vpath, hpfs::audit::FS_OPERATION::UNLINK) == -1 ||
+                          virt_fs.build_vfs() == -1 ||
+                          (htree && htree->apply_vnode_delete(to_vpath) == -1)))
+                return -1;
+        }
 
         iovec payload{(void *)to_vpath, strlen(to_vpath) + 1};
         if (logger.append_log(from_vpath, hpfs::audit::FS_OPERATION::RENAME, &payload) == -1 ||
