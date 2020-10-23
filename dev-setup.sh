@@ -52,9 +52,6 @@ sudo cp -r include/plog /usr/local/include/
 popd > /dev/null 2>&1
 rm 1.1.5.tar.gz && rm -r plog-1.1.5
 
-# Boost stacktrace
-sudo apt-get install -y libboost-stacktrace-dev
-
 # Update linker library cache.
 sudo ldconfig
 
