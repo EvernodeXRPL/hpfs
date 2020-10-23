@@ -13,17 +13,18 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY build)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-unused-result -Wreturn-type")
 
 add_executable(hpfs
+    src/hmap/hasher.cpp
+    src/hmap/query.cpp
+    src/hmap/store.cpp
+    src/hmap/tree.cpp
     src/util.cpp
     src/tracelog.cpp
-    src/logger.cpp
-    src/vfs.cpp
-    src/fuse_vfs.cpp
+    src/audit.cpp
+    src/vfs/virtual_filesystem.cpp
+    src/vfs/fuse_adapter.cpp
     src/fusefs.cpp
     src/merger.cpp
-    src/hmap/hasher.cpp
-    src/hmap/store.cpp
-    src/hmap/query.cpp
-    src/hmap/hmap.cpp
+    src/session.cpp
     src/hpfs.cpp
     src/main.cpp
 )

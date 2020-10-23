@@ -1,26 +1,5 @@
-/*
-  FUSE: Filesystem in Userspace
-  Copyright (C) 2001-2007  Miklos Szeredi <miklos@szeredi.hu>
-  Copyright (C) 2011       Sebastian Pipping <sebastian@pipping.org>
-
-  This program can be distributed under the terms of the GNU GPLv2.
-  See the file COPYING.
-*/
-
-/** @file
- *
- * This file system mirrors the existing file system hierarchy of the
- * system, starting at the root file system. This is implemented by
- * just "passing through" all requests to the corresponding user-space
- * libc functions. This implementation is a little more sophisticated
- * than the one in passthrough.c, so performance is not quite as bad.
- *
- * Compile with:
- *
- *     gcc -Wall passthrough_fh.c `pkg-config fuse3 --cflags --libs` -lulockmgr -o passthrough_fh
- *
- * ## Source code ##
- * \include passthrough_fh.c
+/**
+ * Code adopted from libfuse examples.
  */
 
 #define FUSE_USE_VERSION 31
@@ -52,15 +31,23 @@
 #include <iostream>
 #include <string>
 #include "hpfs.hpp"
-#include "vfs.hpp"
-#include "fuse_vfs.hpp"
+#include "session.hpp"
+#include "vfs/vfs.hpp"
+#include "vfs/fuse_adapter.hpp"
 #include "hmap/query.hpp"
 
-namespace fusefs
-{
+/**
+ * Sets the 'session' local variable if session exists. Otherwise returns error code.
+ */
+#define CHECK_SESSION()                   \
+	auto &session = hpfs::session::get(); \
+	if (!session)                         \
+		return -ECANCELED;
 
-	void *xmp_init(struct fuse_conn_info *conn,
-				   struct fuse_config *cfg)
+namespace hpfs::fusefs
+{
+	void *fs_init(struct fuse_conn_info *conn,
+				  struct fuse_config *cfg)
 	{
 		(void)conn;
 		cfg->use_ino = 1;
@@ -80,35 +67,50 @@ namespace fusefs
 		return NULL;
 	}
 
-	int xmp_getattr(const char *path, struct stat *stbuf,
-					struct fuse_file_info *fi)
+	int fs_getattr(const char *path, struct stat *stbuf, struct fuse_file_info *fi)
 	{
 		(void)fi;
 
-		// Check whether this is a hash map query path.
-		const hmap::query::request req = hmap::query::parse_request_path(path);
-		if (req.mode != hmap::query::MODE::UNDEFINED)
-			return hmap::query::getattr(req, stbuf);
+		// 0 = Successfuly interpreted as a session control request.
+		// 1 = Request should be handled by the virtual fs.
+		// <0 = Error code needs to be returned.
+		const int sess_check_result = session::session_check_getattr(path, stbuf);
+		if (sess_check_result < 1)
+			return sess_check_result;
 
-		return fuse_vfs::getattr(path, stbuf);
+		auto &session = hpfs::session::get();
+		if (session->hmap_query)
+		{
+			// Check whether this is a hash map query path.
+			const hmap::query::hmap_query &hmap_query = session->hmap_query.value();
+			const hmap::query::request req = hmap_query.parse_request_path(path);
+			if (req.mode != hmap::query::MODE::UNDEFINED)
+				return hmap_query.getattr(req, stbuf);
+		}
+
+		return session->fuse_adapter->getattr(path, stbuf);
 	}
 
-	int xmp_access(const char *path, int mask)
+	int fs_access(const char *path, int mask)
 	{
+		CHECK_SESSION();
 		return 0;
 	}
 
-	int xmp_readlink(const char *path, char *buf, size_t size)
+	int fs_readlink(const char *path, char *buf, size_t size)
 	{
+		CHECK_SESSION();
 		return 0;
 	}
 
-	int xmp_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
-					off_t offset, struct fuse_file_info *fi,
-					enum fuse_readdir_flags flags)
+	int fs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
+				   off_t offset, struct fuse_file_info *fi,
+				   enum fuse_readdir_flags flags)
 	{
+		CHECK_SESSION();
+
 		vfs::vdir_children_map children;
-		int res = fuse_vfs::readdir(path, children);
+		int res = session->fuse_adapter->readdir(path, children);
 		if (res < 0)
 			return res;
 
@@ -118,249 +120,303 @@ namespace fusefs
 		return 0;
 	}
 
-	int xmp_mkdir(const char *path, mode_t mode)
+	int fs_mkdir(const char *path, mode_t mode)
 	{
-		return fuse_vfs::mkdir(path, mode);
+		CHECK_SESSION();
+		return session->fuse_adapter->mkdir(path, mode);
 	}
 
-	int xmp_rmdir(const char *path)
+	int fs_rmdir(const char *path)
 	{
-		return fuse_vfs::rmdir(path);
+		CHECK_SESSION();
+		return session->fuse_adapter->rmdir(path);
 	}
 
-	int xmp_symlink(const char *from, const char *to)
+	int fs_symlink(const char *from, const char *to)
 	{
+		CHECK_SESSION();
 		return 0;
 	}
 
-	int xmp_rename(const char *from, const char *to, unsigned int flags)
+	int fs_rename(const char *from, const char *to, unsigned int flags)
 	{
+		CHECK_SESSION();
+
 		if (flags)
 			return -EINVAL;
 
-		return fuse_vfs::rename(from, to);
+		return session->fuse_adapter->rename(from, to);
 	}
 
-	int xmp_link(const char *from, const char *to)
+	int fs_link(const char *from, const char *to)
 	{
+		CHECK_SESSION();
 		return 0;
 	}
 
-	int xmp_unlink(const char *path)
+	int fs_unlink(const char *path)
 	{
-		return fuse_vfs::unlink(path);
+		// 0 = Successfuly interpreted as a session control request.
+		// 1 = Request should be handled by the virtual fs.
+		// <0 = Error code needs to be returned.
+		const int sess_check_result = session::session_check_unlink(path);
+		if (sess_check_result < 1)
+			return sess_check_result;
+
+		auto &session = hpfs::session::get();
+		return session->fuse_adapter->unlink(path);
 	}
 
-	int xmp_chmod(const char *path, mode_t mode,
-				  struct fuse_file_info *fi)
+	int fs_chmod(const char *path, mode_t mode,
+				 struct fuse_file_info *fi)
 	{
+		CHECK_SESSION();
 		return 0;
 	}
 
-	int xmp_chown(const char *path, uid_t uid, gid_t gid,
-				  struct fuse_file_info *fi)
+	int fs_chown(const char *path, uid_t uid, gid_t gid,
+				 struct fuse_file_info *fi)
 	{
+		CHECK_SESSION();
 		return 0;
 	}
 
-	int xmp_utimens(const char *path, const struct timespec ts[2],
-					struct fuse_file_info *fi)
+	int fs_utimens(const char *path, const struct timespec ts[2],
+				   struct fuse_file_info *fi)
 	{
+		CHECK_SESSION();
 		return 0;
 	}
 
-	int xmp_create(const char *path, mode_t mode, struct fuse_file_info *fi)
+	int fs_create(const char *path, mode_t mode, struct fuse_file_info *fi)
 	{
-		return fuse_vfs::create(path, mode);
+		// 0 = Successfuly interpreted as a session control request.
+		// 1 = Request should be handled by the virtual fs.
+		// <0 = Error code needs to be returned.
+		const int sess_check_result = session::session_check_create(path);
+		if (sess_check_result < 1)
+			return sess_check_result;
+
+		auto &session = hpfs::session::get();
+		return session->fuse_adapter->create(path, mode);
 	}
 
-	int xmp_open(const char *path, struct fuse_file_info *fi)
+	int fs_open(const char *path, struct fuse_file_info *fi)
 	{
-		// Check whether this is a hash map query path.
-		const hmap::query::request req = hmap::query::parse_request_path(path);
-		if (req.mode != hmap::query::MODE::UNDEFINED)
-			return 0;
+		CHECK_SESSION();
+
+		if (session->hmap_query)
+		{
+			// Check whether this is a hash map query path.
+			const hmap::query::request req = session->hmap_query->parse_request_path(path);
+			if (req.mode != hmap::query::MODE::UNDEFINED)
+				return 0;
+		}
 
 		// Check if file is being opened in truncate mode.
 		if (fi->flags & O_TRUNC)
-			fuse_vfs::truncate(path, 0);
+			session->fuse_adapter->truncate(path, 0);
 
 		return 0;
 	}
 
-	int xmp_read(const char *path, char *buf, size_t size, off_t offset,
-				 struct fuse_file_info *fi)
+	int fs_read(const char *path, char *buf, size_t size, off_t offset,
+				struct fuse_file_info *fi)
 	{
-		// Check whether this is a hash map query path.
-		const hmap::query::request req = hmap::query::parse_request_path(path);
-		if (req.mode != hmap::query::MODE::UNDEFINED)
-			return hmap::query::read(req, buf, size);
+		CHECK_SESSION();
 
-		return fuse_vfs::read(path, buf, size, offset);
+		if (session->hmap_query)
+		{
+			// Check whether this is a hash map query path.
+			const hmap::query::hmap_query &hmap_query = session->hmap_query.value();
+			const hmap::query::request req = hmap_query.parse_request_path(path);
+			if (req.mode != hmap::query::MODE::UNDEFINED)
+				return hmap_query.read(req, buf, size);
+		}
+
+		return session->fuse_adapter->read(path, buf, size, offset);
 	}
 
-	int xmp_write(const char *path, const char *buf, size_t size,
-				  off_t offset, struct fuse_file_info *fi)
+	int fs_write(const char *path, const char *buf, size_t size,
+				 off_t offset, struct fuse_file_info *fi)
 	{
-		return fuse_vfs::write(path, buf, size, offset);
+		CHECK_SESSION();
+		return session->fuse_adapter->write(path, buf, size, offset);
 	}
 
-	int xmp_statfs(const char *path, struct statvfs *stbuf)
+	int fs_statfs(const char *path, struct statvfs *stbuf)
 	{
+		CHECK_SESSION();
 		return 0;
 	}
 
-	static int xmp_flush(const char *path, struct fuse_file_info *fi)
+	static int fs_flush(const char *path, struct fuse_file_info *fi)
 	{
-		int res;
-
 		(void)path;
+
+		CHECK_SESSION();
+
 		/* This is called from every close on an open file, so call the
 	   close on the underlying filesystem.	But since flush may be
 	   called multiple times for an open file, this must not really
 	   close the file.  This is important if used on a network
 	   filesystem like NFS which flush the data/metadata on close() */
-		close(dup(fi->fh));
+		if (fi->fh > 0)
+			close(dup(fi->fh));
 
 		return 0;
 	}
 
-	int xmp_release(const char *path, struct fuse_file_info *fi)
+	int fs_release(const char *path, struct fuse_file_info *fi)
 	{
 		(void)path;
-		close(fi->fh);
+		CHECK_SESSION();
+
+		if (fi->fh > 0)
+			close(fi->fh);
 		return 0;
 	}
 
-	int xmp_truncate(const char *path, off_t size,
-					 struct fuse_file_info *fi)
+	int fs_truncate(const char *path, off_t size,
+					struct fuse_file_info *fi)
 	{
-		return fuse_vfs::truncate(path, size);
+		CHECK_SESSION();
+		return session->fuse_adapter->truncate(path, size);
 	}
 
-	int xmp_fsync(const char *path, int isdatasync,
-				  struct fuse_file_info *fi)
+	int fs_fsync(const char *path, int isdatasync,
+				 struct fuse_file_info *fi)
 	{
+		CHECK_SESSION();
 		return 0;
 	}
 
 #ifdef HAVE_POSIX_FALLOCATE
-	int xmp_fallocate(const char *path, int mode,
-					  off_t offset, off_t length, struct fuse_file_info *fi)
+	int fs_fallocate(const char *path, int mode,
+					 off_t offset, off_t length, struct fuse_file_info *fi)
 	{
+		CHECK_SESSION();
 		return 0;
 	}
 #endif
 
 #ifdef HAVE_SETXATTR
 	/* xattr operations are optional and can safely be left unimplemented */
-	int xmp_setxattr(const char *path, const char *name, const char *value,
-					 size_t size, int flags)
+	int fs_setxattr(const char *path, const char *name, const char *value,
+					size_t size, int flags)
 	{
+		CHECK_SESSION();
 		return 0;
 	}
 
-	int xmp_getxattr(const char *path, const char *name, char *value,
-					 size_t size)
+	int fs_getxattr(const char *path, const char *name, char *value,
+					size_t size)
 	{
+		CHECK_SESSION();
 		return 0;
 	}
 
-	int xmp_listxattr(const char *path, char *list, size_t size)
+	int fs_listxattr(const char *path, char *list, size_t size)
 	{
+		CHECK_SESSION();
 		return 0;
 	}
 
-	int xmp_removexattr(const char *path, const char *name)
+	int fs_removexattr(const char *path, const char *name)
 	{
+		CHECK_SESSION();
 		return 0;
 	}
 #endif /* HAVE_SETXATTR */
 
 #ifdef HAVE_LIBULOCKMGR
-	int xmp_lock(const char *path, struct fuse_file_info *fi, int cmd,
-				 struct flock *lock)
+	int fs_lock(const char *path, struct fuse_file_info *fi, int cmd,
+				struct flock *lock)
 	{
+		CHECK_SESSION();
 		return 0;
 	}
 #endif
 
-	int xmp_flock(const char *path, struct fuse_file_info *fi, int op)
+	int fs_flock(const char *path, struct fuse_file_info *fi, int op)
 	{
+		CHECK_SESSION();
 		return 0;
 	}
 
 #ifdef HAVE_COPY_FILE_RANGE
-	ssize_t xmp_copy_file_range(const char *path_in,
-								struct fuse_file_info *fi_in,
-								off_t off_in, const char *path_out,
-								struct fuse_file_info *fi_out,
-								off_t off_out, size_t len, int flags)
+	ssize_t fs_copy_file_range(const char *path_in,
+							   struct fuse_file_info *fi_in,
+							   off_t off_in, const char *path_out,
+							   struct fuse_file_info *fi_out,
+							   off_t off_out, size_t len, int flags)
 	{
+		CHECK_SESSION();
 		return 0;
 	}
 #endif
 
-	off_t xmp_lseek(const char *path, off_t off, int whence, struct fuse_file_info *fi)
+	off_t fs_lseek(const char *path, off_t off, int whence, struct fuse_file_info *fi)
 	{
+		CHECK_SESSION();
 		return 0;
 	}
 
-	void assign_operations(fuse_operations &xmp_oper)
+	void assign_operations(fuse_operations &fs_oper)
 	{
-		xmp_oper.getattr = xmp_getattr;
-		xmp_oper.readlink = xmp_readlink;
-		// xmp_oper.mknod = xmp_mknod;
-		xmp_oper.mkdir = xmp_mkdir;
-		xmp_oper.unlink = xmp_unlink;
-		xmp_oper.rmdir = xmp_rmdir;
-		xmp_oper.symlink = xmp_symlink;
-		xmp_oper.rename = xmp_rename;
-		xmp_oper.link = xmp_link;
-		xmp_oper.chmod = xmp_chmod;
-		xmp_oper.chown = xmp_chown;
-		xmp_oper.truncate = xmp_truncate;
-		xmp_oper.open = xmp_open;
-		xmp_oper.read = xmp_read;
-		xmp_oper.write = xmp_write;
-		xmp_oper.statfs = xmp_statfs;
-		xmp_oper.flush = xmp_flush;
-		xmp_oper.release = xmp_release;
-		xmp_oper.fsync = xmp_fsync;
+		fs_oper.getattr = fs_getattr;
+		fs_oper.readlink = fs_readlink;
+		//fs_oper.mknod = fs_mknod;
+		fs_oper.mkdir = fs_mkdir;
+		fs_oper.unlink = fs_unlink;
+		fs_oper.rmdir = fs_rmdir;
+		fs_oper.symlink = fs_symlink;
+		fs_oper.rename = fs_rename;
+		fs_oper.link = fs_link;
+		fs_oper.chmod = fs_chmod;
+		fs_oper.chown = fs_chown;
+		fs_oper.truncate = fs_truncate;
+		fs_oper.open = fs_open;
+		fs_oper.read = fs_read;
+		fs_oper.write = fs_write;
+		fs_oper.statfs = fs_statfs;
+		fs_oper.flush = fs_flush;
+		fs_oper.release = fs_release;
+		fs_oper.fsync = fs_fsync;
 #ifdef HAVE_SETXATTR
-		xmp_oper.setxattr = xmp_setxattr;
-		xmp_oper.getxattr = xmp_getxattr;
-		xmp_oper.listxattr = xmp_listxattr;
-		xmp_oper.removexattr = xmp_removexattr;
+		fs_oper.setxattr = fs_setxattr;
+		fs_oper.getxattr = fs_getxattr;
+		fs_oper.listxattr = fs_listxattr;
+		fs_oper.removexattr = fs_removexattr;
 #endif
-		//xmp_oper.opendir = xmp_opendir;
-		xmp_oper.readdir = xmp_readdir;
-		//xmp_oper.releasedir = xmp_releasedir;
-		//xmp_oper.fsyncdir = NULL;
-		xmp_oper.init = xmp_init;
-		//xmp_oper.destroy = NULL;
-		xmp_oper.access = xmp_access;
-		xmp_oper.create = xmp_create;
+		//fs_oper.opendir = fs_opendir;
+		fs_oper.readdir = fs_readdir;
+		//fs_oper.releasedir = fs_releasedir;
+		//fs_oper.fsyncdir = NULL;
+		fs_oper.init = fs_init;
+		//fs_oper.destroy = NULL;
+		fs_oper.access = fs_access;
+		fs_oper.create = fs_create;
 #ifdef HAVE_LIBULOCKMGR
-		xmp_oper.lock = xmp_lock;
+		fs_oper.lock = fs_lock;
 #endif
-		xmp_oper.utimens = xmp_utimens;
-		//xmp_oper.bmap = NULL;
-		//xmp_oper.ioctl = NULL;
-		//xmp_oper.poll = NULL;
-		//xmp_oper.write_buf = xmp_write_buf;
-		//xmp_oper.read_buf = xmp_read_buf;
-		xmp_oper.flock = xmp_flock;
+		fs_oper.utimens = fs_utimens;
+		//fs_oper.bmap = NULL;
+		//fs_oper.ioctl = NULL;
+		//fs_oper.poll = NULL;
+		//fs_oper.write_buf = fs_write_buf;
+		//fs_oper.read_buf = fs_read_buf;
+		fs_oper.flock = fs_flock;
 #ifdef HAVE_POSIX_FALLOCATE
-		xmp_oper.fallocate = xmp_fallocate;
+		fs_oper.fallocate = fs_fallocate;
 #endif
 #ifdef HAVE_COPY_FILE_RANGE
-		xmp_oper.copy_file_range = xmp_copy_file_range;
+		fs_oper.copy_file_range = fs_copy_file_range;
 #endif
-		xmp_oper.lseek = xmp_lseek;
+		fs_oper.lseek = fs_lseek;
 	}
 
-	fuse_operations xmp_oper;
+	fuse_operations fs_oper;
 
 	int init(char *arg0)
 	{
@@ -374,8 +430,8 @@ namespace fusefs
 		// fuse_opt_add_arg(&args, "-d"); // Debug
 
 		umask(0);
-		assign_operations(xmp_oper);
-		return fuse_main(args.argc, args.argv, &xmp_oper, NULL);
+		assign_operations(fs_oper);
+		return fuse_main(args.argc, args.argv, &fs_oper, NULL);
 	}
 
-} // namespace fusefs
+} // namespace hpfs::fusefs

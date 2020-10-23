@@ -1,7 +1,7 @@
 #ifndef _HPFS_FUSE_
 #define _HPFS_FUSE_
 
-namespace fusefs
+namespace hpfs::fusefs
 {
     int init(char *arg0);
 }

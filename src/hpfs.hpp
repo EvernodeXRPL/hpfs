@@ -2,9 +2,14 @@
 #define _HPFS_HPFS_
 
 #include <string>
+#include <sys/stat.h>
 
 namespace hpfs
 {
+    // Reserved inode numbers for hpfs.
+    constexpr ino_t SESSION_METAFILE_INO = 1; // Session metafile inode.
+    constexpr ino_t ROOT_INO = 2;             // Filesystem root inode
+
     enum RUN_MODE
     {
         RO,
@@ -31,7 +36,9 @@ namespace hpfs
         std::string mount_dir;
         std::string hmap_dir;
         std::string trace_dir;
+        std::string log_file_path;
         bool hmap_enabled;
+        struct stat default_stat; // Stat used as a base stat for virtual entries.
     };
     extern hpfs_context ctx;
 
@@ -40,7 +47,7 @@ namespace hpfs
     int vaidate_context();
     int parse_cmd(int argc, char **argv);
     void std_terminate() noexcept;
-    
+
 } // namespace hpfs
 
 #endif

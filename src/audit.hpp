@@ -1,14 +1,15 @@
-#ifndef _HPFS_LOGGER_
-#define _HPFS_LOGGER_
+#ifndef _HPFS_AUDIT_LOGGER_
+#define _HPFS_AUDIT_LOGGER_
 
 #include <string>
 #include <sys/uio.h>
 #include <fcntl.h>
 #include <vector>
+#include <optional>
+#include "hpfs.hpp"
 
-namespace logger
+namespace hpfs::audit
 {
-
     enum FS_OPERATION
     {
         MKDIR = 1,
@@ -87,24 +88,41 @@ namespace logger
         off_t mmap_block_offset = 0; // Memory map placement offset for the block data.
     };
 
-    extern int fd;
-    extern log_header header;
+    class audit_logger
+    {
+    private:
+        bool moved = false;
+        bool initialized = false; // Indicates that the instance has been initialized properly.
+        const hpfs::RUN_MODE run_mode;
+        std::string_view log_file_path;
+        int fd = 0;                // The log file fd used throughout the session.
+        off_t eof = 0;             // End of file (End offset of log file).
+        struct log_header header;  // The log file header loaded into memory.
+        struct flock session_lock; // Session lock placed on the log file.
 
-    int init();
-    void deinit();
-    int load_log_file();
-    void print_log();
-    off_t get_eof();
-    int set_lock(struct flock &lock, const LOCK_TYPE type);
-    int release_lock(struct flock &lock);
-    int read_header();
-    int commit_header();
-    int append_log(std::string_view vpath, const FS_OPERATION operation, const iovec *payload_buf = NULL,
-                   const iovec *block_bufs = NULL, const int block_buf_count = 0);
-    int read_log_at(const off_t offset, off_t &next_offset, log_record &record);
-    int read_payload(std::vector<uint8_t> &payload, const log_record &record);
-    int purge_log(const log_record &record);
+        audit_logger(const hpfs::RUN_MODE run_mode, std::string_view log_file_path);
+        int init();
+        int load_log_file();
 
-} // namespace logger
+    public:
+        static std::optional<audit_logger> create(const hpfs::RUN_MODE run_mode, std::string_view log_file_path);
+        audit_logger(const audit_logger &) = delete; // No copy constructor;
+        audit_logger(audit_logger &&old);
+        int get_fd();
+        const log_header &get_header();
+        void print_log();
+        int set_lock(struct flock &lock, const LOCK_TYPE type);
+        int release_lock(struct flock &lock);
+        int read_header();
+        int commit_header();
+        int append_log(std::string_view vpath, const FS_OPERATION operation, const iovec *payload_buf = NULL,
+                       const iovec *block_bufs = NULL, const int block_buf_count = 0);
+        int read_log_at(const off_t offset, off_t &next_offset, log_record &record);
+        int read_payload(std::vector<uint8_t> &payload, const log_record &record);
+        int purge_log(const log_record &record);
+        ~audit_logger();
+    };
+
+} // namespace hpfs::audit
 
 #endif

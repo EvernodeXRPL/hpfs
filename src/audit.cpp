@@ -7,71 +7,77 @@
 #include <bitset>
 #include <iostream>
 #include <vector>
-#include "hpfs.hpp"
-#include "logger.hpp"
+#include <optional>
 #include "util.hpp"
 #include "tracelog.hpp"
+#include "audit.hpp"
+#include "hpfs.hpp"
 
-namespace logger
+namespace hpfs::audit
 {
-    constexpr const char *LOG_FILE_NAME = "log.hpfs";
     constexpr int FILE_PERMS = 0644;
     constexpr uint16_t HPFS_VERSION = 1;
 
-    int fd = 0;         // The loag file fd uses throughout the session.
-    off_t eof = 0;      // End of file (End offset of log file).
-    log_header header;  // The log file header loaded into memory.
-    flock session_lock; // Session lock placed on the log file.
+    std::optional<audit_logger> audit_logger::create(const hpfs::RUN_MODE run_mode, std::string_view log_file_path)
+    {
+        std::optional<audit_logger> logger = std::optional<audit_logger>(audit_logger(run_mode, log_file_path));
+        if (logger->init() == -1)
+            logger.reset();
 
-    int init()
+        return logger;
+    }
+
+    audit_logger::audit_logger(const hpfs::RUN_MODE run_mode, std::string_view log_file_path) : run_mode(run_mode),
+                                                                                                log_file_path(log_file_path)
+    {
+    }
+
+    audit_logger::audit_logger(audit_logger &&old) : initialized(old.initialized),
+                                                     run_mode(old.run_mode),
+                                                     log_file_path(old.log_file_path),
+                                                     fd(old.fd),
+                                                     eof(old.eof),
+                                                     header(std::move(old.header)),
+                                                     session_lock(std::move(old.session_lock))
+    {
+        old.moved = true;
+    }
+
+    int audit_logger::init()
     {
         if (load_log_file() == -1)
             return -1;
 
         // RW sessions acquire a read lock on first byte of the log file.
         // This is to prevent merge operation from running when any RO/RW sessions are live.
-        if ((hpfs::ctx.run_mode == hpfs::RUN_MODE::RW ||
-             hpfs::ctx.run_mode == hpfs::RUN_MODE::RO) &&
+        if ((run_mode == hpfs::RUN_MODE::RW ||
+             run_mode == hpfs::RUN_MODE::RO) &&
             set_lock(session_lock, LOCK_TYPE::SESSION_LOCK) == -1)
         {
-            LOG_ERROR << errno << ": eror acquiring RO/RW session lock.";
+            close(fd);
+            LOG_ERROR << errno << ": error acquiring RO/RW session lock.";
             return -1;
         }
 
         LOG_INFO << "Initialized log file.";
+        initialized = true;
         return 0;
     }
 
-    void deinit()
+    int audit_logger::get_fd()
     {
-        // In ReadWrite session, mark the eof offset as last checkpoint.
-        if (hpfs::ctx.run_mode == hpfs::RUN_MODE::RW && eof > header.last_checkpoint)
-        {
-            header.last_checkpoint = eof;
-
-            flock header_lock;
-            if (set_lock(header_lock, LOCK_TYPE::UPDATE_LOCK) != -1)
-            {
-                commit_header();
-                release_lock(header_lock);
-            }
-        }
-
-        if (hpfs::ctx.run_mode == hpfs::RUN_MODE::RW ||
-            hpfs::ctx.run_mode == hpfs::RUN_MODE::RO)
-            release_lock(session_lock);
-
-        close(fd);
-
-        LOG_INFO << "Log file deinit complete.";
+        return fd;
     }
 
-    int load_log_file()
+    const log_header &audit_logger::get_header()
     {
-        const std::string log_file_path = std::string(hpfs::ctx.fs_dir).append("/").append(LOG_FILE_NAME);
+        return header;
+    }
 
+    int audit_logger::audit_logger::load_log_file()
+    {
         // Open or create the log file.
-        const int res = open(log_file_path.c_str(), O_CREAT | O_RDWR, FILE_PERMS);
+        const int res = open(hpfs::ctx.log_file_path.c_str(), O_CREAT | O_RDWR, FILE_PERMS);
         if (res == -1)
         {
             LOG_ERROR << errno << ": log file open error.";
@@ -84,6 +90,7 @@ namespace logger
         // Acquire header rw lock.
         if (set_lock(header_lock, LOCK_TYPE::UPDATE_LOCK) == -1)
         {
+            close(fd);
             LOG_ERROR << errno << ": Error acquiring header write lock.";
             return -1;
         }
@@ -91,6 +98,9 @@ namespace logger
         struct stat st;
         if (fstat(fd, &st) == -1)
         {
+            release_lock(header_lock);
+            close(fd);
+
             LOG_ERROR << errno << ": Error in stat of log file.";
             return -1;
         }
@@ -101,6 +111,9 @@ namespace logger
             header.version = HPFS_VERSION;
             if (commit_header() == -1)
             {
+                release_lock(header_lock);
+                close(fd);
+
                 LOG_ERROR << errno << ": Error when writing header.";
                 return -1;
             }
@@ -111,6 +124,9 @@ namespace logger
         {
             if (read_header() == -1)
             {
+                release_lock(header_lock);
+                close(fd);
+
                 LOG_ERROR << errno << ": Error when reading header.";
                 return -1;
             }
@@ -121,6 +137,8 @@ namespace logger
         // Release header rw lock.
         if (release_lock(header_lock) == -1)
         {
+            close(fd);
+
             LOG_ERROR << errno << ": Error when releasing header write lock.";
             return -1;
         }
@@ -128,7 +146,7 @@ namespace logger
         return 0;
     }
 
-    void print_log()
+    void audit_logger::print_log()
     {
         std::cout << "first:" << std::to_string(header.first_record)
                   << " last:" << std::to_string(header.last_record)
@@ -140,8 +158,8 @@ namespace logger
 
         do
         {
-            logger::log_record record;
-            if (logger::read_log_at(log_offset, log_offset, record) == -1)
+            log_record record;
+            if (read_log_at(log_offset, log_offset, record) == -1)
             {
                 std::cerr << errno << ": Error occured when reading log.\n";
                 return;
@@ -164,12 +182,7 @@ namespace logger
         std::cout << "Total records: " << std::to_string(total_records) << "\n";
     }
 
-    off_t get_eof()
-    {
-        return eof;
-    }
-
-    int set_lock(struct flock &lock, const LOCK_TYPE type)
+    int audit_logger::set_lock(struct flock &lock, const LOCK_TYPE type)
     {
         if (type == LOCK_TYPE::SESSION_LOCK)
             return util::set_lock(fd, lock, false, 0, 1); // Read lock first byte.
@@ -181,12 +194,12 @@ namespace logger
         return -1;
     }
 
-    int release_lock(struct flock &lock)
+    int audit_logger::release_lock(struct flock &lock)
     {
         return util::release_lock(fd, lock);
     }
 
-    int read_header()
+    int audit_logger::read_header()
     {
         if (pread(fd, &header, sizeof(header), 0) < sizeof(header))
         {
@@ -197,7 +210,7 @@ namespace logger
         return 0;
     }
 
-    int commit_header()
+    int audit_logger::commit_header()
     {
         if (pwrite(fd, &header, sizeof(header), 0) < sizeof(header))
         {
@@ -211,8 +224,8 @@ namespace logger
         return 0;
     }
 
-    int append_log(std::string_view vpath, const FS_OPERATION operation, const iovec *payload_buf,
-                   const iovec *block_bufs, const int block_buf_count)
+    int audit_logger::append_log(std::string_view vpath, const FS_OPERATION operation, const iovec *payload_buf,
+                                 const iovec *block_bufs, const int block_buf_count)
     {
         log_record_header rh;
         rh.timestamp = util::epoch();
@@ -329,7 +342,7 @@ namespace logger
      * @param record Contains the log record if read successful.
      * @return 0 on successful read or no record available. -1 on error.
      */
-    int read_log_at(const off_t offset, off_t &next_offset, log_record &record)
+    int audit_logger::read_log_at(const off_t offset, off_t &next_offset, log_record &record)
     {
         if (header.first_record == 0 || offset > header.last_record)
         {
@@ -366,7 +379,7 @@ namespace logger
             return -1;
         }
 
-        record.vpath = std::move(vpath);
+        record.vpath.swap(vpath);
 
         if (record.offset + record.size == eof)
             next_offset = 0;
@@ -376,7 +389,7 @@ namespace logger
         return 0;
     }
 
-    int read_payload(std::vector<uint8_t> &payload, const log_record &record)
+    int audit_logger::read_payload(std::vector<uint8_t> &payload, const log_record &record)
     {
         if (record.payload_len > 0)
         {
@@ -391,7 +404,7 @@ namespace logger
         return 0;
     }
 
-    int purge_log(const log_record &record)
+    int audit_logger::purge_log(const log_record &record)
     {
         LOG_DEBUG << "Purging log record... [ts:" << record.timestamp << " path:" << record.vpath << " op:" << record.operation << "]";
 
@@ -425,4 +438,31 @@ namespace logger
         return 0;
     }
 
-} // namespace logger
+    audit_logger::~audit_logger()
+    {
+        if (initialized && !moved)
+        {
+            // In ReadWrite session, mark the eof offset as last checkpoint.
+            if (run_mode == hpfs::RUN_MODE::RW && eof > header.last_checkpoint)
+            {
+                header.last_checkpoint = eof;
+
+                flock header_lock;
+                if (set_lock(header_lock, LOCK_TYPE::UPDATE_LOCK) != -1)
+                {
+                    commit_header();
+                    release_lock(header_lock);
+                }
+            }
+
+            if (run_mode == hpfs::RUN_MODE::RW ||
+                run_mode == hpfs::RUN_MODE::RO)
+                release_lock(session_lock);
+
+            close(fd);
+
+            LOG_INFO << "Log file deinit complete.";
+        }
+    }
+
+} // namespace hpfs::audit

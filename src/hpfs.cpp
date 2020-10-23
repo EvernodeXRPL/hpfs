@@ -6,17 +6,17 @@
 #include "hpfs.hpp"
 #include "util.hpp"
 #include "fusefs.hpp"
-#include "logger.hpp"
 #include "merger.hpp"
-#include "vfs.hpp"
-#include "hmap/hmap.hpp"
 #include "tracelog.hpp"
+#include "audit.hpp"
+#include "session.hpp"
 
 namespace hpfs
 {
     constexpr const char *SEED_DIR_NAME = "seed";
     constexpr const char *TRACE_DIR_NAME = "trace";
     constexpr const char *HMAP_DIR_NAME = "hmap";
+    constexpr const char *LOG_FILE_NAME = "log.hpfs";
     constexpr int DIR_PERMS = 0755;
 
     hpfs_context ctx;
@@ -31,8 +31,19 @@ namespace hpfs
                       << "hpfs [ro|rw] [fsdir] [mountdir] hmap=[true|false] trace=[debug|info|warn|error]\n";
             return -1;
         }
-        if (vaidate_context() == -1 || tracelog::init() == -1 || logger::init() == -1)
+        if (vaidate_context() == -1 || tracelog::init() == -1)
             return -1;
+
+        // Populate default stat using seed dir stat.
+        if (stat(ctx.seed_dir.data(), &ctx.default_stat) == -1)
+        {
+            LOG_ERROR << errno << ":Failed to load seed dir stat.";
+            return -1;
+        }
+        ctx.default_stat.st_ino = 0;
+        ctx.default_stat.st_nlink = 0;
+        ctx.default_stat.st_size = 0;
+        ctx.default_stat.st_mode ^= S_IFDIR; // Negate the entry type.
 
         // Register exception handler for std exceptions.
         // This needs to be done after trace log init because we are logging exceptions there.
@@ -42,7 +53,11 @@ namespace hpfs
 
         if (ctx.run_mode == RUN_MODE::RDLOG)
         {
-            logger::print_log();
+            std::optional<audit::audit_logger> audit_logger = audit::audit_logger::create(ctx.run_mode, ctx.log_file_path);
+            if (audit_logger)
+                audit_logger->print_log();
+            else
+                ret = -1;
         }
         else if (ctx.run_mode == RUN_MODE::MERGE)
         {
@@ -53,34 +68,13 @@ namespace hpfs
             ret = run_ro_rw_session(argv[0]);
         }
 
-        logger::deinit();
         return ret;
     }
 
     int run_ro_rw_session(char *arg0)
     {
-        int ret = 0;
-        bool remove_mount_dir = false;
-
-        LOG_INFO << "Starting hpfs " << ((ctx.run_mode == RUN_MODE::RW) ? "RW" : "RO") << " session...";
-
-        if (vfs::init() == -1)
-        {
-            ret = -1;
-            goto deinit_vfs;
-        }
-
-        LOG_DEBUG << "VFS init complete.";
-
-        if (hmap::init() == -1)
-        {
-            ret = -1;
-            goto deinit_hmap;
-        }
-
-        LOG_DEBUG << "Hashmap init complete.";
-
         // Check and create fuse mount dir.
+        bool remove_mount_dir = false;
         if (!util::is_dir_exists(ctx.mount_dir))
         {
             // If specified mount directory does not exist, we will create it
@@ -94,17 +88,17 @@ namespace hpfs
             LOG_DEBUG << "Mount dir created: " << ctx.mount_dir;
         }
 
-        LOG_INFO << "hpfs " << ((ctx.run_mode == RUN_MODE::RW) ? "RW" : "RO") << " session started.";
-
         // This is a blocking call. This will exit when fuse_main receives a signal.
-        ret = fusefs::init(arg0);
-
+        LOG_INFO << "Starting FUSE session...";
+        const int ret = fusefs::init(arg0);
         LOG_INFO << "Ended FUSE session.";
 
-    deinit_hmap:
-        hmap::deinit();
-    deinit_vfs:
-        vfs::deinit();
+        // Even though FUSE is up, we do not automatically create a hpfs session. In order to be able to
+        // serve filesystem requests, user needs to start a session by sending a getattr request to a
+        // reserved filename format. (look in fusefs.cpp fs_getattr())
+
+        // Stop any ongoing session (if exists).
+        session::stop();
 
         if (remove_mount_dir)
             rmdir(ctx.mount_dir.c_str());
@@ -123,6 +117,7 @@ namespace hpfs
         ctx.seed_dir.append(ctx.fs_dir).append("/").append(SEED_DIR_NAME);
         ctx.trace_dir.append(ctx.fs_dir).append("/").append(TRACE_DIR_NAME);
         ctx.hmap_dir.append(ctx.fs_dir).append("/").append(HMAP_DIR_NAME);
+        ctx.log_file_path.append(ctx.fs_dir).append("/").append(LOG_FILE_NAME);
 
         if (!util::is_dir_exists(ctx.seed_dir) && mkdir(ctx.seed_dir.c_str(), DIR_PERMS) == -1)
         {

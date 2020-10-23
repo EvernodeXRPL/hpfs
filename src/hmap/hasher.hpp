@@ -4,7 +4,7 @@
 #include <iostream>
 #include <sstream>
 
-namespace hmap::hasher
+namespace hpfs::hmap::hasher
 {
 
     // blake2b hash is 32 bytes which we store as 4 quad words

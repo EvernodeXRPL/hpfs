@@ -6,7 +6,7 @@
 /**
  * Based on https://github.com/codetsunami/file-ptracer/blob/master/merkle.cpp
  */
-namespace hmap::hasher
+namespace hpfs::hmap::hasher
 {
     /**
      * Helper functions for working with 32 byte hash type h32.

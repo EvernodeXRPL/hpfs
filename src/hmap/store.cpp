@@ -1,27 +1,25 @@
 #include <unordered_set>
+#include <unordered_map>
 #include <unistd.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <sys/types.h>
+#include <sys/uio.h>
 #include "../hpfs.hpp"
 #include "store.hpp"
 #include "hasher.hpp"
-#include "hmap.hpp"
 
-namespace hmap::store
+namespace hpfs::hmap::store
 {
     constexpr const char *HASH_MAP_CACHE_FILE_EXT = ".hcache";
     constexpr int FILE_PERMS = 0644;
 
-    // Hash maps of vnodes keyed by the vpath.
-    std::unordered_map<std::string, vnode_hmap> hash_map;
-
-    // List of vpaths with modifications (including deletions) during the session.
-    std::unordered_set<std::string> dirty_vpaths;
-
-    void set_dirty(const std::string &vpath)
+    void hmap_store::set_dirty(const std::string &vpath)
     {
         dirty_vpaths.emplace(vpath);
     }
 
-    vnode_hmap *find_hash_map(const std::string &vpath)
+    vnode_hmap *hmap_store::find_hash_map(const std::string &vpath)
     {
         auto iter = hash_map.find(vpath);
 
@@ -41,17 +39,17 @@ namespace hmap::store
         return node_hmap;
     }
 
-    void erase_hash_map(const std::string &vpath)
+    void hmap_store::erase_hash_map(const std::string &vpath)
     {
         hash_map.erase(vpath);
     }
 
-    void insert_hash_map(const std::string &vpath, vnode_hmap &&node_hmap)
+    void hmap_store::insert_hash_map(const std::string &vpath, vnode_hmap &&node_hmap)
     {
         hash_map.try_emplace(vpath, std::move(node_hmap));
     }
 
-    int persist_hash_maps()
+    int hmap_store::persist_hash_maps()
     {
         for (const std::string &vpath : dirty_vpaths)
         {
@@ -80,7 +78,7 @@ namespace hmap::store
         return 0;
     }
 
-    int persist_hash_map_cache_file(const vnode_hmap &node_hmap, const std::string &filename)
+    int hmap_store::persist_hash_map_cache_file(const vnode_hmap &node_hmap, const std::string &filename)
     {
         const int fd = open(filename.c_str(), O_CREAT | O_TRUNC | O_RDWR, FILE_PERMS);
         if (fd == -1)
@@ -103,7 +101,7 @@ namespace hmap::store
      * Attempts to read a hash map from the persisted cache file (if exists).
      * @return 0 if cache file not exists. 1 if cache file read success. -1 on error.
      */
-    int read_hash_map_cache_file(vnode_hmap &node_hmap, const std::string &vpath)
+    int hmap_store::read_hash_map_cache_file(vnode_hmap &node_hmap, const std::string &vpath)
     {
         hasher::h32 vpath_hash;
         hash_buf(vpath_hash, vpath.data(), vpath.size());
@@ -138,7 +136,7 @@ namespace hmap::store
         return 1;
     }
 
-    std::string get_vpath_cache_filename(const hasher::h32 vpath_hash)
+    std::string hmap_store::get_vpath_cache_filename(const hasher::h32 vpath_hash)
     {
         std::string cache_filename;
         cache_filename
@@ -149,4 +147,4 @@ namespace hmap::store
         return cache_filename;
     }
 
-} // namespace hmap::store
+} // namespace hpfs::hmap::store
