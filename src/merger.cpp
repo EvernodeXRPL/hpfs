@@ -143,13 +143,19 @@ namespace hpfs::merger
         {
             const mode_t mode = *(mode_t *)payload.data();
             if (mkdir(seed_path, mode) == -1)
+            {
+                LOG_ERROR << errno << ": Error in log merge mkdir. " << seed_path;
                 return -1;
+            }
             break;
         }
 
         case hpfs::audit::FS_OPERATION::RMDIR:
             if (rmdir(seed_path) == -1)
+            {
+                LOG_ERROR << errno << ": Error in log merge rmdir. " << seed_path;
                 return -1;
+            }
             break;
 
         case hpfs::audit::FS_OPERATION::RENAME:
@@ -157,20 +163,31 @@ namespace hpfs::merger
             const char *to_vpath = (char *)payload.data();
             const std::string to_seed_path = std::string(hpfs::ctx.seed_dir).append(to_vpath);
             if (rename(seed_path, to_seed_path.c_str()) == -1)
+            {
+                LOG_ERROR << errno << ": Error in log merge rename. " << seed_path;
                 return -1;
+            }
             break;
         }
 
         case hpfs::audit::FS_OPERATION::UNLINK:
             if (unlink(seed_path) == -1)
+            {
+                LOG_ERROR << errno << ": Error in log merge unlink. " << seed_path;
                 return -1;
+            }
             break;
 
         case hpfs::audit::FS_OPERATION::CREATE:
         {
             const mode_t mode = S_IFREG | *(mode_t *)payload.data();
-            if (creat(seed_path, mode) == -1)
+            int res = creat(seed_path, mode);
+            if (res == -1)
+            {
+                LOG_ERROR << errno << ": Error in log merge creat. " << seed_path;
                 return -1;
+            }
+            close(res);
             break;
         }
 
@@ -180,7 +197,10 @@ namespace hpfs::merger
 
             int seed_fd = open(seed_path, O_RDWR);
             if (seed_fd <= 0)
+            {
+                LOG_ERROR << errno << ": Error in log merge open for write. " << seed_path;
                 return -1;
+            }
 
             // Copy data from directly from log file to seed file.
             lseek(seed_fd, wh.offset, SEEK_SET);
@@ -188,6 +208,7 @@ namespace hpfs::merger
             if (sendfile(seed_fd, logger.get_fd(), &read_offset, wh.size) != wh.size)
             {
                 close(seed_fd);
+                LOG_ERROR << errno << ": Error in log merge sendfile. " << seed_path;
                 return -1;
             }
 
@@ -200,13 +221,15 @@ namespace hpfs::merger
         {
             const hpfs::audit::op_truncate_payload_header th = *(hpfs::audit::op_truncate_payload_header *)payload.data();
             if (truncate(seed_path, th.size) == -1)
+            {
+                LOG_ERROR << errno << ": Error in log merge truncate. " << seed_path;
                 return -1;
+            }
             break;
         }
         }
 
         LOG_DEBUG << "Merge record complete.";
-
         return 0;
     }
 

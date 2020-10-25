@@ -75,7 +75,10 @@ namespace hpfs::hmap::tree
     {
         vfs::vdir_children_map dir_children;
         if (virt_fs.get_dir_children(vpath.c_str(), dir_children) == -1)
+        {
+            LOG_ERROR << "Dir hash calc failure in vfs dir children get. " << vpath;
             return -1;
+        }
 
         // Initialize dir hash with the dir path hash.
         store::vnode_hmap dir_hmap{false};
@@ -113,12 +116,18 @@ namespace hpfs::hmap::tree
     {
         vfs::vnode *vn;
         if (virt_fs.get_vnode(vpath, &vn) == -1 || !vn)
+        {
+            LOG_ERROR << "File hash calc failure in vfs vnode get. " << vpath;
             return -1;
+        }
 
         store::vnode_hmap file_hmap{true};
         hash_buf(file_hmap.vpath_hash, vpath.c_str(), vpath.length());       // vpath hash.
         if (apply_file_data_update(file_hmap, *vn, 0, vn->st.st_size) == -1) // File hash.
+        {
+            LOG_ERROR << "File hash calc failure in applying file data update. " << vpath;
             return -1;
+        }
 
         node_hash = file_hmap.node_hash;
         store.insert_hash_map(vpath, std::move(file_hmap));
@@ -170,7 +179,10 @@ namespace hpfs::hmap::tree
     {
         store::vnode_hmap *hmap_entry = store.find_hash_map(vpath);
         if (hmap_entry == NULL)
+        {
+            LOG_ERROR << "Hash calc vnode update apply failed. No hmap entry. " << vpath;
             return -1;
+        }
 
         store::vnode_hmap &node_hmap = *hmap_entry;
         const hasher::h32 old_hash = node_hmap.node_hash; // Remember old hash before we modify.
@@ -180,7 +192,10 @@ namespace hpfs::hmap::tree
         if (S_ISREG(vn.st.st_mode))
         {
             if (apply_file_data_update(node_hmap, vn, file_update_offset, file_update_size) == -1)
+            {
+                LOG_ERROR << "Hash calc vnode update apply failed. File data update failure. " << vpath;
                 return -1;
+            }
 
             store.set_dirty(vpath);
         }
@@ -236,7 +251,10 @@ namespace hpfs::hmap::tree
     {
         store::vnode_hmap *hmap_entry = store.find_hash_map(vpath);
         if (hmap_entry == NULL)
+        {
+            LOG_ERROR << "Hash calc vnode delete apply failed. No hmap entry. " << vpath;
             return -1;
+        }
 
         const hasher::h32 node_hash = hmap_entry->node_hash;
         store.erase_hash_map(vpath);
@@ -251,7 +269,11 @@ namespace hpfs::hmap::tree
         // Backup and delete the hashed node.
         store::vnode_hmap *hmap_entry = store.find_hash_map(from_vpath);
         if (hmap_entry == NULL)
+        {
+            LOG_ERROR << "Hash calc vnode rename apply failed. No hmap entry. " << from_vpath;
             return -1;
+        }
+
         store::vnode_hmap node_hmap = *hmap_entry; // Create a copy.
         store.erase_hash_map(from_vpath);
         store.set_dirty(from_vpath);

@@ -3,12 +3,13 @@
 #include <string>
 #include <sys/stat.h>
 #include <iostream>
-#include "../util.hpp"
-#include "../vfs/vfs.hpp"
-#include "../vfs/virtual_filesystem.hpp"
 #include "query.hpp"
 #include "hasher.hpp"
 #include "tree.hpp"
+#include "../util.hpp"
+#include "../vfs/vfs.hpp"
+#include "../vfs/virtual_filesystem.hpp"
+#include "../tracelog.hpp"
 
 namespace hpfs::hmap::query
 {
@@ -53,7 +54,10 @@ namespace hpfs::hmap::query
     {
         store::vnode_hmap *node_hmap;
         if (tree.get_vnode_hmap(&node_hmap, req.vpath) == -1)
+        {
+            LOG_ERROR << "Error in hmap query getattr tree get" << req.vpath;
             return -1;
+        }
         if (!node_hmap)
             return -ENOENT;
 
@@ -77,7 +81,10 @@ namespace hpfs::hmap::query
                 // Get how many children the directory has.
                 vfs::vdir_children_map dir_children;
                 if (virt_fs.get_dir_children(req.vpath.c_str(), dir_children) == -1)
+                {
+                    LOG_ERROR << "Error in hmap query getattr vfs dir children get" << req.vpath;
                     return -1;
+                }
 
                 stbuf->st_size = sizeof(child_hash_node) * dir_children.size();
             }
@@ -90,7 +97,10 @@ namespace hpfs::hmap::query
     {
         store::vnode_hmap *node_hmap;
         if (tree.get_vnode_hmap(&node_hmap, req.vpath) == -1)
+        {
+            LOG_ERROR << "Error in hmap query read tree get" << req.vpath;
             return -1;
+        }
         if (!node_hmap)
             return -ENOENT;
 
@@ -121,7 +131,10 @@ namespace hpfs::hmap::query
     {
         vfs::vdir_children_map dir_children;
         if (virt_fs.get_dir_children(vpath.c_str(), dir_children) == -1)
+        {
+            LOG_ERROR << "Error in hmap query dir children vfs dir children get" << vpath;
             return -1;
+        }
 
         // This is the collection that will be written to the read buf.
         child_hash_node children_hashes[dir_children.size()];
@@ -136,7 +149,10 @@ namespace hpfs::hmap::query
 
             store::vnode_hmap *node_hmap;
             if (tree.get_vnode_hmap(&node_hmap, child_vpath) == -1 || !node_hmap)
+            {
+                LOG_ERROR << "Error in hmap query dir children tree get" << vpath;
                 return -1;
+            }
 
             children_hashes[idx].is_file = node_hmap->is_file;
             children_hashes[idx].node_hash = node_hmap->node_hash;
