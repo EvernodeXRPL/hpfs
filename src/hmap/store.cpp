@@ -92,8 +92,12 @@ namespace hpfs::hmap::store
                             {(void *)node_hmap.block_hashes.data(), sizeof(hasher::h32) * node_hmap.block_hashes.size()}};
 
         if (writev(fd, memsegs, 4) == -1)
+        {
+            close(fd);
             return -1;
+        }
 
+        close(fd);
         return 0;
     }
 
@@ -113,7 +117,10 @@ namespace hpfs::hmap::store
 
         struct stat st;
         if (fstat(fd, &st) == -1)
+        {
+            close(fd);
             return -1;
+        }
 
         const size_t file_size = st.st_size;
 
@@ -129,8 +136,12 @@ namespace hpfs::hmap::store
                             {(void *)node_hmap.block_hashes.data(), sizeof(hasher::h32) * node_hmap.block_hashes.size()}};
 
         if (readv(fd, memsegs, 4) == -1)
+        {
+            close(fd);
             return -1;
+        }
 
+        close(fd);
         node_hmap.is_file = (is_file == 1);
 
         return 1;
