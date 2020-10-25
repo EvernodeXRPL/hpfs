@@ -102,7 +102,7 @@ namespace hpfs::audit
 
         audit_logger(const hpfs::RUN_MODE run_mode, std::string_view log_file_path);
         int init();
-        int load_log_file();
+        int init_log_header();
 
     public:
         static std::optional<audit_logger> create(const hpfs::RUN_MODE run_mode, std::string_view log_file_path);

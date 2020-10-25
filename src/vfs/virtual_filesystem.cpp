@@ -14,6 +14,7 @@
 #include "virtual_filesystem.hpp"
 #include "../audit.hpp"
 #include "../util.hpp"
+#include "../tracelog.hpp"
 
 namespace hpfs::vfs
 {
@@ -58,7 +59,10 @@ namespace hpfs::vfs
         // it always have its inode number as 1.
         vnode_map::iterator iter;
         if (add_vnode_from_seed("/", iter) == -1 || build_vfs() == -1)
+        {
+            LOG_ERROR << "Error in vfs init.";
             return -1;
+        }
 
         initialized = true;
         return 0;
@@ -75,7 +79,10 @@ namespace hpfs::vfs
         if (iter == vnodes.end() &&
             loaded_vpaths.count(vpath) == 0 &&
             add_vnode_from_seed(vpath, iter) == -1)
+        {
+            LOG_ERROR << "Error in vfs vnode get.";
             return -1;
+        }
 
         *vn = (iter == vnodes.end()) ? NULL : &iter->second;
         loaded_vpaths.emplace(vpath);
@@ -101,7 +108,10 @@ namespace hpfs::vfs
         struct stat st;
         const int res = stat(seed_path.c_str(), &st);
         if (res == -1 && errno != ENOENT)
+        {
+            LOG_ERROR << errno << ": Error in stat of seed file." << seed_path;
             return -1;
+        }
 
         if (res != -1) // Seed file/dir exists. So we must initialize the virtual node.
         {
@@ -113,7 +123,10 @@ namespace hpfs::vfs
             {
                 const int fd = open(seed_path.c_str(), O_RDONLY);
                 if (fd == -1)
+                {
+                    LOG_ERROR << errno << ": Error when opening seed file." << seed_path;
                     return -1;
+                }
                 if (vn.st.st_size > 0)
                     vn.data_segs.push_back(vdata_segment{fd, (size_t)vn.st.st_size, 0, 0});
 
@@ -125,6 +138,8 @@ namespace hpfs::vfs
             {
                 if (vn.seed_fd > 0)
                     close(vn.seed_fd);
+
+                LOG_ERROR << "Error when mmap update of seed file." << seed_path;
                 return -1;
             }
 
@@ -152,7 +167,10 @@ namespace hpfs::vfs
         {
             hpfs::audit::log_record record;
             if (logger.read_log_at(next_log_offset, next_log_offset, record) == -1)
+            {
+                LOG_ERROR << "Error in vfs read log.";
                 return -1;
+            }
 
             if (next_log_offset == -1) // No log record was read. We are at end of log.
                 break;
@@ -160,7 +178,10 @@ namespace hpfs::vfs
             std::vector<uint8_t> payload;
             if (logger.read_payload(payload, record) == -1 ||
                 apply_log_record(record, payload) == -1)
+            {
+                LOG_ERROR << "Error in vfs read and apply log.";
                 return -1;
+            }
 
             log_scanned_upto = record.offset + record.size;
 
@@ -180,7 +201,10 @@ namespace hpfs::vfs
                 record.operation != hpfs::audit::FS_OPERATION::CREATE)
             {
                 if (add_vnode_from_seed(record.vpath, iter) == -1 || iter == vnodes.end())
+                {
+                    LOG_ERROR << "Error in vfs adding vnode from seed in apply log record.";
                     return -1;
+                }
             }
             else
             {
@@ -239,7 +263,10 @@ namespace hpfs::vfs
             }
 
             if (update_vnode_mmap(vn) == -1)
+            {
+                LOG_ERROR << "Error in vnode mmap update in apply log record (op:write).";
                 return -1;
+            }
 
             break;
         }
@@ -257,7 +284,10 @@ namespace hpfs::vfs
                 vn.max_size = vn.st.st_size;
 
             if (update_vnode_mmap(vn) == -1)
+            {
+                LOG_ERROR << "Error in vnode mmap update in apply log record (op:trunc).";
                 return -1;
+            }
 
             break;
         }
@@ -291,7 +321,10 @@ namespace hpfs::vfs
         if (vn.mmap.ptr && vn.mmap.size < required_map_size)
         {
             if (munmap(vn.mmap.ptr, vn.mmap.size) == -1)
+            {
+                LOG_ERROR << errno << ": Error in munmap.";
                 return -1;
+            }
 
             vn.mmap.ptr = NULL;
             vn.mapped_data_segs = 0;
@@ -306,7 +339,10 @@ namespace hpfs::vfs
                 // Create the mapping for the full size needed.
                 void *ptr = mmap(NULL, required_map_size, PROT_READ, MAP_PRIVATE, seg.physical_fd, seg.physical_offset);
                 if (ptr == MAP_FAILED)
+                {
+                    LOG_ERROR << errno << ": Error in vnode mmap creation.";
                     return -1;
+                }
 
                 vn.mmap.ptr = ptr;
                 vn.mmap.size = required_map_size;
@@ -318,7 +354,10 @@ namespace hpfs::vfs
                                  seg.physical_fd, seg.physical_offset);
 
                 if (ptr == MAP_FAILED)
+                {
+                    LOG_ERROR << errno << ": Error in vnode mmap update.";
                     return -1;
+                }
             }
         }
 
@@ -376,7 +415,10 @@ namespace hpfs::vfs
 
             vnode *child_vnode;
             if (get_vnode(child_vpath.c_str(), &child_vnode) == -1)
+            {
+                LOG_ERROR << "Error in dir children child vnode get. " << child_vpath;
                 return -1;
+            }
 
             if (child_vnode)
             {

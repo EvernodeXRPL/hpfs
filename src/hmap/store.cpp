@@ -5,9 +5,10 @@
 #include <fcntl.h>
 #include <sys/types.h>
 #include <sys/uio.h>
-#include "../hpfs.hpp"
 #include "store.hpp"
 #include "hasher.hpp"
+#include "../hpfs.hpp"
+#include "../tracelog.hpp"
 
 namespace hpfs::hmap::store
 {
@@ -92,8 +93,13 @@ namespace hpfs::hmap::store
                             {(void *)node_hmap.block_hashes.data(), sizeof(hasher::h32) * node_hmap.block_hashes.size()}};
 
         if (writev(fd, memsegs, 4) == -1)
+        {
+            LOG_ERROR << errno << ": Error in persist hmap writev. " << filename;
+            close(fd);
             return -1;
+        }
 
+        close(fd);
         return 0;
     }
 
@@ -109,11 +115,21 @@ namespace hpfs::hmap::store
 
         const int fd = open(cache_filename.c_str(), O_RDONLY);
         if (fd == -1)
-            return errno == ENOENT ? 0 : -1;
+        {
+            if (errno == ENOENT)
+                return 0;
+            
+            LOG_ERROR << errno << ": Error in hmap cache file open. " << cache_filename;
+            return -1;
+        }
 
         struct stat st;
         if (fstat(fd, &st) == -1)
+        {
+            close(fd);
+            LOG_ERROR << errno << ": Error in hmap cache file stat. " << cache_filename;
             return -1;
+        }
 
         const size_t file_size = st.st_size;
 
@@ -129,8 +145,13 @@ namespace hpfs::hmap::store
                             {(void *)node_hmap.block_hashes.data(), sizeof(hasher::h32) * node_hmap.block_hashes.size()}};
 
         if (readv(fd, memsegs, 4) == -1)
+        {
+            close(fd);
+            LOG_ERROR << errno << ": Error in hmap cache file readv. " << cache_filename;
             return -1;
+        }
 
+        close(fd);
         node_hmap.is_file = (is_file == 1);
 
         return 1;
