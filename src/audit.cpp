@@ -45,13 +45,18 @@ namespace hpfs::audit
 
     int audit_logger::init()
     {
-        if (load_log_file() == -1)
+        // Open or create the log file.
+        const int res = open(hpfs::ctx.log_file_path.c_str(), O_CREAT | O_RDWR, FILE_PERMS);
+        if (res == -1)
+        {
+            LOG_ERROR << errno << ": log file open error.";
             return -1;
+        }
+        fd = res;
 
         // RW sessions acquire a read lock on first byte of the log file.
         // This is to prevent merge operation from running when any RO/RW sessions are live.
-        if ((run_mode == hpfs::RUN_MODE::RW ||
-             run_mode == hpfs::RUN_MODE::RO) &&
+        if ((run_mode == hpfs::RUN_MODE::RW || run_mode == hpfs::RUN_MODE::RO) &&
             set_lock(session_lock, LOCK_TYPE::SESSION_LOCK) == -1)
         {
             close(fd);
@@ -59,7 +64,16 @@ namespace hpfs::audit
             return -1;
         }
 
-        LOG_INFO << "Initialized log file.";
+        if (init_log_header() == -1)
+        {
+            release_lock(session_lock);
+            close(fd);
+            return -1;
+        }
+
+        LOG_DEBUG << "Initialized log file. first:" << header.first_record
+                  << " last:" << header.last_record
+                  << " lastchk:" << header.last_checkpoint;
         initialized = true;
         return 0;
     }
@@ -74,23 +88,13 @@ namespace hpfs::audit
         return header;
     }
 
-    int audit_logger::audit_logger::load_log_file()
+    int audit_logger::audit_logger::init_log_header()
     {
-        // Open or create the log file.
-        const int res = open(hpfs::ctx.log_file_path.c_str(), O_CREAT | O_RDWR, FILE_PERMS);
-        if (res == -1)
-        {
-            LOG_ERROR << errno << ": log file open error.";
-            return -1;
-        }
-        fd = res;
-
         flock header_lock;
 
-        // Acquire header rw lock.
+        // Acquire header rw lock in order to read/initialize the header.
         if (set_lock(header_lock, LOCK_TYPE::UPDATE_LOCK) == -1)
         {
-            close(fd);
             LOG_ERROR << errno << ": Error acquiring header write lock.";
             return -1;
         }
@@ -99,8 +103,6 @@ namespace hpfs::audit
         if (fstat(fd, &st) == -1)
         {
             release_lock(header_lock);
-            close(fd);
-
             LOG_ERROR << errno << ": Error in stat of log file.";
             return -1;
         }
@@ -112,8 +114,6 @@ namespace hpfs::audit
             if (commit_header() == -1)
             {
                 release_lock(header_lock);
-                close(fd);
-
                 LOG_ERROR << errno << ": Error when writing header.";
                 return -1;
             }
@@ -125,8 +125,6 @@ namespace hpfs::audit
             if (read_header() == -1)
             {
                 release_lock(header_lock);
-                close(fd);
-
                 LOG_ERROR << errno << ": Error when reading header.";
                 return -1;
             }
@@ -134,11 +132,9 @@ namespace hpfs::audit
             eof = st.st_size;
         }
 
-        // Release header rw lock.
+        // At this point we have read/initialized the log header safely. Release header rw lock.
         if (release_lock(header_lock) == -1)
         {
-            close(fd);
-
             LOG_ERROR << errno << ": Error when releasing header write lock.";
             return -1;
         }
@@ -219,7 +215,7 @@ namespace hpfs::audit
         }
 
         LOG_DEBUG << "Header updated. first:" << header.first_record
-                  << " last:" << header.last_checkpoint
+                  << " last:" << header.last_record
                   << " lastchk:" << header.last_checkpoint;
         return 0;
     }
@@ -442,8 +438,8 @@ namespace hpfs::audit
     {
         if (initialized && !moved)
         {
-            // In ReadWrite session, mark the eof offset as last checkpoint.
-            if (run_mode == hpfs::RUN_MODE::RW && eof > header.last_checkpoint)
+            // In ReadWrite session, mark the eof offset as last checkpoint (if there are records).
+            if (run_mode == hpfs::RUN_MODE::RW && eof > header.last_checkpoint && header.last_record > 0)
             {
                 header.last_checkpoint = eof;
 
