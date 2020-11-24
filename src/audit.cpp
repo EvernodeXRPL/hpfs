@@ -235,7 +235,7 @@ namespace hpfs::audit
         {
             // Block data must start at the next clean block after log header data and payload.
             const off_t record_end_offset = eof + sizeof(rh) + rh.vpath_len + rh.payload_len;
-            const off_t block_data_offset = util::get_block_end(record_end_offset);
+            const off_t block_data_offset = BLOCK_END(record_end_offset);
             rh.block_data_padding_len = block_data_offset - record_end_offset;
 
             for (int i = 0; i < block_buf_count; i++)

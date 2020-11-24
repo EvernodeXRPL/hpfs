@@ -50,18 +50,6 @@ namespace util
         return ret;
     }
 
-    off_t get_block_start(const off_t raw_offset)
-    {
-        // Integer division.
-        return (raw_offset / BLOCK_SIZE) * BLOCK_SIZE;
-    }
-
-    off_t get_block_end(const off_t raw_offset)
-    {
-        const double div = (double)raw_offset / (double)BLOCK_SIZE;
-        return ((off_t)ceil(div)) * BLOCK_SIZE;
-    }
-
     // Applies signal mask to the calling thread.
     void mask_signal()
     {

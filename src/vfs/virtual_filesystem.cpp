@@ -316,7 +316,7 @@ namespace hpfs::vfs
         if (vn.mapped_data_segs == vn.data_segs.size())
             return 0;
 
-        const off_t required_map_size = util::get_block_end(vn.max_size);
+        const off_t required_map_size = BLOCK_END(vn.max_size);
 
         if (vn.mmap.ptr && vn.mmap.size < required_map_size)
         {
@@ -437,8 +437,8 @@ namespace hpfs::vfs
         const size_t wr_end = wr_start + wr_size;
 
         // Find the target file block offset range that should map to memory mapped file.
-        block_buf_start = util::get_block_start(MIN(wr_start, fsize));
-        block_buf_end = util::get_block_end(wr_start + wr_size);
+        block_buf_start = BLOCK_END(MIN(wr_start, fsize));
+        block_buf_end = BLOCK_END(wr_start + wr_size);
         const size_t block_buf_size = block_buf_end - block_buf_start;
 
         // If write offset is after block start.
