@@ -14,7 +14,7 @@
 
 namespace hpfs::merger
 {
-    constexpr useconds_t CHECK_INTERVAL = 1000000; // 1 second.
+    constexpr useconds_t CHECK_INTERVAL = 100000; // 100ms.
     bool should_stop = false;
     std::thread merger_thread;
     std::optional<hpfs::audit::audit_logger> audit_logger;
@@ -49,24 +49,33 @@ namespace hpfs::merger
     {
         util::mask_signal();
         LOG_INFO << "hpfs merge process started.";
+        uint16_t counter = 0;
 
         while (!should_stop)
         {
-            // Keep processing the oldest record of the log as long as it succeeds.
-
-            // Result  0 = There was no log record to process.
-            // Result  1 = There was a log record and it was succesfully merged.
-            // Result -1 = There was an error when processing log front.
-            const int result = merge_log_front();
-
-            if (result == 0) // If no records, wait for some time until log file has records.
+            usleep(CHECK_INTERVAL);
+            counter++;
+            if (counter == 10)
             {
-                usleep(CHECK_INTERVAL);
-            }
-            else if (result == -1)
-            {
-                LOG_ERROR << "Error when merging log front.";
-                break;
+                int result = 0;
+                do
+                {
+                    // Keep processing the oldest record of the log as long as it succeeds.
+
+                    // Result  0 = There was no log record to process.
+                    // Result  1 = There was a log record and it was succesfully merged.
+                    // Result -1 = There was an error when processing log front.
+                    result = merge_log_front();
+
+                } while (!should_stop && result == 1);
+
+                if (result == -1)
+                {
+                    LOG_ERROR << "Error when merging log front.";
+                    break;
+                }
+
+                counter = 0;
             }
         }
 
