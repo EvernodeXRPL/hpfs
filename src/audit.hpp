@@ -94,10 +94,10 @@ namespace hpfs::audit
         bool initialized = false; // Indicates that the instance has been initialized properly.
         const hpfs::RUN_MODE run_mode;
         std::string_view log_file_path;
-        int fd = 0;                // The log file fd used throughout the session.
-        off_t eof = 0;             // End of file (End offset of log file).
-        struct log_header header;  // The log file header loaded into memory.
-        struct flock session_lock; // Session lock placed on the log file.
+        int fd = 0;                    // The log file fd used throughout the session.
+        off_t eof = 0;                 // End of file (End offset of log file).
+        struct log_header header = {}; // The log file header loaded into memory.
+        struct flock session_lock;     // Session lock placed on the log file.
 
         audit_logger(const hpfs::RUN_MODE run_mode, std::string_view log_file_path);
         int init();

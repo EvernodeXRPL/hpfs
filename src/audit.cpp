@@ -228,12 +228,22 @@ namespace hpfs::audit
     int audit_logger::append_log(std::string_view vpath, const FS_OPERATION operation, const iovec *payload_buf,
                                  const iovec *block_bufs, const int block_buf_count)
     {
-        log_record_header rh;
+        log_record_header rh = {};
         rh.timestamp = util::epoch();
         rh.operation = operation;
         rh.vpath_len = vpath.length();
         rh.payload_len = payload_buf ? payload_buf->iov_len : 0;
         rh.block_data_len = 0;
+
+        // Calculate total block data length.
+        if (block_bufs != NULL && block_buf_count > 0)
+        {
+            for (int i = 0; i < block_buf_count; i++)
+            {
+                iovec block_buf = block_bufs[i];
+                rh.block_data_len += block_buf.iov_len;
+            }
+        }
 
         // Calculate total record length including block alignment padding.
         const size_t record_len_upto_payload = sizeof(rh) + rh.vpath_len + rh.payload_len;
@@ -256,16 +266,6 @@ namespace hpfs::audit
         }
 
         // Append block data bufs.
-
-        if (block_bufs != NULL && block_buf_count > 0)
-        {
-            for (int i = 0; i < block_buf_count; i++)
-            {
-                iovec block_buf = block_bufs[i];
-                rh.block_data_len += block_buf.iov_len;
-            }
-        }
-
         // Block data must start at the next clean block after log header data and payload.
         if (block_bufs != NULL && block_buf_count > 0)
         {
