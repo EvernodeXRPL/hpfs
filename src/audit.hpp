@@ -50,7 +50,6 @@ namespace hpfs::audit
         FS_OPERATION operation;
         size_t vpath_len;
         size_t payload_len;
-        size_t block_data_padding_len;
         size_t block_data_len;
     };
 

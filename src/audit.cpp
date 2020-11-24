@@ -118,7 +118,12 @@ namespace hpfs::audit
                 return -1;
             }
 
-            eof = sizeof(header);
+            eof = BLOCK_END(sizeof(header));
+            if (ftruncate(fd, eof) == -1)
+            {
+                LOG_ERROR << errno << ": Error when truncating file with header.";
+                return -1;
+            }
         }
         else
         {
@@ -229,25 +234,10 @@ namespace hpfs::audit
         rh.vpath_len = vpath.length();
         rh.payload_len = payload_buf ? payload_buf->iov_len : 0;
         rh.block_data_len = 0;
-        rh.block_data_padding_len = 0;
 
-        if (block_bufs != NULL && block_buf_count > 0)
-        {
-            // Block data must start at the next clean block after log header data and payload.
-            const off_t record_end_offset = eof + sizeof(rh) + rh.vpath_len + rh.payload_len;
-            const off_t block_data_offset = util::get_block_end(record_end_offset);
-            rh.block_data_padding_len = block_data_offset - record_end_offset;
-
-            for (int i = 0; i < block_buf_count; i++)
-            {
-                iovec block_buf = block_bufs[i];
-                rh.block_data_len += block_buf.iov_len;
-            }
-        }
-
-        // Total record length.
-        const size_t record_len = sizeof(rh) + rh.vpath_len + rh.payload_len +
-                                  rh.block_data_padding_len + rh.block_data_len;
+        // Calculate total record length including block alignment padding.
+        const size_t record_len_upto_payload = sizeof(rh) + rh.vpath_len + rh.payload_len;
+        const size_t record_len = BLOCK_END(record_len_upto_payload) + rh.block_data_len;
 
         // Log record buffer collection that will be written to the file.
         std::vector<iovec> record_bufs;
@@ -265,21 +255,18 @@ namespace hpfs::audit
             return -1;
         }
 
-        // Punch hole for block data padding.
-        if (rh.block_data_padding_len > 0)
+        // Append block data bufs.
+
+        if (block_bufs != NULL && block_buf_count > 0)
         {
-            const off_t block_data_padding_start = eof + sizeof(rh) + rh.vpath_len + rh.payload_len;
-            if (fallocate(fd,
-                          FALLOC_FL_PUNCH_HOLE | FALLOC_FL_KEEP_SIZE,
-                          block_data_padding_start,
-                          rh.block_data_padding_len) == -1)
+            for (int i = 0; i < block_buf_count; i++)
             {
-                LOG_ERROR << errno << ": Error in punch hole of block data padding.";
-                return -1;
+                iovec block_buf = block_bufs[i];
+                rh.block_data_len += block_buf.iov_len;
             }
         }
 
-        // Append block data bufs.
+        // Block data must start at the next clean block after log header data and payload.
         if (block_bufs != NULL && block_buf_count > 0)
         {
             off_t write_offset = eof + record_len - rh.block_data_len;
@@ -289,14 +276,6 @@ namespace hpfs::audit
                 if (block_buf.iov_base && pwrite(fd, block_buf.iov_base, block_buf.iov_len, write_offset) == -1)
                 {
                     LOG_ERROR << errno << ": Error in writing block data.";
-                    return -1;
-                }
-                else if (!block_buf.iov_base && fallocate(fd,
-                                                          FALLOC_FL_PUNCH_HOLE | FALLOC_FL_KEEP_SIZE,
-                                                          write_offset,
-                                                          block_buf.iov_len) == -1)
-                {
-                    LOG_ERROR << errno << ": Error in punch hole of block data.";
                     return -1;
                 }
 
@@ -357,7 +336,11 @@ namespace hpfs::audit
         }
 
         record.offset = read_offset;
-        record.size = sizeof(rh) + rh.vpath_len + rh.payload_len + rh.block_data_padding_len + rh.block_data_len;
+
+        // Calculate total record length including block alignment padding.
+        const size_t record_len_upto_payload = sizeof(rh) + rh.vpath_len + rh.payload_len;
+        record.size = BLOCK_END(record_len_upto_payload) + rh.block_data_len;
+
         record.timestamp = rh.timestamp;
         record.operation = rh.operation;
         record.payload_len = rh.payload_len;
@@ -365,7 +348,7 @@ namespace hpfs::audit
         record.block_data_len = rh.block_data_len;
         record.block_data_offset = rh.block_data_len == 0
                                        ? 0
-                                       : record.payload_offset + rh.payload_len + rh.block_data_padding_len;
+                                       : record.offset + record.size - record.block_data_len;
 
         std::string vpath;
         vpath.resize(rh.vpath_len);
