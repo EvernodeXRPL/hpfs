@@ -297,8 +297,8 @@ namespace hpfs::hmap::tree
 
     hmap::hasher::h32 hmap_tree::get_root_hash()
     {
-        store::vnode_hmap *node_hmap;
-        if (get_vnode_hmap(&node_hmap, ROOT_VPATH) == -1)
+        store::vnode_hmap *node_hmap = store.find_hash_map(ROOT_VPATH);
+        if (node_hmap == NULL)
         {
             return hmap::hasher::h32_empty;
         }

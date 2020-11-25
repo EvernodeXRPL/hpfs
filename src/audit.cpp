@@ -427,6 +427,7 @@ namespace hpfs::audit
         {
             return 0;
         }
+        // Return if the given hash is an empty hash.
         if (state_hash == hmap::hasher::h32_empty)
             return -1;
 
