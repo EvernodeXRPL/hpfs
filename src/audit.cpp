@@ -176,6 +176,7 @@ namespace hpfs::audit
                       << ", payload_len: " << std::to_string(record.payload_len)
                       << ", blkdata_off: " << std::to_string(record.block_data_offset)
                       << ", blkdata_len: " << std::to_string(record.block_data_len)
+                      << ", state_hash: " << record.state_hash
                       << "\n";
 
         } while (log_offset > 0);
@@ -225,7 +226,7 @@ namespace hpfs::audit
         return 0;
     }
 
-    int audit_logger::append_log(std::string_view vpath, const FS_OPERATION operation, const iovec *payload_buf,
+    int audit_logger::append_log(std::string_view vpath, const FS_OPERATION operation, off_t &log_rec_start_offset, const iovec *payload_buf,
                                  const iovec *block_bufs, const int block_buf_count)
     {
         log_record_header rh = {};
@@ -251,8 +252,8 @@ namespace hpfs::audit
 
         // Log record buffer collection that will be written to the file.
         std::vector<iovec> record_bufs;
-        record_bufs.push_back({&rh, sizeof(rh)});                      // Header
-        record_bufs.push_back({(void *)vpath.data(), vpath.length()}); // Vpath
+        record_bufs.push_back({&rh, sizeof(rh)}); // Header
+        record_bufs.push_back({(void *)vpath.data(), vpath.length()});          // Vpath
 
         if (payload_buf)
             record_bufs.push_back(*payload_buf);
@@ -297,6 +298,8 @@ namespace hpfs::audit
             return -1;
         }
 
+        // Saving the start offset of the log record.
+        log_rec_start_offset = eof;
         // Calculate new end of file.
         eof += record_len;
 
@@ -349,6 +352,7 @@ namespace hpfs::audit
         record.block_data_offset = rh.block_data_len == 0
                                        ? 0
                                        : record.offset + record.size - record.block_data_len;
+        record.state_hash = rh.state_hash;
 
         std::string vpath;
         vpath.resize(rh.vpath_len);
@@ -413,6 +417,33 @@ namespace hpfs::audit
         }
 
         LOG_DEBUG << "Purge record complete.";
+
+        return 0;
+    }
+
+    int audit_logger::update_log_record(const off_t log_rec_start_offset, const hmap::hasher::h32 state_hash)
+    {
+        if (header.first_record == 0 || log_rec_start_offset > header.last_record)
+        {
+            return 0;
+        }
+        if (state_hash == hmap::hasher::h32_empty)
+            return -1;
+
+        log_record_header rh;
+        lseek(fd, log_rec_start_offset, SEEK_SET);
+        if (read(fd, &rh, sizeof(rh)) < sizeof(rh))
+        {
+            LOG_ERROR << errno << ": Error reading log record.";
+            return -1;
+        }
+        // Replace state hash with the new state hash.
+        rh.state_hash = state_hash;
+
+        if (pwrite(fd, &rh, sizeof(rh), log_rec_start_offset) == -1)
+        {
+            LOG_ERROR << errno << ": Error updating log record.";
+        }
 
         return 0;
     }

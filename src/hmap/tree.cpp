@@ -295,6 +295,16 @@ namespace hpfs::hmap::tree
         return 0;
     }
 
+    hmap::hasher::h32 hmap_tree::get_root_hash()
+    {
+        store::vnode_hmap *node_hmap;
+        if (get_vnode_hmap(&node_hmap, ROOT_VPATH) == -1)
+        {
+            return hmap::hasher::h32_empty;
+        }
+        return node_hmap->node_hash;
+    }
+
     hmap_tree::~hmap_tree()
     {
         if (initialized && !moved)
