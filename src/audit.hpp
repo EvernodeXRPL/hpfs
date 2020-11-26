@@ -117,12 +117,12 @@ namespace hpfs::audit
         int release_lock(struct flock &lock);
         int read_header();
         int commit_header();
-        int append_log(std::string_view vpath, const FS_OPERATION operation, off_t &log_rec_start_offset, const iovec *payload_buf = NULL,
+        off_t append_log(log_record_header& log_record, std::string_view vpath, const FS_OPERATION operation, const iovec *payload_buf = NULL,
                        const iovec *block_bufs = NULL, const int block_buf_count = 0);
         int read_log_at(const off_t offset, off_t &next_offset, log_record &record);
         int read_payload(std::vector<uint8_t> &payload, const log_record &record);
         int purge_log(const log_record &record);
-        int update_log_record(const off_t log_rec_start_offset, const hmap::hasher::h32 state_hash);
+        int update_log_record(const off_t log_rec_start_offset, const hmap::hasher::h32 state_hash,  log_record_header &rh);
         ~audit_logger();
     };
 
