@@ -299,7 +299,7 @@ namespace hpfs::audit
             release_lock(header_lock) == -1)
         {
             LOG_ERROR << errno << ": Error updating header during append log.";
-            return -1;
+            return 0;
         }
 
         // Saving the starting offset of the log record.

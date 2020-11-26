@@ -117,10 +117,10 @@ namespace hpfs::vfs
             {
                 audit::log_record_header rh;
                 off_t log_rec_start_offset = logger.append_log(rh, to_vpath, hpfs::audit::FS_OPERATION::UNLINK);
-                if ((log_rec_start_offset == 0 ||
+                if (log_rec_start_offset == 0 ||
                      virt_fs.build_vfs() == -1 ||
                      (htree && htree->apply_vnode_delete(to_vpath) == -1) ||
-                     (ctx.hmap_enabled && logger.update_log_record(log_rec_start_offset, htree->get_root_hash(), rh) == -1)))
+                     (ctx.hmap_enabled && logger.update_log_record(log_rec_start_offset, htree->get_root_hash(), rh) == -1))
                     return -1;
             }
         }
