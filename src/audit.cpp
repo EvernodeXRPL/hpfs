@@ -176,6 +176,7 @@ namespace hpfs::audit
                       << ", payload_len: " << std::to_string(record.payload_len)
                       << ", blkdata_off: " << std::to_string(record.block_data_offset)
                       << ", blkdata_len: " << std::to_string(record.block_data_len)
+                      << ", state_hash: " << record.state_hash
                       << "\n";
 
         } while (log_offset > 0);
@@ -225,10 +226,14 @@ namespace hpfs::audit
         return 0;
     }
 
-    int audit_logger::append_log(std::string_view vpath, const FS_OPERATION operation, const iovec *payload_buf,
+    /**
+     * Append the new log record at the end of the log file
+     * @return Returns the offset at the start of the new log record. 0 if error.
+    */
+    off_t audit_logger::append_log(log_record_header& rh, std::string_view vpath, const FS_OPERATION operation, const iovec *payload_buf,
                                  const iovec *block_bufs, const int block_buf_count)
     {
-        log_record_header rh = {};
+        rh = {};
         rh.timestamp = util::epoch();
         rh.operation = operation;
         rh.vpath_len = vpath.length();
@@ -251,8 +256,8 @@ namespace hpfs::audit
 
         // Log record buffer collection that will be written to the file.
         std::vector<iovec> record_bufs;
-        record_bufs.push_back({&rh, sizeof(rh)});                      // Header
-        record_bufs.push_back({(void *)vpath.data(), vpath.length()}); // Vpath
+        record_bufs.push_back({&rh, sizeof(rh)}); // Header
+        record_bufs.push_back({(void *)vpath.data(), vpath.length()});          // Vpath
 
         if (payload_buf)
             record_bufs.push_back(*payload_buf);
@@ -262,7 +267,7 @@ namespace hpfs::audit
             pwritev(fd, record_bufs.data(), record_bufs.size(), eof) == -1)
         {
             LOG_ERROR << errno << ": Error appending log record.";
-            return -1;
+            return 0;
         }
 
         // Append block data bufs.
@@ -276,7 +281,7 @@ namespace hpfs::audit
                 if (block_buf.iov_base && pwrite(fd, block_buf.iov_base, block_buf.iov_len, write_offset) == -1)
                 {
                     LOG_ERROR << errno << ": Error in writing block data.";
-                    return -1;
+                    return 0;
                 }
 
                 write_offset += block_buf.iov_len;
@@ -294,9 +299,11 @@ namespace hpfs::audit
             release_lock(header_lock) == -1)
         {
             LOG_ERROR << errno << ": Error updating header during append log.";
-            return -1;
+            return 0;
         }
 
+        // Saving the starting offset of the log record.
+        const off_t log_rec_start_offset = eof;
         // Calculate new end of file.
         eof += record_len;
 
@@ -306,7 +313,7 @@ namespace hpfs::audit
                   << ", " << vpath
                   << ", payload_len: " << std::to_string(rh.payload_len)
                   << ", blkdata_len: " << std::to_string(rh.block_data_len);
-        return 0;
+        return log_rec_start_offset;
     }
 
     /**
@@ -349,6 +356,7 @@ namespace hpfs::audit
         record.block_data_offset = rh.block_data_len == 0
                                        ? 0
                                        : record.offset + record.size - record.block_data_len;
+        record.state_hash = rh.state_hash;
 
         std::string vpath;
         vpath.resize(rh.vpath_len);
@@ -413,6 +421,28 @@ namespace hpfs::audit
         }
 
         LOG_DEBUG << "Purge record complete.";
+
+        return 0;
+    }
+
+    int audit_logger::update_log_record(const off_t log_rec_start_offset, const hmap::hasher::h32 state_hash, log_record_header &rh)
+    {
+        if (header.first_record == 0 || log_rec_start_offset > header.last_record)
+        {
+            return 0;
+        }
+        // Return if the given hash is an empty hash.
+        if (state_hash == hmap::hasher::h32_empty)
+            return -1;
+
+        // Replace state hash with the new state hash.
+        rh.state_hash = state_hash;
+
+        if (pwrite(fd, &rh, sizeof(rh), log_rec_start_offset) == -1)
+        {
+            LOG_ERROR << errno << ": Error updating log record.";
+            return -1;
+        }
 
         return 0;
     }

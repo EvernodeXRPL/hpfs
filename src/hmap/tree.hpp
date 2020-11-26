@@ -36,6 +36,7 @@ namespace hpfs::hmap::tree
                                    const off_t update_offset, const size_t update_size);
         int apply_vnode_delete(const std::string &vpath);
         int apply_vnode_rename(const std::string &from_vpath, const std::string &to_vpath);
+        hmap::hasher::h32 get_root_hash();
         ~hmap_tree();
     };
 

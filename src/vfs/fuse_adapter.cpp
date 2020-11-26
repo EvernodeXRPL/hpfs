@@ -57,10 +57,13 @@ namespace hpfs::vfs
         if (vn)
             return -EEXIST;
 
+        audit::log_record_header rh;
         iovec payload{&mode, sizeof(mode)};
-        if (logger.append_log(vpath, hpfs::audit::FS_OPERATION::MKDIR, &payload) == -1 ||
+        off_t log_rec_start_offset = logger.append_log(rh, vpath, hpfs::audit::FS_OPERATION::MKDIR, &payload);
+        if (log_rec_start_offset == 0 ||
             virt_fs.build_vfs() == -1 ||
-            (htree && htree->apply_vnode_create(vpath) == -1))
+            (htree && htree->apply_vnode_create(vpath) == -1) ||
+            (htree && logger.update_log_record(log_rec_start_offset, htree->get_root_hash(), rh) == -1))
             return -1;
 
         return 0;
@@ -82,9 +85,12 @@ namespace hpfs::vfs
         if (!children.empty())
             return -ENOTEMPTY;
 
-        if (logger.append_log(vpath, hpfs::audit::FS_OPERATION::RMDIR) == -1 ||
+        audit::log_record_header rh;
+        off_t log_rec_start_offset = logger.append_log(rh, vpath, hpfs::audit::FS_OPERATION::RMDIR);
+        if (log_rec_start_offset == 0 ||
             virt_fs.build_vfs() == -1 ||
-            (htree && htree->apply_vnode_delete(vpath) == -1))
+            (htree && htree->apply_vnode_delete(vpath) == -1) ||
+            (htree && logger.update_log_record(log_rec_start_offset, htree->get_root_hash(), rh) == -1))
             return -1;
 
         return 0;
@@ -107,16 +113,25 @@ namespace hpfs::vfs
             if (virt_fs.get_vnode(to_vpath, &vn_to) == -1)
                 return -1;
 
-            if (vn_to && (logger.append_log(to_vpath, hpfs::audit::FS_OPERATION::UNLINK) == -1 ||
-                          virt_fs.build_vfs() == -1 ||
-                          (htree && htree->apply_vnode_delete(to_vpath) == -1)))
-                return -1;
+            if (vn_to)
+            {
+                audit::log_record_header rh;
+                off_t log_rec_start_offset = logger.append_log(rh, to_vpath, hpfs::audit::FS_OPERATION::UNLINK);
+                if (log_rec_start_offset == 0 ||
+                     virt_fs.build_vfs() == -1 ||
+                     (htree && htree->apply_vnode_delete(to_vpath) == -1) ||
+                     (htree && logger.update_log_record(log_rec_start_offset, htree->get_root_hash(), rh) == -1))
+                    return -1;
+            }
         }
 
+        audit::log_record_header rh;
         iovec payload{(void *)to_vpath, strlen(to_vpath) + 1};
-        if (logger.append_log(from_vpath, hpfs::audit::FS_OPERATION::RENAME, &payload) == -1 ||
+        off_t log_rec_start_offset = logger.append_log(rh, from_vpath, hpfs::audit::FS_OPERATION::RENAME, &payload);
+        if (log_rec_start_offset == 0 ||
             virt_fs.build_vfs() == -1 ||
-            (htree && htree->apply_vnode_rename(from_vpath, to_vpath) == -1))
+            (htree && htree->apply_vnode_rename(from_vpath, to_vpath) == -1) ||
+            (htree && logger.update_log_record(log_rec_start_offset, htree->get_root_hash(), rh) == -1))
             return -1;
 
         return 0;
@@ -133,9 +148,13 @@ namespace hpfs::vfs
         if (!vn)
             return -ENOENT;
 
-        if (logger.append_log(vpath, hpfs::audit::FS_OPERATION::UNLINK) == -1 ||
+        audit::log_record_header rh;
+        off_t log_rec_start_offset = logger.append_log(rh, vpath, hpfs::audit::FS_OPERATION::UNLINK);
+
+        if (log_rec_start_offset == 0 ||
             virt_fs.build_vfs() == -1 ||
-            (htree && htree->apply_vnode_delete(vpath) == -1))
+            (htree && htree->apply_vnode_delete(vpath) == -1) ||
+            (htree && logger.update_log_record(log_rec_start_offset, htree->get_root_hash(), rh) == -1))
             return -1;
 
         return 0;
@@ -152,10 +171,13 @@ namespace hpfs::vfs
         if (vn)
             return -EEXIST;
 
+        audit::log_record_header rh;
         iovec payload{&mode, sizeof(mode)};
-        if (logger.append_log(vpath, hpfs::audit::FS_OPERATION::CREATE, &payload) == -1 ||
+        off_t log_rec_start_offset = logger.append_log(rh, vpath, hpfs::audit::FS_OPERATION::CREATE, &payload);
+        if (log_rec_start_offset == 0 ||
             virt_fs.build_vfs() == -1 ||
-            (htree && htree->apply_vnode_create(vpath) == -1))
+            (htree && htree->apply_vnode_create(vpath) == -1) ||
+            (htree && logger.update_log_record(log_rec_start_offset, htree->get_root_hash(), rh) == -1))
             return -1;
 
         return 0;
@@ -202,11 +224,14 @@ namespace hpfs::vfs
         hpfs::audit::op_write_payload_header wh{wr_size, wr_start, block_buf_size,
                                                 block_buf_start, (wr_start - block_buf_start)};
 
+        audit::log_record_header rh;
         iovec payload{&wh, sizeof(wh)};
-        if (logger.append_log(vpath, hpfs::audit::FS_OPERATION::WRITE, &payload,
-                              block_buf_segs.data(), block_buf_segs.size()) == -1 ||
+        off_t log_rec_start_offset = logger.append_log(rh, vpath, hpfs::audit::FS_OPERATION::WRITE, &payload,
+                                                       block_buf_segs.data(), block_buf_segs.size());
+        if (log_rec_start_offset == 0 ||
             virt_fs.build_vfs() == -1 ||
-            (htree && htree->apply_vnode_update(vpath, *vn, wr_start, wr_size) == -1))
+            (htree && htree->apply_vnode_update(vpath, *vn, wr_start, wr_size) == -1) ||
+            (htree && logger.update_log_record(log_rec_start_offset, htree->get_root_hash(), rh) == -1))
             return -1;
 
         return wr_size;
@@ -243,13 +268,16 @@ namespace hpfs::vfs
             th.mmap_block_size = block_buf_size;
         }
 
+        audit::log_record_header rh;
         iovec payload{&th, sizeof(th)};
-        if (logger.append_log(vpath, hpfs::audit::FS_OPERATION::TRUNCATE, &payload,
-                              block_buf_segs.data(), block_buf_segs.size()) == -1 ||
+        off_t log_rec_start_offset = logger.append_log(rh, vpath, hpfs::audit::FS_OPERATION::TRUNCATE, &payload,
+                                                       block_buf_segs.data(), block_buf_segs.size());
+        if (log_rec_start_offset == 0 ||
             virt_fs.build_vfs() == -1 ||
             (htree && htree->apply_vnode_update(vpath, *vn,
                                                 MIN(new_size, current_size),
-                                                MAX(0, new_size - current_size)) == -1))
+                                                MAX(0, new_size - current_size)) == -1) ||
+            (htree && logger.update_log_record(log_rec_start_offset, htree->get_root_hash(), rh) == -1))
             return -1;
 
         return 0;
