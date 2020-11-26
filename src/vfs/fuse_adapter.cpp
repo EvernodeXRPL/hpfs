@@ -63,7 +63,7 @@ namespace hpfs::vfs
         if (log_rec_start_offset == 0 ||
             virt_fs.build_vfs() == -1 ||
             (htree && htree->apply_vnode_create(vpath) == -1) ||
-            (ctx.hmap_enabled && logger.update_log_record(log_rec_start_offset, htree->get_root_hash(), rh) == -1))
+            (htree && logger.update_log_record(log_rec_start_offset, htree->get_root_hash(), rh) == -1))
             return -1;
 
         return 0;
@@ -90,7 +90,7 @@ namespace hpfs::vfs
         if (log_rec_start_offset == 0 ||
             virt_fs.build_vfs() == -1 ||
             (htree && htree->apply_vnode_delete(vpath) == -1) ||
-            (ctx.hmap_enabled && logger.update_log_record(log_rec_start_offset, htree->get_root_hash(), rh) == -1))
+            (htree && logger.update_log_record(log_rec_start_offset, htree->get_root_hash(), rh) == -1))
             return -1;
 
         return 0;
@@ -120,7 +120,7 @@ namespace hpfs::vfs
                 if (log_rec_start_offset == 0 ||
                      virt_fs.build_vfs() == -1 ||
                      (htree && htree->apply_vnode_delete(to_vpath) == -1) ||
-                     (ctx.hmap_enabled && logger.update_log_record(log_rec_start_offset, htree->get_root_hash(), rh) == -1))
+                     (htree && logger.update_log_record(log_rec_start_offset, htree->get_root_hash(), rh) == -1))
                     return -1;
             }
         }
@@ -131,7 +131,7 @@ namespace hpfs::vfs
         if (log_rec_start_offset == 0 ||
             virt_fs.build_vfs() == -1 ||
             (htree && htree->apply_vnode_rename(from_vpath, to_vpath) == -1) ||
-            (ctx.hmap_enabled && logger.update_log_record(log_rec_start_offset, htree->get_root_hash(), rh) == -1))
+            (htree && logger.update_log_record(log_rec_start_offset, htree->get_root_hash(), rh) == -1))
             return -1;
 
         return 0;
@@ -154,7 +154,7 @@ namespace hpfs::vfs
         if (log_rec_start_offset == 0 ||
             virt_fs.build_vfs() == -1 ||
             (htree && htree->apply_vnode_delete(vpath) == -1) ||
-            (ctx.hmap_enabled && logger.update_log_record(log_rec_start_offset, htree->get_root_hash(), rh) == -1))
+            (htree && logger.update_log_record(log_rec_start_offset, htree->get_root_hash(), rh) == -1))
             return -1;
 
         return 0;
@@ -177,7 +177,7 @@ namespace hpfs::vfs
         if (log_rec_start_offset == 0 ||
             virt_fs.build_vfs() == -1 ||
             (htree && htree->apply_vnode_create(vpath) == -1) ||
-            (ctx.hmap_enabled && logger.update_log_record(log_rec_start_offset, htree->get_root_hash(), rh) == -1))
+            (htree && logger.update_log_record(log_rec_start_offset, htree->get_root_hash(), rh) == -1))
             return -1;
 
         return 0;
@@ -231,7 +231,7 @@ namespace hpfs::vfs
         if (log_rec_start_offset == 0 ||
             virt_fs.build_vfs() == -1 ||
             (htree && htree->apply_vnode_update(vpath, *vn, wr_start, wr_size) == -1) ||
-            (ctx.hmap_enabled && logger.update_log_record(log_rec_start_offset, htree->get_root_hash(), rh) == -1))
+            (htree && logger.update_log_record(log_rec_start_offset, htree->get_root_hash(), rh) == -1))
             return -1;
 
         return wr_size;
@@ -277,7 +277,7 @@ namespace hpfs::vfs
             (htree && htree->apply_vnode_update(vpath, *vn,
                                                 MIN(new_size, current_size),
                                                 MAX(0, new_size - current_size)) == -1) ||
-            (ctx.hmap_enabled && logger.update_log_record(log_rec_start_offset, htree->get_root_hash(), rh) == -1))
+            (htree && logger.update_log_record(log_rec_start_offset, htree->get_root_hash(), rh) == -1))
             return -1;
 
         return 0;
