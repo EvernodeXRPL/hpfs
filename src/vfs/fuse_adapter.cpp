@@ -1,4 +1,5 @@
 #include <string.h>
+#include <libgen.h>
 #include "vfs.hpp"
 #include "fuse_adapter.hpp"
 #include "virtual_filesystem.hpp"
@@ -107,9 +108,15 @@ namespace hpfs::vfs
         if (!vn)
             return -ENOENT;
 
+        // If "to" parent directory does not exists, rename fails.
+        vfs::vnode *vn_to;
+        if (virt_fs.get_vnode(dirname(strdup(to_vpath)), &vn_to) == -1)
+            return -1;
+        if (!vn_to)
+            return -ENOENT;
+        
         // If "to" path already exists, delete it first.
         {
-            vfs::vnode *vn_to;
             if (virt_fs.get_vnode(to_vpath, &vn_to) == -1)
                 return -1;
 
@@ -118,9 +125,9 @@ namespace hpfs::vfs
                 audit::log_record_header rh;
                 off_t log_rec_start_offset = logger.append_log(rh, to_vpath, hpfs::audit::FS_OPERATION::UNLINK);
                 if (log_rec_start_offset == 0 ||
-                     virt_fs.build_vfs() == -1 ||
-                     (htree && htree->apply_vnode_delete(to_vpath) == -1) ||
-                     (htree && logger.update_log_record(log_rec_start_offset, htree->get_root_hash(), rh) == -1))
+                    virt_fs.build_vfs() == -1 ||
+                    (htree && htree->apply_vnode_delete(to_vpath) == -1) ||
+                    (htree && logger.update_log_record(log_rec_start_offset, htree->get_root_hash(), rh) == -1))
                     return -1;
             }
         }
