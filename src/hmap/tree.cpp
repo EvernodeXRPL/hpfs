@@ -140,6 +140,8 @@ namespace hpfs::hmap::tree
     {
         char *path2 = strdup(vpath.c_str());
         const char *parent_path = dirname(path2);
+        free(path2);
+
         store::vnode_hmap *hmap_entry = store.find_hash_map(parent_path);
         if (hmap_entry == NULL)
             return;
