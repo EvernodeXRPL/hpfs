@@ -402,7 +402,9 @@ namespace hpfs::vfs
                     char *path3 = strdup(vn_path.c_str());
                     char *child_name = basename(path3);
                     possible_child_names.emplace(child_name);
+                    free(path3);
                 }
+                free(path2);
             }
         }
 
