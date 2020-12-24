@@ -267,7 +267,7 @@ namespace hpfs::hmap::tree
 
     int hmap_tree::apply_vnode_rename(const std::string &from_vpath, const std::string &to_vpath)
     {
-        // Backup and delete the hashed node.
+        // Backup and delete the hash node.
         store::vnode_hmap *hmap_entry = store.find_hash_map(from_vpath);
         if (hmap_entry == NULL)
         {

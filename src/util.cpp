@@ -2,8 +2,8 @@
 #include <fcntl.h>
 #include <string>
 #include <chrono>
-#include <math.h>
 #include <signal.h>
+#include <libgen.h>
 #include "util.hpp"
 #include "tracelog.hpp"
 
@@ -60,13 +60,47 @@ namespace util
         pthread_sigmask(SIG_BLOCK, &mask, NULL);
     }
 
-    // Returns the file/dir name of the given vpath.
-    const std::string get_name(std::string_view vpath)
+    // Returns the file/dir name of the given path.
+    const std::string get_name(std::string_view path)
     {
-        char *path = strdup(vpath.data());
-        std::string name = basename(path);
-        free(path);
+        char *path2 = strdup(path.data());
+        std::string name = basename(path2);
+        free(path2);
         return name;
     }
 
+    // Returns the parent full path of the given vpath.
+    const std::string get_parent_path(std::string_view path)
+    {
+        char *path2 = strdup(path.data());
+        std::string parent_path = dirname(path2);
+        free(path2);
+        return parent_path;
+    }
+
+    /**
+     * Recursively creates directories and sub-directories if not exist. 
+     * @param path Directory path.
+     * @return Returns 0 operations succeeded otherwise -1.
+     */
+    int create_dir_tree_recursive(std::string_view path)
+    {
+        if (strcmp(path.data(), "/") == 0) // No need of checking if we are at root.
+            return 0;
+
+        // Check whether this dir exists or not.
+        struct stat st;
+        if (stat(path.data(), &st) != 0 || !S_ISDIR(st.st_mode))
+        {
+            // Check and create parent dir tree first.
+            if (create_dir_tree_recursive(util::get_parent_path(path)) == -1)
+                return -1;
+
+            // Create this dir.
+            if (mkdir(path.data(), S_IRWXU | S_IRWXG | S_IROTH) == -1)
+                return -1;
+        }
+
+        return 0;
+    }
 } // namespace util

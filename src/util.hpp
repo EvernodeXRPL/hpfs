@@ -19,7 +19,9 @@ namespace util
                  const off_t start, const off_t len);
     int release_lock(const int fd, struct flock &lock);
     void mask_signal();
-    const std::string get_name(std::string_view vpath);
+    const std::string get_name(std::string_view path);
+    const std::string get_parent_path(std::string_view path);
+    int create_dir_tree_recursive(std::string_view path);
 
 } // namespace util
 

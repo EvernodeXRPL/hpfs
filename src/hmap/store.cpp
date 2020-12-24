@@ -9,6 +9,7 @@
 #include "hasher.hpp"
 #include "../hpfs.hpp"
 #include "../tracelog.hpp"
+#include "../util.hpp"
 
 namespace hpfs::hmap::store
 {
@@ -74,6 +75,9 @@ namespace hpfs::hmap::store
 
     int hmap_store::persist_hash_map_cache_file(const vnode_hmap &node_hmap, const std::string &filename)
     {
+        if (util::create_dir_tree_recursive(util::get_parent_path(filename)) == -1)
+            return -1;
+
         const int fd = open(filename.c_str(), O_CREAT | O_TRUNC | O_RDWR, FILE_PERMS);
         if (fd == -1)
             return -1;
