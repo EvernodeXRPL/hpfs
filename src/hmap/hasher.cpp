@@ -48,12 +48,12 @@ namespace hpfs::hmap::hasher
         return output;
     }
 
-    void hash_buf(h32 &hash, const void *buf, const size_t len)
+    void hash_buf(h32 &hash, std::string_view sv)
     {
         // Initialize the hasher.
         blake3_hasher hasher;
         blake3_hasher_init(&hasher);
-        blake3_hasher_update(&hasher, buf, len);
+        blake3_hasher_update(&hasher, sv.data(), sv.size());
 
         blake3_hasher_finalize(&hasher, reinterpret_cast<uint8_t *>(&hash), sizeof(h32));
     }

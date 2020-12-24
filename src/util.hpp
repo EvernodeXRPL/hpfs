@@ -19,6 +19,7 @@ namespace util
                  const off_t start, const off_t len);
     int release_lock(const int fd, struct flock &lock);
     void mask_signal();
+    const std::string get_name(std::string_view vpath);
 
 } // namespace util
 

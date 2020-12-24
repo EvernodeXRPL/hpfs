@@ -80,12 +80,10 @@ namespace hpfs::hmap::tree
             return -1;
         }
 
-        // Initialize dir hash with the dir path hash.
+        // Initialize dir hash with the dir name hash.
         store::vnode_hmap dir_hmap{false};
-        hash_buf(dir_hmap.vpath_hash, vpath.c_str(), vpath.length());
-
-        // Initial node hash is the vpath hash.
-        dir_hmap.node_hash = dir_hmap.vpath_hash;
+        hash_buf(dir_hmap.name_hash, util::get_name(vpath));
+        dir_hmap.node_hash = dir_hmap.name_hash;
 
         for (const auto &[child_name, st] : dir_children)
         {
@@ -122,7 +120,7 @@ namespace hpfs::hmap::tree
         }
 
         store::vnode_hmap file_hmap{true};
-        hash_buf(file_hmap.vpath_hash, vpath.c_str(), vpath.length());       // vpath hash.
+        hash_buf(file_hmap.name_hash, util::get_name(vpath));                // Name hash.
         if (apply_file_data_update(file_hmap, *vn, 0, vn->st.st_size) == -1) // File hash.
         {
             LOG_ERROR << "File hash calc failure in applying file data update. " << vpath;
@@ -167,9 +165,9 @@ namespace hpfs::hmap::tree
 
         const bool is_file = S_ISREG(vn->st.st_mode);
 
-        // Initial node hash is the vpath hash.
+        // Initial node hash is the name hash.
         hasher::h32 hash;
-        hash_buf(hash, vpath.c_str(), vpath.length());
+        hash_buf(hash, util::get_name(vpath));
         store.insert_hash_map(vpath, store::vnode_hmap{is_file, hash, hash});
         store.set_dirty(vpath);
 
@@ -222,8 +220,8 @@ namespace hpfs::hmap::tree
         // Resize the block hashes list according to current file size.
         node_hmap.block_hashes.resize(required_block_count);
 
-        // Reset file hash with vpath hash.
-        node_hmap.node_hash = node_hmap.vpath_hash;
+        // Reset file hash with name hash.
+        node_hmap.node_hash = node_hmap.name_hash;
 
         const off_t update_end_offset = update_offset + update_size;
 
@@ -284,10 +282,10 @@ namespace hpfs::hmap::tree
         // Update hash map with removed node hash.
         propogate_hash_update(from_vpath, node_hmap.node_hash, hasher::h32_empty);
 
-        // Update the node hash for the new vpath.
-        node_hmap.node_hash ^= node_hmap.vpath_hash; // XOR old vpath hash.
-        hash_buf(node_hmap.vpath_hash, to_vpath.c_str(), to_vpath.length());
-        node_hmap.node_hash ^= node_hmap.vpath_hash; // XOR new vpath hash.
+        // Update the node hash for the new vpath name.
+        node_hmap.node_hash ^= node_hmap.name_hash; // XOR old name hash.
+        hash_buf(node_hmap.name_hash, util::get_name(to_vpath));
+        node_hmap.node_hash ^= node_hmap.name_hash; // XOR new name hash.
 
         // Update hash map with new node hash.
         propogate_hash_update(to_vpath, hasher::h32_empty, node_hmap.node_hash);

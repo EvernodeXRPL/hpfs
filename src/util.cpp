@@ -60,4 +60,13 @@ namespace util
         pthread_sigmask(SIG_BLOCK, &mask, NULL);
     }
 
+    // Returns the file/dir name of the given vpath.
+    const std::string get_name(std::string_view vpath)
+    {
+        char *path = strdup(vpath.data());
+        std::string name = basename(path);
+        free(path);
+        return name;
+    }
+
 } // namespace util
