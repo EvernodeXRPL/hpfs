@@ -86,61 +86,75 @@ namespace hpfs::vfs
         if (!children.empty())
             return -ENOTEMPTY;
 
-        audit::log_record_header rh;
-        off_t log_rec_start_offset = logger.append_log(rh, vpath, hpfs::audit::FS_OPERATION::RMDIR);
-        if (log_rec_start_offset == 0 ||
-            virt_fs.build_vfs() == -1 ||
-            (htree && htree->apply_vnode_delete(vpath) == -1) ||
-            (htree && logger.update_log_record(log_rec_start_offset, htree->get_root_hash(), rh) == -1))
+        if (delete_entry(vpath, true) == -1)
             return -1;
 
         return 0;
     }
 
-    int fuse_adapter::rename(const char *from_vpath, const char *to_vpath)
+    int fuse_adapter::rename(const std::string &from_vpath, const std::string &to_vpath)
     {
         if (readonly)
             return -EACCES;
 
-        vfs::vnode *vn;
-        if (virt_fs.get_vnode(from_vpath, &vn) == -1)
+        // Fail if 'from' does not exist.
+        vfs::vnode *vn_from;
+        if (virt_fs.get_vnode(from_vpath, &vn_from) == -1)
             return -1;
-        if (!vn)
+        if (!vn_from)
             return -ENOENT;
 
-        // If "to" parent directory does not exists, rename fails.
         vfs::vnode *vn_to;
-        if (virt_fs.get_vnode(util::get_parent_path(to_vpath), &vn_to) == -1)
+        if (virt_fs.get_vnode(to_vpath, &vn_to) == -1)
             return -1;
 
-        if (!vn_to)
-            return -ENOENT;
-        
-        // If "to" path already exists, delete it first.
-        {
-            if (virt_fs.get_vnode(to_vpath, &vn_to) == -1)
-                return -1;
+        const bool from_is_file = S_ISREG(vn_from->st.st_mode);
+        const bool to_is_file = vn_to && S_ISREG(vn_to->st.st_mode);
 
-            if (vn_to)
-            {
-                audit::log_record_header rh;
-                off_t log_rec_start_offset = logger.append_log(rh, to_vpath, hpfs::audit::FS_OPERATION::UNLINK);
-                if (log_rec_start_offset == 0 ||
-                    virt_fs.build_vfs() == -1 ||
-                    (htree && htree->apply_vnode_delete(to_vpath) == -1) ||
-                    (htree && logger.update_log_record(log_rec_start_offset, htree->get_root_hash(), rh) == -1))
-                    return -1;
-            }
+        // Fail if we are renaming a dir to an existing file.
+        if (!from_is_file && vn_to && to_is_file)
+            return -EEXIST;
+
+        // If 'to' path does not exist, check whether parent dir of 'to' exists.
+        if (!vn_to)
+        {
+            vfs::vnode *to_parent;
+            if (virt_fs.get_vnode(util::get_parent_path(to_vpath), &to_parent) == -1)
+                return -1;
+            if (!to_parent)
+                return -ENOENT; // Destination parent dir does not exist. Cannot rename.
         }
 
-        audit::log_record_header rh;
-        iovec payload{(void *)to_vpath, strlen(to_vpath) + 1};
-        off_t log_rec_start_offset = logger.append_log(rh, from_vpath, hpfs::audit::FS_OPERATION::RENAME, &payload);
-        if (log_rec_start_offset == 0 ||
-            virt_fs.build_vfs() == -1 ||
-            (htree && htree->apply_vnode_rename(from_vpath, to_vpath) == -1) ||
-            (htree && logger.update_log_record(log_rec_start_offset, htree->get_root_hash(), rh) == -1))
-            return -1;
+        if (from_is_file)
+        {
+            // If 'to' is a file, delete it first.
+            if (to_is_file && delete_entry(to_vpath, false) == -1)
+                return -1;
+
+            // We need to rename the 'from' file to the detination path.
+            // If 'to' does not exist or is a file, destination is the 'to' path.
+            // If 'to' is a dir, destination is the 'to' path + 'from' file name.
+            const std::string destination = (!vn_to || to_is_file) ? to_vpath : (to_vpath + "/" + util::get_name(from_vpath));
+
+            if (rename_entry(from_vpath, destination, false) == -1)
+                return -1;
+            return 0; // Done.
+        }
+        else
+        {
+            // Cannot rename if 'to' is a existing file.
+            if (to_is_file)
+                return -EEXIST; // Cannot rename dir to a file.
+
+            // We need to rename the 'from' dir to the detination path.
+            // If 'to' does not exist, destination is the 'to' path.
+            // If 'to' exist and is a dir, destination is the 'to' path + 'from' dir name.
+            const std::string destination = !vn_to ? to_vpath : (to_vpath + "/" + util::get_name(from_vpath));
+
+            if (rename_entry(from_vpath, destination, false) == -1)
+                return -1;
+            return 0; // Done.
+        }
 
         return 0;
     }
@@ -156,13 +170,7 @@ namespace hpfs::vfs
         if (!vn)
             return -ENOENT;
 
-        audit::log_record_header rh;
-        off_t log_rec_start_offset = logger.append_log(rh, vpath, hpfs::audit::FS_OPERATION::UNLINK);
-
-        if (log_rec_start_offset == 0 ||
-            virt_fs.build_vfs() == -1 ||
-            (htree && htree->apply_vnode_delete(vpath) == -1) ||
-            (htree && logger.update_log_record(log_rec_start_offset, htree->get_root_hash(), rh) == -1))
+        if (delete_entry(vpath, false) == -1)
             return -1;
 
         return 0;
@@ -290,4 +298,32 @@ namespace hpfs::vfs
 
         return 0;
     }
+
+    int fuse_adapter::delete_entry(const std::string &vpath, const bool is_dir)
+    {
+        audit::log_record_header rh;
+        off_t log_rec_start_offset = logger.append_log(rh, vpath, is_dir ? hpfs::audit::FS_OPERATION::RMDIR : hpfs::audit::FS_OPERATION::UNLINK);
+        if (log_rec_start_offset == 0 ||
+            virt_fs.build_vfs() == -1 ||
+            (htree && htree->apply_vnode_delete(vpath) == -1) ||
+            (htree && logger.update_log_record(log_rec_start_offset, htree->get_root_hash(), rh) == -1))
+            return -1;
+
+        return 0;
+    }
+
+    int fuse_adapter::rename_entry(const std::string &from_vpath, const std::string &to_vpath, const bool is_dir)
+    {
+        audit::log_record_header rh;
+        iovec payload{(void *)to_vpath.data(), to_vpath.size() + 1};
+        off_t log_rec_start_offset = logger.append_log(rh, from_vpath, hpfs::audit::FS_OPERATION::RENAME, &payload);
+        if (log_rec_start_offset == 0 ||
+            virt_fs.build_vfs() == -1 ||
+            (htree && htree->apply_vnode_rename(from_vpath, to_vpath) == -1) ||
+            (htree && logger.update_log_record(log_rec_start_offset, htree->get_root_hash(), rh) == -1))
+            return -1;
+
+        return 0;
+    }
+
 } // namespace hpfs::vfs

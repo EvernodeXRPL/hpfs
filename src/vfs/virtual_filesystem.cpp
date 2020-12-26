@@ -227,11 +227,31 @@ namespace hpfs::vfs
 
         case hpfs::audit::FS_OPERATION::RENAME:
         {
-            const char *to_vpath = (char *)payload.data();
+            const std::string &from_vpath = record.vpath;
+            const std::string &to_vpath = (char *)payload.data();
+
+            // Rename all sub paths under this path. (Erase them and insert under new name)
+            {
+                std::vector<std::string> vpaths_to_move;
+                for (const auto &[vpath, vnode] : vnodes)
+                {
+                    if (vpath.size() > from_vpath.size() && vpath.rfind(from_vpath, 0) == 0)
+                        vpaths_to_move.push_back(vpath);
+                }
+
+                for (const std::string &vpath : vpaths_to_move)
+                {
+                    const auto move_iter = vnodes.find(vpath);
+                    vnode move_vn = move_iter->second; // Create a copy.
+                    vnodes.erase(move_iter);
+                    const std::string new_path = to_vpath + vpath.substr(from_vpath.size());
+                    vnodes.try_emplace(new_path, std::move(move_vn)); // Insert under new name.
+                }
+            }
 
             // Rename this vnode. (erase it from the list and insert under new name)
-            vnode vn2 = vn;     // Create a copy before erase.
-            vnodes.erase(iter); //
+            vnode vn2 = vn; // Create a copy before erase.
+            vnodes.erase(iter);
             auto [iter2, success] = vnodes.try_emplace(to_vpath, std::move(vn2));
             iter = iter2;
 
