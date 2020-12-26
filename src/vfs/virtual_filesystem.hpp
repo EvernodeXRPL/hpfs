@@ -46,7 +46,7 @@ namespace hpfs::vfs
         int apply_log_record(const hpfs::audit::log_record &record, const std::vector<uint8_t> payload);
         int delete_vnode(vnode_map::iterator &vnode_iter);
         int update_vnode_mmap(vnode &vn);
-        int get_dir_children(const char *vpath, vdir_children_map &children);
+        int get_dir_children(const std::string &vpath, vdir_children_map &children);
         void populate_block_buf_segs(std::vector<iovec> &block_buf_segs,
                                      off_t &block_buf_start, off_t &block_buf_end,
                                      const char *buf, const size_t wr_size,

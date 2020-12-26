@@ -385,7 +385,7 @@ namespace hpfs::vfs
         return 0;
     }
 
-    int virtual_filesystem::get_dir_children(const char *vpath, vdir_children_map &children)
+    int virtual_filesystem::get_dir_children(const std::string &vpath, vdir_children_map &children)
     {
         std::unordered_set<std::string> possible_child_names;
 

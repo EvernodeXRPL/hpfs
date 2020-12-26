@@ -22,7 +22,7 @@ namespace hpfs::vfs
     {
     }
 
-    int fuse_adapter::getattr(const char *vpath, struct stat *stbuf)
+    int fuse_adapter::getattr(const std::string &vpath, struct stat *stbuf)
     {
         vfs::vnode *vn;
         if (virt_fs.get_vnode(vpath, &vn) == -1)
@@ -34,7 +34,7 @@ namespace hpfs::vfs
         return 0;
     }
 
-    int fuse_adapter::readdir(const char *vpath, vfs::vdir_children_map &children)
+    int fuse_adapter::readdir(const std::string &vpath, vfs::vdir_children_map &children)
     {
         vfs::vnode *vn;
         if (virt_fs.get_vnode(vpath, &vn) == -1)
@@ -47,7 +47,7 @@ namespace hpfs::vfs
         return virt_fs.get_dir_children(vpath, children);
     }
 
-    int fuse_adapter::mkdir(const char *vpath, mode_t mode)
+    int fuse_adapter::mkdir(const std::string &vpath, mode_t mode)
     {
         if (readonly)
             return -EACCES;
@@ -70,7 +70,7 @@ namespace hpfs::vfs
         return 0;
     }
 
-    int fuse_adapter::rmdir(const char *vpath)
+    int fuse_adapter::rmdir(const std::string &vpath)
     {
         if (readonly)
             return -EACCES;
@@ -159,7 +159,7 @@ namespace hpfs::vfs
         return 0;
     }
 
-    int fuse_adapter::unlink(const char *vpath)
+    int fuse_adapter::unlink(const std::string &vpath)
     {
         if (readonly)
             return -EACCES;
@@ -176,7 +176,7 @@ namespace hpfs::vfs
         return 0;
     }
 
-    int fuse_adapter::create(const char *vpath, mode_t mode)
+    int fuse_adapter::create(const std::string &vpath, mode_t mode)
     {
         if (readonly)
             return -EACCES;
@@ -199,7 +199,7 @@ namespace hpfs::vfs
         return 0;
     }
 
-    int fuse_adapter::read(const char *vpath, char *buf, const size_t size, const off_t offset)
+    int fuse_adapter::read(const std::string &vpath, char *buf, const size_t size, const off_t offset)
     {
         vfs::vnode *vn;
         if (virt_fs.get_vnode(vpath, &vn) == -1)
@@ -219,7 +219,7 @@ namespace hpfs::vfs
         return read_len;
     }
 
-    int fuse_adapter::write(const char *vpath, const char *buf, size_t wr_size, off_t wr_start)
+    int fuse_adapter::write(const std::string &vpath, const char *buf, size_t wr_size, off_t wr_start)
     {
         if (readonly)
             return -EACCES;
@@ -253,7 +253,7 @@ namespace hpfs::vfs
         return wr_size;
     }
 
-    int fuse_adapter::truncate(const char *vpath, const off_t new_size)
+    int fuse_adapter::truncate(const std::string &vpath, const off_t new_size)
     {
         if (readonly)
             return -EACCES;
