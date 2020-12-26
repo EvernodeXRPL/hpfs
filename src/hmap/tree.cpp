@@ -136,8 +136,7 @@ namespace hpfs::hmap::tree
 
     void hmap_tree::propogate_hash_update(const std::string &vpath, const hasher::h32 &old_hash, const hasher::h32 &new_hash)
     {
-        char *path2 = strdup(vpath.c_str());
-        const char *parent_path = dirname(path2);
+        std::string parent_path = util::get_parent_path(vpath);
         store::vnode_hmap *hmap_entry = store.find_hash_map(parent_path);
         if (hmap_entry == NULL)
             return;
@@ -150,11 +149,8 @@ namespace hpfs::hmap::tree
         parent_hmap.node_hash ^= new_hash;
         store.set_dirty(parent_path);
 
-        if (strcmp(parent_path, ROOT_VPATH) != 0)
+        if (parent_path != ROOT_VPATH)
             propogate_hash_update(parent_path, parent_old_hash, parent_hmap.node_hash);
-
-        // Free strdup at the end of scope.
-        free(path2);
     }
 
     int hmap_tree::apply_vnode_create(const std::string &vpath)

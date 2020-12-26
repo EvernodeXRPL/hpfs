@@ -110,14 +110,8 @@ namespace hpfs::vfs
 
         // If "to" parent directory does not exists, rename fails.
         vfs::vnode *vn_to;
-        char *to_path = strdup(to_vpath);
-        if (virt_fs.get_vnode(dirname(to_path), &vn_to) == -1)
-        {
-            free(to_path);
+        if (virt_fs.get_vnode(util::get_parent_path(to_vpath), &vn_to) == -1)
             return -1;
-        }
-        
-        free(to_path);
 
         if (!vn_to)
             return -ENOENT;

@@ -395,16 +395,9 @@ namespace hpfs::vfs
                 if (vn_path == "/")
                     continue;
 
-                char *path2 = strdup(vn_path.c_str());
-                char *parent_path = dirname(path2);
-                if (strcmp(parent_path, vpath) == 0)
-                {
-                    char *path3 = strdup(vn_path.c_str());
-                    char *child_name = basename(path3);
-                    possible_child_names.emplace(child_name);
-                    free(path3);
-                }
-                free(path2);
+                const std::string parent_path = util::get_parent_path(vn_path);
+                if (parent_path == vpath)
+                    possible_child_names.emplace(util::get_name(vn_path));
             }
         }
 
