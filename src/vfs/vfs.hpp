@@ -29,6 +29,9 @@ namespace hpfs::vfs
         struct stat st;
         int seed_fd = 0;
 
+        // Indicates whether this is the seed version of the entry without applying log records.
+        bool is_seed = false;
+
         // How many data segs from the begining of list that has been mapped to memory.
         uint32_t mapped_data_segs = 0;
         std::vector<vdata_segment> data_segs;

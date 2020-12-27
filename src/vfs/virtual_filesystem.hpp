@@ -21,6 +21,7 @@ namespace hpfs::vfs
         ino_t next_ino = hpfs::ROOT_INO; // inode numbers start from the root inode no.
         vnode_map vnodes;
         std::unordered_set<std::string> loaded_vpaths;
+        std::unordered_map<std::string, std::string> renamed_seed_paths; // Renamed seed paths (key: renamed vpath, value: original seed path)
         hpfs::audit::audit_logger &logger;
 
         // Last checkpoint offset for the use of ReadOnly session
@@ -33,6 +34,9 @@ namespace hpfs::vfs
 
         virtual_filesystem(const bool readonly, std::string_view seed_dir, hpfs::audit::audit_logger &logger);
         int init();
+        bool is_ancestor_path(const std::string &full_path, const std::string &sub_path);
+        const std::string resolve_seed_path(const std::string &vpath_to_resolve);
+        int rename_seed_path(const std::string &from, const std::string &to);
 
     public:
         static std::optional<virtual_filesystem> create(const bool readonly, std::string_view seed_dir,
