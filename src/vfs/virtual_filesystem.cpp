@@ -105,7 +105,7 @@ namespace hpfs::vfs
     int virtual_filesystem::add_vnode_from_seed(const std::string &vpath, vnode_map::iterator &vnode_iter)
     {
         const std::string original_seed_path = resolve_seed_path(vpath);
-        if (original_seed_path.empty())
+        if (original_seed_path.empty() || has_been_renamed(original_seed_path))
             return 0;
 
         const std::string seed_path = std::string(seed_dir).append(original_seed_path);
@@ -161,8 +161,21 @@ namespace hpfs::vfs
         return full_path.rfind(sub_path, 0) == 0 && (full_path.size() == sub_path.size() || full_path.at(sub_path.size()) == '/');
     }
 
+    bool virtual_filesystem::has_been_renamed(const std::string &path_to_check)
+    {
+        for (auto [vpath, seed_path] : renamed_seed_paths)
+        {
+            if (path_to_check == seed_path)
+                return true;
+        }
+        return false;
+    }
+
     const std::string virtual_filesystem::resolve_seed_path(const std::string &vpath_to_resolve)
     {
+        if (renamed_seed_paths.empty())
+            return vpath_to_resolve;
+
         size_t longest_match_len = 0;
         std::string longest_match_seed_path;
         for (auto [vpath, seed_path] : renamed_seed_paths)
@@ -175,26 +188,15 @@ namespace hpfs::vfs
         }
 
         if (longest_match_len > 0)
-        {
             return (longest_match_seed_path + vpath_to_resolve.substr(longest_match_len));
-        }
         else
-        {
-            // Find whether this path as a seed path has been renamed.
-            for (auto [vpath, seed_path] : renamed_seed_paths)
-            {
-                if (is_ancestor_path(vpath_to_resolve, seed_path))
-                    return "";
-            }
-        }
-
-        return vpath_to_resolve;
+            return vpath_to_resolve;
     }
 
     int virtual_filesystem::rename_seed_path(const std::string &from, const std::string &to)
     {
         const std::string resolved = resolve_seed_path(from);
-        if (resolved.empty())
+        if (resolved.empty() || !util::is_dir_exists(std::string(seed_dir) + resolved))
             return -1;
 
         {
@@ -210,11 +212,27 @@ namespace hpfs::vfs
                 const std::string new_vpath = to + vpath.substr(from.size());
                 if (new_vpath != seed_path)
                     renamed_seed_paths[new_vpath] = seed_path;
+
+                const auto loaded_vpath_itr = loaded_vpaths.find(vpath);
+                if (loaded_vpath_itr != loaded_vpaths.end())
+                {
+                    loaded_vpaths.erase(loaded_vpath_itr);
+                    loaded_vpaths.emplace(new_vpath);
+                }
             }
         }
 
         if (to != resolved)
+        {
             renamed_seed_paths[to] = resolved;
+
+            const auto loaded_vpath_itr = loaded_vpaths.find(from);
+            if (loaded_vpath_itr != loaded_vpaths.end())
+            {
+                loaded_vpaths.erase(loaded_vpath_itr);
+                loaded_vpaths.emplace(to);
+            }
+        }
 
         return 0;
     }
@@ -492,7 +510,12 @@ namespace hpfs::vfs
                         if (strcmp(entry->d_name, ".") != 0 &&
                             strcmp(entry->d_name, "..") != 0 &&
                             strcmp(entry->d_name, "/") != 0)
-                            possible_child_names.emplace(entry->d_name);
+                        {
+                            // Add any files and only seed directories that haven't been renamed.
+                            const std::string child_vpath = original_seed_path + (original_seed_path.back() == '/' ? "" : "/") + entry->d_name;
+                            if (entry->d_type == DT_REG || !has_been_renamed(child_vpath))
+                                possible_child_names.emplace(entry->d_name);
+                        }
                     }
 
                     closedir(dirp);

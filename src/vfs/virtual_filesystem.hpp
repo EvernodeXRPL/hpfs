@@ -35,6 +35,7 @@ namespace hpfs::vfs
         virtual_filesystem(const bool readonly, std::string_view seed_dir, hpfs::audit::audit_logger &logger);
         int init();
         bool is_ancestor_path(const std::string &full_path, const std::string &sub_path);
+        bool has_been_renamed(const std::string &seed_path);
         const std::string resolve_seed_path(const std::string &vpath_to_resolve);
         int rename_seed_path(const std::string &from, const std::string &to);
         void undo_seed_path_rename(const std::string &vpath);
