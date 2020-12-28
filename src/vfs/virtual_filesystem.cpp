@@ -96,7 +96,6 @@ namespace hpfs::vfs
         vnode vn;
         vn.st = ctx.default_stat;
         vn.st.st_ino = vn.ino = next_ino++;
-        vn.is_seed = false;
 
         auto [iter, success] = vnodes.try_emplace(vpath, std::move(vn));
         vnode_iter = iter;
@@ -124,7 +123,6 @@ namespace hpfs::vfs
             vnode vn;
             vn.st = st;
             vn.st.st_ino = vn.ino = next_ino++;
-            vn.is_seed = true;
 
             if (S_ISREG(st.st_mode)) // is file.
             {
@@ -210,12 +208,26 @@ namespace hpfs::vfs
             {
                 renamed_seed_paths.erase(vpath);
                 const std::string new_vpath = to + vpath.substr(from.size());
-                renamed_seed_paths[new_vpath] = seed_path;
+                if (new_vpath != seed_path)
+                    renamed_seed_paths[new_vpath] = seed_path;
             }
         }
 
-        renamed_seed_paths[to] = resolved;
+        if (to != resolved)
+            renamed_seed_paths[to] = resolved;
+
         return 0;
+    }
+
+    void virtual_filesystem::undo_seed_path_rename(const std::string &vpath)
+    {
+        for (auto itr = renamed_seed_paths.begin(); itr != renamed_seed_paths.end();)
+        {
+            if (is_ancestor_path(itr->first, vpath))
+                itr = renamed_seed_paths.erase(itr);
+            else
+                itr++;
+        }
     }
 
     /**
@@ -290,6 +302,7 @@ namespace hpfs::vfs
 
         case hpfs::audit::FS_OPERATION::RMDIR:
             delete_vnode(iter);
+            undo_seed_path_rename(record.vpath);
             break;
 
         case hpfs::audit::FS_OPERATION::RENAME:
@@ -297,8 +310,8 @@ namespace hpfs::vfs
             const std::string &from_vpath = record.vpath;
             const std::string &to_vpath = (char *)payload.data();
 
-            // If we are renaming a directory that is still the seed version, apply seed rename logic.
-            if (vn.is_seed && S_ISDIR(vn.st.st_mode))
+            // If we are renaming a directory, apply seed rename logic.
+            if (S_ISDIR(vn.st.st_mode))
                 rename_seed_path(from_vpath, to_vpath);
 
             // Rename all vnode sub paths under this path. (Erase them and insert under new name)
@@ -390,9 +403,6 @@ namespace hpfs::vfs
 
         if (iter != vnodes.end())
             vn.st.st_ino = iter->second.ino;
-
-        // Since we have applied a log record, the vnode is no longer the seed version.
-        vn.is_seed = false;
 
         return 0;
     }
