@@ -26,6 +26,12 @@ namespace util
         return (stat(path.data(), &st) == 0 && S_ISDIR(st.st_mode));
     }
 
+    bool is_file_exists(std::string_view path)
+    {
+        struct stat st;
+        return (stat(path.data(), &st) == 0 && S_ISREG(st.st_mode));
+    }
+
     int set_lock(const int fd, struct flock &lock, const bool is_rwlock,
                  const off_t start, const off_t len)
     {

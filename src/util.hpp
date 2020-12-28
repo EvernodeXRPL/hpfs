@@ -15,6 +15,7 @@ namespace util
 {
     int64_t epoch();
     bool is_dir_exists(std::string_view path);
+    bool is_file_exists(std::string_view path);
     int set_lock(const int fd, struct flock &lock, const bool is_rwlock,
                  const off_t start, const off_t len);
     int release_lock(const int fd, struct flock &lock);
