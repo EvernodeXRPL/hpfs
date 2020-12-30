@@ -318,9 +318,6 @@ namespace hpfs::vfs
         }
         }
 
-        if (iter != vnodes.end())
-            vn.st.st_ino = iter->second.ino;
-
         return 0;
     }
 
