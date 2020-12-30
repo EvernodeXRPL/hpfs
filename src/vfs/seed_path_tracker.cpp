@@ -3,6 +3,9 @@
 #include "../util.hpp"
 #include "seed_path_tracker.hpp"
 
+/**
+ * Tracks the seed paths that have been renamed or deleted to support the vfs.
+ */
 namespace hpfs::vfs
 {
     seed_path_tracker::seed_path_tracker(std::string_view seed_dir) : seed_dir(seed_dir)
