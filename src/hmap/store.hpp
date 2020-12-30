@@ -27,13 +27,15 @@ namespace hpfs::hmap::store
         std::unordered_set<std::string> dirty_vpaths;
         int read_hash_map_cache_file(vnode_hmap &node_hmap, const std::string &vpath);
         int persist_hash_map_cache_file(const vnode_hmap &node_hmap, const std::string &filename);
-        const std::string get_vpath_cache_filename(const std::string &vpath);
+        const std::string get_vpath_cache_file(const std::string &vpath);
+        const std::string get_vpath_cache_dir(const std::string &vpath);
 
     public:
         void set_dirty(const std::string &vpath);
         vnode_hmap *find_hash_map(const std::string &vpath);
         void erase_hash_map(const std::string &vpath);
         void insert_hash_map(const std::string &vpath, vnode_hmap &&node_hmap);
+        int move_hash_map_cache(const std::string &from_vpath, const std::string &to_vpath, const bool is_dir);
         int persist_hash_maps();
     };
 } // namespace hpfs::hmap::store

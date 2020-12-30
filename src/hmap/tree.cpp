@@ -18,6 +18,8 @@
 
 namespace hpfs::hmap::tree
 {
+#define PRINT_ROOT_HASH LOG_DEBUG << " Root hash: " << store.find_hash_map(ROOT_VPATH)->node_hash;
+
     constexpr size_t BLOCK_SIZE = 4194304; // 4MB
     constexpr const char *ROOT_VPATH = "/";
 
@@ -168,6 +170,8 @@ namespace hpfs::hmap::tree
         store.set_dirty(vpath);
 
         propogate_hash_update(vpath, hasher::h32_empty, hash);
+        PRINT_ROOT_HASH
+
         return 0;
     }
 
@@ -198,6 +202,8 @@ namespace hpfs::hmap::tree
         }
 
         propogate_hash_update(vpath, old_hash, node_hmap.node_hash);
+        PRINT_ROOT_HASH
+
         return 0;
     }
 
@@ -258,10 +264,12 @@ namespace hpfs::hmap::tree
         store.set_dirty(vpath);
 
         propogate_hash_update(vpath, node_hash, hasher::h32_empty);
+        PRINT_ROOT_HASH
+
         return 0;
     }
 
-    int hmap_tree::apply_vnode_rename(const std::string &from_vpath, const std::string &to_vpath)
+    int hmap_tree::apply_vnode_rename(const std::string &from_vpath, const std::string &to_vpath, const bool is_dir)
     {
         // Backup and delete the hash node.
         store::vnode_hmap *hmap_entry = store.find_hash_map(from_vpath);
@@ -271,9 +279,13 @@ namespace hpfs::hmap::tree
             return -1;
         }
 
-        store::vnode_hmap node_hmap = *hmap_entry; // Create a copy.
+        // Persist all dirty hash maps so far and move the cache file/dir to new location.
+        store.persist_hash_maps();
+        if (store.move_hash_map_cache(from_vpath, to_vpath, is_dir) == -1)
+            return -1;
+
+        store::vnode_hmap node_hmap = *hmap_entry; // Create a copy and erase the hmap entry.
         store.erase_hash_map(from_vpath);
-        store.set_dirty(from_vpath);
 
         // Update hash map with removed node hash.
         propogate_hash_update(from_vpath, node_hmap.node_hash, hasher::h32_empty);
@@ -289,6 +301,7 @@ namespace hpfs::hmap::tree
         store.insert_hash_map(to_vpath, std::move(node_hmap));
         store.set_dirty(to_vpath);
 
+        PRINT_ROOT_HASH
         return 0;
     }
 

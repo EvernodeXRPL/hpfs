@@ -151,7 +151,7 @@ namespace hpfs::vfs
             // If 'to' exist and is a dir, destination is the 'to' path + 'from' dir name.
             const std::string destination = !vn_to ? to_vpath : (to_vpath + "/" + util::get_name(from_vpath));
 
-            if (rename_entry(from_vpath, destination, false) == -1)
+            if (rename_entry(from_vpath, destination, true) == -1)
                 return -1;
             return 0; // Done.
         }
@@ -319,7 +319,7 @@ namespace hpfs::vfs
         off_t log_rec_start_offset = logger.append_log(rh, from_vpath, hpfs::audit::FS_OPERATION::RENAME, &payload);
         if (log_rec_start_offset == 0 ||
             virt_fs.build_vfs() == -1 ||
-            (htree && htree->apply_vnode_rename(from_vpath, to_vpath) == -1) ||
+            (htree && htree->apply_vnode_rename(from_vpath, to_vpath, is_dir) == -1) ||
             (htree && logger.update_log_record(log_rec_start_offset, htree->get_root_hash(), rh) == -1))
             return -1;
 

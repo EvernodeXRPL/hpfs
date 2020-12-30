@@ -51,12 +51,35 @@ namespace hpfs::hmap::store
         hash_map.try_emplace(vpath, std::move(node_hmap));
     }
 
+    int hmap_store::move_hash_map_cache(const std::string &from_vpath, const std::string &to_vpath, const bool is_dir)
+    {
+        const std::string cache_filename_from = get_vpath_cache_file(from_vpath);
+        const std::string cache_filename_to = get_vpath_cache_file(to_vpath);
+        if (rename(cache_filename_from.data(), cache_filename_to.data()) == -1)
+        {
+            LOG_ERROR << errno << ": Error when moving cache file from " << cache_filename_from << " to " << cache_filename_to;
+            return -1;
+        }
+
+        if (is_dir)
+        {
+            const std::string cache_dir_from = get_vpath_cache_dir(from_vpath);
+            const std::string cache_dir_to = get_vpath_cache_dir(to_vpath);
+
+            // We do not check for rename errors in cache dir moving because cache dir might
+            // not exist if there are no files in it.
+            rename(cache_dir_from.data(), cache_dir_to.data());
+        }
+
+        return 0;
+    }
+
     int hmap_store::persist_hash_maps()
     {
         for (const std::string &vpath : dirty_vpaths)
         {
             const auto iter = hash_map.find(vpath);
-            const std::string cache_filename = get_vpath_cache_filename(vpath);
+            const std::string cache_filename = get_vpath_cache_file(vpath);
 
             if (iter == hash_map.end())
             {
@@ -69,6 +92,7 @@ namespace hpfs::hmap::store
                     return -1;
             }
         }
+        dirty_vpaths.clear();
 
         return 0;
     }
@@ -106,7 +130,7 @@ namespace hpfs::hmap::store
      */
     int hmap_store::read_hash_map_cache_file(vnode_hmap &node_hmap, const std::string &vpath)
     {
-        const std::string cache_filename = get_vpath_cache_filename(vpath);
+        const std::string cache_filename = get_vpath_cache_file(vpath);
 
         const int fd = open(cache_filename.c_str(), O_RDONLY);
         if (fd == -1)
@@ -152,9 +176,14 @@ namespace hpfs::hmap::store
         return 1;
     }
 
-    const std::string hmap_store::get_vpath_cache_filename(const std::string &vpath)
+    const std::string hmap_store::get_vpath_cache_file(const std::string &vpath)
     {
         return hpfs::ctx.hmap_dir + vpath + HASH_MAP_CACHE_FILE_EXT;
+    }
+
+    const std::string hmap_store::get_vpath_cache_dir(const std::string &vpath)
+    {
+        return hpfs::ctx.hmap_dir + vpath;
     }
 
 } // namespace hpfs::hmap::store
