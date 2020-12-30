@@ -108,6 +108,14 @@ namespace hpfs::vfs
         if (virt_fs.get_vnode(to_vpath, &vn_to) == -1)
             return -1;
 
+        // Rename logic:
+        // If 'to' does not exist, 'from' will be renamed to 'to'.
+        //      Fail if 'to' parent folder hierarchy does not exist.
+        // If 'to' is an existing file,
+        //      'from' will overwrite 'to' if 'from' is a file.
+        //      Fail if 'from' is a dir.
+        // If 'to' is an existing dir, 'from' will move under 'to'.
+
         const bool from_is_file = S_ISREG(vn_from->st.st_mode);
         const bool to_is_file = vn_to && S_ISREG(vn_to->st.st_mode);
 

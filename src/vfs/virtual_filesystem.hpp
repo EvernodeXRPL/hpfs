@@ -2,8 +2,8 @@
 #define _HPFS_VFS_VIRTUAL_FILESYSTEM_
 
 #include <unordered_map>
-#include <unordered_set>
 #include "vfs.hpp"
+#include "seed_path_tracker.hpp"
 #include "../audit.hpp"
 
 namespace hpfs::vfs
@@ -20,9 +20,8 @@ namespace hpfs::vfs
         std::string_view seed_dir;
         ino_t next_ino = hpfs::ROOT_INO; // inode numbers start from the root inode no.
         vnode_map vnodes;
-        std::unordered_set<std::string> deleted_seed_paths;
-        std::unordered_map<std::string, std::string> renamed_seed_paths; // Renamed seed paths (key: renamed vpath, value: original seed path)
         hpfs::audit::audit_logger &logger;
+        seed_path_tracker seed_paths;
 
         // Last checkpoint offset for the use of ReadOnly session
         // (inclusive of the checkpointed log record).
@@ -34,12 +33,6 @@ namespace hpfs::vfs
 
         virtual_filesystem(const bool readonly, std::string_view seed_dir, hpfs::audit::audit_logger &logger);
         int init();
-        bool is_ancestor_path(const std::string &full_path, const std::string &sub_path);
-        bool has_been_renamed(const std::string &seed_path);
-        const std::string resolve_seed_path(const std::string &vpath_to_resolve);
-        void rename_seed_path(const std::string &from, const std::string &to, const bool is_dir);
-        void undo_seed_path_rename(const std::string &vpath);
-        void delete_seed_path(const std::string &vpath, const bool is_dir);
 
     public:
         static std::optional<virtual_filesystem> create(const bool readonly, std::string_view seed_dir,

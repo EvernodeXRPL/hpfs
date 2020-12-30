@@ -32,7 +32,8 @@ namespace hpfs::vfs
                                            std::string_view seed_dir,
                                            hpfs::audit::audit_logger &logger) : readonly(readonly),
                                                                                 seed_dir(seed_dir),
-                                                                                logger(logger)
+                                                                                logger(logger),
+                                                                                seed_paths(seed_dir)
     {
     }
 
@@ -41,9 +42,8 @@ namespace hpfs::vfs
                                                                        seed_dir(old.seed_dir),
                                                                        next_ino(old.next_ino),
                                                                        vnodes(std::move(old.vnodes)),
-                                                                       deleted_seed_paths(std::move(old.deleted_seed_paths)),
-                                                                       renamed_seed_paths(std::move(old.renamed_seed_paths)),
                                                                        logger(old.logger),
+                                                                       seed_paths(std::move(seed_paths)),
                                                                        last_checkpoint(old.last_checkpoint),
                                                                        log_scanned_upto(old.log_scanned_upto)
     {
@@ -100,8 +100,8 @@ namespace hpfs::vfs
 
     int virtual_filesystem::add_vnode_from_seed(const std::string &vpath, vnode_map::iterator &vnode_iter)
     {
-        const std::string original_seed_path = resolve_seed_path(vpath);
-        if (original_seed_path.empty() || deleted_seed_paths.count(original_seed_path) == 1 || has_been_renamed(original_seed_path))
+        const std::string original_seed_path = seed_paths.resolve(vpath);
+        if (original_seed_path.empty() || seed_paths.is_removed(original_seed_path) || seed_paths.is_renamed(original_seed_path))
             return 0;
 
         const std::string seed_path = std::string(seed_dir).append(original_seed_path);
@@ -149,111 +149,6 @@ namespace hpfs::vfs
         }
 
         return 0;
-    }
-
-    bool virtual_filesystem::is_ancestor_path(const std::string &full_path, const std::string &sub_path)
-    {
-        return full_path.rfind(sub_path, 0) == 0 && (full_path.size() == sub_path.size() || full_path.at(sub_path.size()) == '/');
-    }
-
-    bool virtual_filesystem::has_been_renamed(const std::string &path_to_check)
-    {
-        for (auto [vpath, seed_path] : renamed_seed_paths)
-        {
-            if (path_to_check == seed_path)
-                return true;
-        }
-        return false;
-    }
-
-    const std::string virtual_filesystem::resolve_seed_path(const std::string &vpath_to_resolve)
-    {
-        if (renamed_seed_paths.empty())
-            return vpath_to_resolve;
-
-        size_t longest_match_len = 0;
-        std::string longest_match_seed_path;
-        for (auto [vpath, seed_path] : renamed_seed_paths)
-        {
-            if (is_ancestor_path(vpath_to_resolve, vpath) && (vpath.size() > longest_match_len))
-            {
-                longest_match_len = vpath.size();
-                longest_match_seed_path = seed_path;
-            }
-        }
-
-        if (longest_match_len > 0)
-            return (longest_match_seed_path + vpath_to_resolve.substr(longest_match_len));
-        else
-            return vpath_to_resolve;
-    }
-
-    void virtual_filesystem::rename_seed_path(const std::string &from, const std::string &to, const bool is_dir)
-    {
-        const std::string resolved = resolve_seed_path(from);
-        if (resolved.empty())
-            return;
-
-        const std::string full_seed_path = std::string(seed_dir) + resolved;
-        if ((is_dir && !util::is_dir_exists(full_seed_path)) || !is_dir && !util::is_file_exists(full_seed_path))
-            return;
-
-        {
-            std::unordered_map<std::string, std::string> renames_to_update;
-            for (auto [vpath, seed_path] : renamed_seed_paths)
-            {
-                if (is_ancestor_path(vpath, from))
-                    renames_to_update[vpath] = seed_path;
-            }
-            for (auto [vpath, seed_path] : renames_to_update)
-            {
-                renamed_seed_paths.erase(vpath);
-                const std::string new_vpath = to + vpath.substr(from.size());
-                if (new_vpath != seed_path)
-                    renamed_seed_paths[new_vpath] = seed_path;
-            }
-        }
-
-        if (to != resolved)
-            renamed_seed_paths[to] = resolved;
-
-        return;
-    }
-
-    void virtual_filesystem::undo_seed_path_rename(const std::string &vpath)
-    {
-        for (auto itr = renamed_seed_paths.begin(); itr != renamed_seed_paths.end();)
-        {
-            if (is_ancestor_path(itr->first, vpath))
-                itr = renamed_seed_paths.erase(itr);
-            else
-                itr++;
-        }
-    }
-
-    void virtual_filesystem::delete_seed_path(const std::string &vpath, const bool is_dir)
-    {
-        const std::string resolved = resolve_seed_path(vpath);
-        if (resolved.empty())
-            return;
-
-        const std::string full_seed_path = std::string(seed_dir) + resolved;
-        if ((is_dir && !util::is_dir_exists(full_seed_path)) || !is_dir && !util::is_file_exists(full_seed_path))
-            return;
-
-        deleted_seed_paths.emplace(resolved);
-
-        // Undo seed dir path rename (if needed).
-        if (is_dir)
-        {
-            for (auto itr = renamed_seed_paths.begin(); itr != renamed_seed_paths.end();)
-            {
-                if (is_ancestor_path(itr->first, vpath))
-                    itr = renamed_seed_paths.erase(itr);
-                else
-                    itr++;
-            }
-        }
     }
 
     /**
@@ -328,7 +223,7 @@ namespace hpfs::vfs
 
         case hpfs::audit::FS_OPERATION::RMDIR:
             delete_vnode(iter);
-            delete_seed_path(record.vpath, true);
+            seed_paths.remove(record.vpath, true);
             break;
 
         case hpfs::audit::FS_OPERATION::RENAME:
@@ -337,7 +232,7 @@ namespace hpfs::vfs
             const std::string &to_vpath = (char *)payload.data();
 
             // Apply seed path rename logic.
-            rename_seed_path(from_vpath, to_vpath, S_ISDIR(vn.st.st_mode));
+            seed_paths.rename(from_vpath, to_vpath, S_ISDIR(vn.st.st_mode));
 
             // Rename all vnode sub paths under this path. (Erase them and insert under new name)
             {
@@ -369,7 +264,7 @@ namespace hpfs::vfs
 
         case hpfs::audit::FS_OPERATION::UNLINK:
             delete_vnode(iter);
-            delete_seed_path(record.vpath, false);
+            seed_paths.remove(record.vpath, false);
             break;
 
         case hpfs::audit::FS_OPERATION::CREATE:
@@ -501,7 +396,7 @@ namespace hpfs::vfs
 
         {
             // Read possible children from seed dir;
-            const std::string original_seed_path = resolve_seed_path(vpath);
+            const std::string original_seed_path = seed_paths.resolve(vpath);
             if (!original_seed_path.empty())
             {
                 const std::string seed_path = std::string(seed_dir).append(original_seed_path);
@@ -517,7 +412,7 @@ namespace hpfs::vfs
                         {
                             // Add only seed files and directories that haven't been renamed or deleted.
                             const std::string child_seed_path = original_seed_path + (original_seed_path.back() == '/' ? "" : "/") + entry->d_name;
-                            if (deleted_seed_paths.count(child_seed_path) == 0 && !has_been_renamed(child_seed_path))
+                            if (!seed_paths.is_removed(child_seed_path) && !seed_paths.is_renamed(child_seed_path))
                                 possible_child_names.emplace(entry->d_name);
                         }
                     }

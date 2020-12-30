@@ -70,7 +70,7 @@ namespace util
     const std::string get_name(std::string_view path)
     {
         char *path2 = strdup(path.data());
-        std::string name = basename(path2);
+        const std::string name = basename(path2);
         free(path2);
         return name;
     }
@@ -79,7 +79,7 @@ namespace util
     const std::string get_parent_path(std::string_view path)
     {
         char *path2 = strdup(path.data());
-        std::string parent_path = dirname(path2);
+        const std::string parent_path = dirname(path2);
         free(path2);
         return parent_path;
     }
