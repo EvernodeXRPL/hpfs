@@ -20,8 +20,8 @@ namespace hpfs::vfs
         std::string_view seed_dir;
         ino_t next_ino = hpfs::ROOT_INO; // inode numbers start from the root inode no.
         vnode_map vnodes;
-        hpfs::audit::audit_logger &logger;
         seed_path_tracker seed_paths;
+        hpfs::audit::audit_logger &logger;
 
         // Last checkpoint offset for the use of ReadOnly session
         // (inclusive of the checkpointed log record).
