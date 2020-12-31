@@ -21,7 +21,8 @@ namespace hpfs::merger
 
     int init()
     {
-        signal(SIGINT, &signal_handler);
+        if (!ctx.merge_enabled)
+            return 0;
 
         auto logger = hpfs::audit::audit_logger::create(audit::LOG_MODE::MERGE, ctx.log_file_path);
         if (!logger)
@@ -29,26 +30,23 @@ namespace hpfs::merger
         audit_logger.emplace(std::move(logger.value()));
 
         merger_thread = std::thread(merger_loop);
-        merger_thread.join();
         return 0;
     }
 
-    void signal_handler(int signum)
+    void deinit()
     {
-        LOG_WARNING << "Interrupt signal (" << signum << ") received.\n";
+        if (!ctx.merge_enabled)
+            return;
 
         should_stop = true;
         if (merger_thread.joinable())
             merger_thread.join();
-
-        LOG_WARNING << "hpfs exiting due to interrupt.";
-        exit(signum);
     }
 
     void merger_loop()
     {
         util::mask_signal();
-        LOG_INFO << "hpfs merge process started.";
+        LOG_INFO << "Log merger started.";
         uint16_t counter = 0;
 
         while (!should_stop)
@@ -80,7 +78,7 @@ namespace hpfs::merger
         }
 
         audit_logger.reset();
-        LOG_INFO << "hpfs merge process stopped.";
+        LOG_INFO << "Log merge stopped.";
     }
 
     /**

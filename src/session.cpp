@@ -146,6 +146,7 @@ namespace hpfs::session
             {
                 sessions.erase(itr);
                 LOG_INFO << (args.readonly ? "RO" : "RW") << " session '" << args.name << "' stopped.";
+                return 0;
             }
         }
 

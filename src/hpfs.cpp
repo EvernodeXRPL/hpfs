@@ -27,8 +27,8 @@ namespace hpfs
         {
             std::cerr << "Invalid arguments.\n";
             std::cout << "Usage:\n"
-                      << "hpfs [merge|rdlog] [fsdir] trace=[debug|info|warn|error]\n"
-                      << "hpfs fs [fsdir] [mountdir] trace=[debug|info|warn|error]\n";
+                      << "hpfs rdlog [fsdir] trace=[debug|info|warn|error]\n"
+                      << "hpfs fs [fsdir] [mountdir] merge=[true|false] trace=[debug|info|warn|error]\n";
             return -1;
         }
         if (vaidate_context() == -1 || tracelog::init() == -1)
@@ -50,26 +50,29 @@ namespace hpfs
         // This needs to be done after trace log init because we are logging exceptions there.
         std::set_terminate(&std_terminate);
 
-        int ret = 0;
-
         if (ctx.run_mode == RUN_MODE::RDLOG)
         {
             std::optional<audit::audit_logger> audit_logger = audit::audit_logger::create(audit::LOG_MODE::PRINT, ctx.log_file_path);
-            if (audit_logger)
-                audit_logger->print_log();
-            else
-                ret = -1;
-        }
-        else if (ctx.run_mode == RUN_MODE::MERGE)
-        {
-            ret = merger::init();
+            if (!audit_logger)
+                return -1;
+
+            audit_logger->print_log();
+            return 0;
         }
         else
         {
-            ret = run_ro_rw_session(argv[0]);
-        }
+            if (merger::init() == -1)
+                return -1;
 
-        return ret;
+            if (run_ro_rw_session(argv[0]) == -1)
+            {
+                merger::deinit();
+                return -1;
+            }
+
+            merger::deinit();
+            return 0;
+        }
     }
 
     int run_ro_rw_session(char *arg0)
@@ -144,12 +147,10 @@ namespace hpfs
 
     int parse_cmd(int argc, char **argv)
     {
-        if (argc == 4 || argc == 5)
+        if (argc == 4 || argc == 6)
         {
             if (strcmp(argv[1], "fs") == 0)
                 ctx.run_mode = RUN_MODE::FS;
-            else if (strcmp(argv[1], "merge") == 0)
-                ctx.run_mode = RUN_MODE::MERGE;
             else if (strcmp(argv[1], "rdlog") == 0)
                 ctx.run_mode = RUN_MODE::RDLOG;
             else
@@ -173,12 +174,19 @@ namespace hpfs
             else
                 return -1;
 
-            if (argc == 4 && (ctx.run_mode == RUN_MODE::MERGE || ctx.run_mode == RUN_MODE::RDLOG))
+            if (argc == 4 && ctx.run_mode == RUN_MODE::RDLOG)
             {
                 return 0;
             }
-            else if (argc == 5 && ctx.run_mode == RUN_MODE::FS)
+            else if (argc == 6 && ctx.run_mode == RUN_MODE::FS)
             {
+                if (strcmp(argv[4], "merge=true") == 0)
+                    ctx.merge_enabled = true;
+                else if (strcmp(argv[4], "merge=false") == 0)
+                    ctx.merge_enabled = false;
+                else
+                    return -1;
+
                 realpath(argv[3], buf);
                 ctx.mount_dir = buf;
                 return 0;

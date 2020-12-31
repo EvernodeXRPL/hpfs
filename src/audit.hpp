@@ -105,10 +105,10 @@ namespace hpfs::audit
         bool initialized = false; // Indicates that the instance has been initialized properly.
         const LOG_MODE mode = LOG_MODE::RO;
         std::string_view log_file_path;
-        int fd = 0;                    // The log file fd used throughout the session.
-        off_t eof = 0;                 // End of file (End offset of log file).
-        struct log_header header = {}; // The log file header loaded into memory.
-        struct flock session_lock;     // Session lock placed on the log file.
+        int fd = 0;                     // The log file fd used throughout the session.
+        off_t eof = 0;                  // End of file (End offset of log file).
+        struct log_header header = {};  // The log file header loaded into memory.
+        struct flock session_lock = {}; // Session lock placed on the log file.
 
         audit_logger(const LOG_MODE mode, std::string_view log_file_path);
         int init();
@@ -125,12 +125,12 @@ namespace hpfs::audit
         int release_lock(struct flock &lock);
         int read_header();
         int commit_header();
-        off_t append_log(log_record_header& log_record, std::string_view vpath, const FS_OPERATION operation, const iovec *payload_buf = NULL,
-                       const iovec *block_bufs = NULL, const int block_buf_count = 0);
+        off_t append_log(log_record_header &log_record, std::string_view vpath, const FS_OPERATION operation, const iovec *payload_buf = NULL,
+                         const iovec *block_bufs = NULL, const int block_buf_count = 0);
         int read_log_at(const off_t offset, off_t &next_offset, log_record &record);
         int read_payload(std::vector<uint8_t> &payload, const log_record &record);
         int purge_log(const log_record &record);
-        int update_log_record(const off_t log_rec_start_offset, const hmap::hasher::h32 state_hash,  log_record_header &rh);
+        int update_log_record(const off_t log_rec_start_offset, const hmap::hasher::h32 state_hash, log_record_header &rh);
         ~audit_logger();
     };
 
