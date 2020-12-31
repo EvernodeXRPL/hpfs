@@ -2,6 +2,7 @@
 #define _HPFS_SESSION_
 
 #include <optional>
+#include <map>
 #include "vfs/virtual_filesystem.hpp"
 #include "vfs/fuse_adapter.hpp"
 #include "hmap/tree.hpp"
@@ -38,6 +39,7 @@ namespace hpfs::session
     fs_session *get(const std::string &name);
     int start(const fs_session_args &args);
     void stop_all();
+    const std::map<std::string, fs_session> &get_sessions();
 
 } // namespace hpfs::session
 

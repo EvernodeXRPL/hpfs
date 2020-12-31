@@ -41,7 +41,6 @@ namespace hpfs
             return -1;
         }
 
-        ctx.default_stat = {};
         ctx.default_stat.st_ino = 0;
         ctx.default_stat.st_nlink = 0;
         ctx.default_stat.st_size = 0;

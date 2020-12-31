@@ -1,4 +1,7 @@
 #include <optional>
+#include <string>
+#include <string_view>
+#include <map>
 #include "session.hpp"
 #include "vfs/virtual_filesystem.hpp"
 #include "vfs/fuse_adapter.hpp"
@@ -32,7 +35,7 @@ namespace hpfs::session
     constexpr const char *RO_NOHMAP_FILE = "/::hpfs.ro.";
     constexpr const char *RW_SESSION_NAME = "rw";
 
-    std::unordered_map<std::string, fs_session> sessions;
+    std::map<std::string, fs_session> sessions;
 
     /**
      * Splits the provided path into session name and resource path components.
@@ -191,13 +194,18 @@ namespace hpfs::session
                                                        session.audit_logger.value(),
                                                        session.hmap_tree));
 
-        LOG_INFO << (args.readonly ? "RO" : "RW") << " session  '" << args.name << "' started.";
+        LOG_INFO << (args.readonly ? "RO" : "RW") << " session '" << args.name << "' started.";
         return 0;
     }
 
     void stop_all()
     {
         sessions.clear();
+    }
+
+    const std::map<std::string, fs_session> &get_sessions()
+    {
+        return sessions;
     }
 
 } // namespace hpfs::session

@@ -117,19 +117,33 @@ namespace hpfs::fusefs
     }
 
     int fs_readdir(const char *full_path, void *buf, fuse_fill_dir_t filler,
-                   off_t offset, struct fuse_file_info *fi,
-                   enum fuse_readdir_flags flags)
+                   off_t offset, struct fuse_file_info *fi, enum fuse_readdir_flags flags)
     {
-        const auto &[sess_name, res_path] = session::split_path(full_path);
-        CHECK_SESSION(sess_name);
+        if (strcmp(full_path, "/") == 0)
+        {
+            // Return listing of all sessions as child directories.
+            for (const auto &[sess_name, sess] : session::get_sessions())
+            {
+                struct stat st;
+                st = ctx.default_stat;
+                st.st_ino = sess.ino;
+                st.st_mode |= S_IFDIR;
+                filler(buf, sess_name.c_str(), &st, 0, (fuse_fill_dir_flags)0);
+            }
+        }
+        else
+        {
+            const auto &[sess_name, res_path] = session::split_path(full_path);
+            CHECK_SESSION(sess_name);
 
-        vfs::vdir_children_map children;
-        int res = sess->fuse_adapter->readdir(res_path, children);
-        if (res < 0)
-            return res;
+            vfs::vdir_children_map children;
+            int res = sess->fuse_adapter->readdir(res_path, children);
+            if (res < 0)
+                return res;
 
-        for (const auto &[child_name, stat] : children)
-            filler(buf, child_name.c_str(), &stat, 0, (fuse_fill_dir_flags)0);
+            for (const auto &[child_name, stat] : children)
+                filler(buf, child_name.c_str(), &stat, 0, (fuse_fill_dir_flags)0);
+        }
 
         return 0;
     }
