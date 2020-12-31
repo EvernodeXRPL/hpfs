@@ -9,10 +9,9 @@ namespace tracelog
     constexpr size_t MAX_TRACE_FILECOUNT = 10;
 
     // Trace log category indicators for different hpfs run modes.
-    constexpr const char *TRACE_RW = "][fsw] ";
-    constexpr const char *TRACE_RO = "][fsr] ";
-    constexpr const char *TRACE_MERGE = "][fsm] ";
-    constexpr const char *TRACE_RDLOG = "][fsl] ";
+    constexpr const char *TRACE_FS = "][fs] ";
+    constexpr const char *TRACE_MERGE = "][mg] ";
+    constexpr const char *TRACE_RDLOG = "][rl] ";
     const char *CURRENT_TRACE_CATEGORY;
 
     class hpfs_plog_formatter;
@@ -69,10 +68,8 @@ namespace tracelog
         if (hpfs::ctx.trace_level == hpfs::TRACE_LEVEL::NONE)
             return 0;
 
-        if (hpfs::ctx.run_mode == hpfs::RUN_MODE::RW)
-            CURRENT_TRACE_CATEGORY = TRACE_RW;
-        else if (hpfs::ctx.run_mode == hpfs::RUN_MODE::RO)
-            CURRENT_TRACE_CATEGORY = TRACE_RO;
+        if (hpfs::ctx.run_mode == hpfs::RUN_MODE::FS)
+            CURRENT_TRACE_CATEGORY = TRACE_FS;
         else if (hpfs::ctx.run_mode == hpfs::RUN_MODE::MERGE)
             CURRENT_TRACE_CATEGORY = TRACE_MERGE;
         else

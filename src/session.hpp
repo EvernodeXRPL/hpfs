@@ -10,8 +10,19 @@
 
 namespace hpfs::session
 {
+    struct fs_session_args
+    {
+        bool valid;
+        bool readonly;
+        std::string name;
+        bool hmap_enabled;
+    };
+
     struct fs_session
     {
+        ino_t ino; // Session's own inode no. We treat this as unique session id.
+        bool readonly;
+        bool hmap_enabled;
         std::optional<vfs::virtual_filesystem> virt_fs;
         std::optional<vfs::fuse_adapter> fuse_adapter;
         std::optional<audit::audit_logger> audit_logger;
@@ -22,9 +33,10 @@ namespace hpfs::session
     int session_check_getattr(const char *path, struct stat *stbuf);
     int session_check_create(const char *path);
     int session_check_unlink(const char *path);
-    int start();
-    int stop();
-    std::optional<fs_session> &get();
+    const fs_session_args parse_session_args(std::string_view path);
+    fs_session *get(std::string_view path);
+    int start(const fs_session_args &args);
+    void stop_all();
 
 } // namespace hpfs::session
 

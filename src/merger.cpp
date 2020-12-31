@@ -23,7 +23,7 @@ namespace hpfs::merger
     {
         signal(SIGINT, &signal_handler);
 
-        auto logger = hpfs::audit::audit_logger::create(RUN_MODE::MERGE, ctx.log_file_path);
+        auto logger = hpfs::audit::audit_logger::create(audit::LOG_MODE::MERGE, ctx.log_file_path);
         if (!logger)
             return -1;
         audit_logger.emplace(std::move(logger.value()));

@@ -28,7 +28,7 @@ namespace hpfs
             std::cerr << "Invalid arguments.\n";
             std::cout << "Usage:\n"
                       << "hpfs [merge|rdlog] [fsdir] trace=[debug|info|warn|error]\n"
-                      << "hpfs [ro|rw] [fsdir] [mountdir] hmap=[true|false] trace=[debug|info|warn|error]\n";
+                      << "hpfs fs [fsdir] [mountdir] trace=[debug|info|warn|error]\n";
             return -1;
         }
         if (vaidate_context() == -1 || tracelog::init() == -1)
@@ -40,6 +40,8 @@ namespace hpfs
             LOG_ERROR << errno << ":Failed to load seed dir stat.";
             return -1;
         }
+
+        ctx.default_stat = {};
         ctx.default_stat.st_ino = 0;
         ctx.default_stat.st_nlink = 0;
         ctx.default_stat.st_size = 0;
@@ -53,7 +55,7 @@ namespace hpfs
 
         if (ctx.run_mode == RUN_MODE::RDLOG)
         {
-            std::optional<audit::audit_logger> audit_logger = audit::audit_logger::create(ctx.run_mode, ctx.log_file_path);
+            std::optional<audit::audit_logger> audit_logger = audit::audit_logger::create(audit::LOG_MODE::PRINT, ctx.log_file_path);
             if (audit_logger)
                 audit_logger->print_log();
             else
@@ -97,8 +99,8 @@ namespace hpfs
         // serve filesystem requests, user needs to start a session by sending a getattr request to a
         // reserved filename format. (look in fusefs.cpp fs_getattr())
 
-        // Stop any ongoing session (if exists).
-        session::stop();
+        // Stop any ongoing fs sessions (if exists).
+        session::stop_all();
 
         if (remove_mount_dir)
             rmdir(ctx.mount_dir.c_str());
@@ -132,8 +134,7 @@ namespace hpfs
             return -1;
         }
 
-        if (ctx.hmap_enabled &&
-            !util::is_dir_exists(ctx.hmap_dir) && mkdir(ctx.hmap_dir.c_str(), DIR_PERMS) == -1)
+        if (!util::is_dir_exists(ctx.hmap_dir) && mkdir(ctx.hmap_dir.c_str(), DIR_PERMS) == -1)
         {
             std::cerr << "Directory " << ctx.hmap_dir << " cannot be located.\n";
             return -1;
@@ -144,12 +145,10 @@ namespace hpfs
 
     int parse_cmd(int argc, char **argv)
     {
-        if (argc == 4 || argc == 6)
+        if (argc == 4 || argc == 5)
         {
-            if (strcmp(argv[1], "ro") == 0)
-                ctx.run_mode = RUN_MODE::RO;
-            else if (strcmp(argv[1], "rw") == 0)
-                ctx.run_mode = RUN_MODE::RW;
+            if (strcmp(argv[1], "fs") == 0)
+                ctx.run_mode = RUN_MODE::FS;
             else if (strcmp(argv[1], "merge") == 0)
                 ctx.run_mode = RUN_MODE::MERGE;
             else if (strcmp(argv[1], "rdlog") == 0)
@@ -179,15 +178,8 @@ namespace hpfs
             {
                 return 0;
             }
-            else if (argc == 6 && (ctx.run_mode == RUN_MODE::RO || ctx.run_mode == RUN_MODE::RW))
+            else if (argc == 5 && ctx.run_mode == RUN_MODE::FS)
             {
-                if (strcmp(argv[4], "hmap=true") == 0)
-                    ctx.hmap_enabled = true;
-                else if (strcmp(argv[4], "hmap=false") == 0)
-                    ctx.hmap_enabled = false;
-                else
-                    return -1;
-
                 realpath(argv[3], buf);
                 ctx.mount_dir = buf;
                 return 0;
