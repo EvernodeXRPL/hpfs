@@ -122,11 +122,11 @@ namespace hpfs::fusefs
         if (strcmp(full_path, "/") == 0)
         {
             // Return listing of all sessions as child directories.
-            for (const auto &[sess_name, sess] : session::get_sessions())
+            for (const auto &[ino, sess_name] : session::get_sessions())
             {
                 struct stat st;
                 st = ctx.default_stat;
-                st.st_ino = sess.ino;
+                st.st_ino = ino;
                 st.st_mode |= S_IFDIR;
                 filler(buf, sess_name.c_str(), &st, 0, (fuse_fill_dir_flags)0);
             }

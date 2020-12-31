@@ -2,6 +2,7 @@
 #include <string>
 #include <string_view>
 #include <map>
+#include <shared_mutex>
 #include "session.hpp"
 #include "vfs/virtual_filesystem.hpp"
 #include "vfs/fuse_adapter.hpp"
@@ -36,6 +37,7 @@ namespace hpfs::session
     constexpr const char *RW_SESSION_NAME = "rw";
 
     std::map<std::string, fs_session> sessions;
+    std::shared_mutex sessions_mutex;
 
     /**
      * Splits the provided path into session name and resource path components.
@@ -91,15 +93,19 @@ namespace hpfs::session
         if (!args.valid)
             return 1;
 
-        const auto itr = sessions.find(args.name);
-        if (itr == sessions.end())
-            return -ENOENT; // No session found.
+        {
+            std::shared_lock lock(sessions_mutex);
 
-        // Session found. Return session stat with session id inode number.
-        *stbuf = ctx.default_stat;
-        stbuf->st_ino = itr->second.ino;
-        stbuf->st_mode |= S_IFREG;
-        return 0;
+            const auto itr = sessions.find(args.name);
+            if (itr == sessions.end())
+                return -ENOENT; // No session found.
+
+            // Session found. Return session stat with session id inode number.
+            *stbuf = ctx.default_stat;
+            stbuf->st_ino = itr->second.ino;
+            stbuf->st_mode |= S_IFREG;
+            return 0;
+        }
     }
 
     /**
@@ -119,10 +125,14 @@ namespace hpfs::session
         if (args.name.empty() || (args.readonly && args.name == RW_SESSION_NAME))
             return -EINVAL;
 
-        if (sessions.count(args.name) == 1)
-            return -EEXIST; // Session name already exists
+        {
+            std::unique_lock lock(sessions_mutex);
 
-        return start(args);
+            if (sessions.count(args.name) == 1)
+                return -EEXIST; // Session name already exists
+
+            return start(args);
+        }
     }
 
     /**
@@ -138,23 +148,28 @@ namespace hpfs::session
         if (!args.valid)
             return 1;
 
-        const auto itr = sessions.find(args.name);
-        if (itr != sessions.end())
         {
-            const fs_session &session = itr->second;
-            if (session.readonly == args.readonly && session.hmap_enabled == args.hmap_enabled)
-            {
-                sessions.erase(itr);
-                LOG_INFO << (args.readonly ? "RO" : "RW") << " session '" << args.name << "' stopped.";
-                return 0;
-            }
-        }
+            std::unique_lock lock(sessions_mutex);
 
-        return -ENOENT;
+            const auto itr = sessions.find(args.name);
+            if (itr != sessions.end())
+            {
+                const fs_session &session = itr->second;
+                if (session.readonly == args.readonly && session.hmap_enabled == args.hmap_enabled)
+                {
+                    sessions.erase(itr);
+                    LOG_INFO << (args.readonly ? "RO" : "RW") << " session '" << args.name << "' stopped.";
+                    return 0;
+                }
+            }
+
+            return -ENOENT;
+        }
     }
 
     fs_session *get(const std::string &name)
     {
+        std::shared_lock lock(sessions_mutex);
         const auto itr = sessions.find(name);
         return itr == sessions.end() ? NULL : &itr->second;
     }
@@ -201,12 +216,19 @@ namespace hpfs::session
 
     void stop_all()
     {
+        std::unique_lock lock(sessions_mutex);
         sessions.clear();
     }
 
-    const std::map<std::string, fs_session> &get_sessions()
+    const std::map<ino_t, std::string> get_sessions()
     {
-        return sessions;
+        std::shared_lock lock(sessions_mutex);
+
+        std::map<ino_t, std::string> list;
+        for (const auto &[sess_name, sess] : sessions)
+            list.emplace(sess.ino, sess_name);
+
+        return list;
     }
 
 } // namespace hpfs::session

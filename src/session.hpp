@@ -39,7 +39,7 @@ namespace hpfs::session
     fs_session *get(const std::string &name);
     int start(const fs_session_args &args);
     void stop_all();
-    const std::map<std::string, fs_session> &get_sessions();
+    const std::map<ino_t, std::string> get_sessions();
 
 } // namespace hpfs::session
 
