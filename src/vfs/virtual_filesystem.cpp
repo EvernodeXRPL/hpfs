@@ -32,6 +32,7 @@ namespace hpfs::vfs
                                            std::string_view seed_dir,
                                            hpfs::audit::audit_logger &logger) : readonly(readonly),
                                                                                 seed_dir(seed_dir),
+                                                                                seed_paths(seed_dir),
                                                                                 logger(logger)
     {
     }
@@ -41,7 +42,7 @@ namespace hpfs::vfs
                                                                        seed_dir(old.seed_dir),
                                                                        next_ino(old.next_ino),
                                                                        vnodes(std::move(old.vnodes)),
-                                                                       loaded_vpaths(std::move(old.loaded_vpaths)),
+                                                                       seed_paths(std::move(seed_paths)),
                                                                        logger(old.logger),
                                                                        last_checkpoint(old.last_checkpoint),
                                                                        log_scanned_upto(old.log_scanned_upto)
@@ -57,12 +58,12 @@ namespace hpfs::vfs
 
         // We always add the root ("/") as a very first entry in the vfs so
         // it always have its inode number as 1.
-        vnode_map::iterator iter;
-        if (add_vnode_from_seed("/", iter) == -1 || build_vfs() == -1)
-        {
-            LOG_ERROR << "Error in vfs init.";
-            return -1;
-        }
+        // vnode_map::iterator iter;
+        // if (add_vnode_from_seed("/", iter) == -1 || build_vfs() == -1)
+        // {
+        //     LOG_ERROR << "Error in vfs init.";
+        //     return -1;
+        // }
 
         initialized = true;
         return 0;
@@ -76,16 +77,13 @@ namespace hpfs::vfs
                                        : vpath_ori;
 
         vnode_map::iterator iter = vnodes.find(vpath);
-        if (iter == vnodes.end() &&
-            loaded_vpaths.count(vpath) == 0 &&
-            add_vnode_from_seed(vpath, iter) == -1)
+        if (iter == vnodes.end() && add_vnode_from_seed(vpath, iter) == -1)
         {
             LOG_ERROR << "Error in vfs vnode get.";
             return -1;
         }
 
         *vn = (iter == vnodes.end()) ? NULL : &iter->second;
-        loaded_vpaths.emplace(vpath);
 
         return 0;
     }
@@ -98,12 +96,15 @@ namespace hpfs::vfs
 
         auto [iter, success] = vnodes.try_emplace(vpath, std::move(vn));
         vnode_iter = iter;
-        loaded_vpaths.emplace(vpath);
     }
 
     int virtual_filesystem::add_vnode_from_seed(const std::string &vpath, vnode_map::iterator &vnode_iter)
     {
-        const std::string seed_path = std::string(seed_dir).append(vpath);
+        const std::string original_seed_path = vpath;//seed_paths.resolve(vpath);
+        // if (original_seed_path.empty() || seed_paths.is_removed(original_seed_path) || seed_paths.is_renamed(original_seed_path))
+        //     return 0;
+
+        const std::string seed_path = std::string(seed_dir).append(original_seed_path);
 
         struct stat st;
         const int res = stat(seed_path.c_str(), &st);
@@ -145,7 +146,6 @@ namespace hpfs::vfs
 
             auto [iter, success] = vnodes.try_emplace(vpath, std::move(vn));
             vnode_iter = iter;
-            loaded_vpaths.emplace(vpath);
         }
 
         return 0;
@@ -223,15 +223,39 @@ namespace hpfs::vfs
 
         case hpfs::audit::FS_OPERATION::RMDIR:
             delete_vnode(iter);
+            //seed_paths.remove(record.vpath, true);
             break;
 
         case hpfs::audit::FS_OPERATION::RENAME:
         {
-            const char *to_vpath = (char *)payload.data();
+            const std::string &from_vpath = record.vpath;
+            const std::string &to_vpath = (char *)payload.data();
+
+            // Apply seed path rename logic.
+            //seed_paths.rename(from_vpath, to_vpath, S_ISDIR(vn.st.st_mode));
+
+            // Rename all vnode sub paths under this path. (Erase them and insert under new name)
+            {
+                std::vector<std::string> vpaths_to_move;
+                for (const auto &[vpath, vnode] : vnodes)
+                {
+                    if (vpath.size() > from_vpath.size() && vpath.rfind(from_vpath, 0) == 0)
+                        vpaths_to_move.push_back(vpath);
+                }
+
+                for (const std::string &vpath : vpaths_to_move)
+                {
+                    const auto move_iter = vnodes.find(vpath);
+                    vnode move_vn = move_iter->second; // Create a copy.
+                    vnodes.erase(move_iter);
+                    const std::string new_path = to_vpath + vpath.substr(from_vpath.size());
+                    vnodes.try_emplace(new_path, std::move(move_vn)); // Insert under new name.
+                }
+            }
 
             // Rename this vnode. (erase it from the list and insert under new name)
-            vnode vn2 = vn;     // Create a copy before erase.
-            vnodes.erase(iter); //
+            vnode vn2 = vn; // Create a copy before erase.
+            vnodes.erase(iter);
             auto [iter2, success] = vnodes.try_emplace(to_vpath, std::move(vn2));
             iter = iter2;
 
@@ -240,6 +264,7 @@ namespace hpfs::vfs
 
         case hpfs::audit::FS_OPERATION::UNLINK:
             delete_vnode(iter);
+           // seed_paths.remove(record.vpath, false);
             break;
 
         case hpfs::audit::FS_OPERATION::CREATE:
@@ -292,9 +317,6 @@ namespace hpfs::vfs
             break;
         }
         }
-
-        if (iter != vnodes.end())
-            vn.st.st_ino = iter->second.ino;
 
         return 0;
     }
@@ -365,26 +387,35 @@ namespace hpfs::vfs
         return 0;
     }
 
-    int virtual_filesystem::get_dir_children(const char *vpath, vdir_children_map &children)
+    int virtual_filesystem::get_dir_children(const std::string &vpath, vdir_children_map &children)
     {
         std::unordered_set<std::string> possible_child_names;
 
         {
             // Read possible children from seed dir;
-            const std::string seed_path = std::string(seed_dir).append(vpath);
-            DIR *dirp = opendir(seed_path.c_str());
-            if (dirp != NULL)
+            const std::string original_seed_path = vpath;//seed_paths.resolve(vpath);
+            if (!original_seed_path.empty())
             {
-                dirent *entry;
-                while (entry = readdir(dirp))
+                const std::string seed_path = std::string(seed_dir).append(original_seed_path);
+                DIR *dirp = opendir(seed_path.c_str());
+                if (dirp != NULL)
                 {
-                    if (strcmp(entry->d_name, ".") != 0 &&
-                        strcmp(entry->d_name, "..") != 0 &&
-                        strcmp(entry->d_name, "/") != 0)
-                        possible_child_names.emplace(entry->d_name);
-                }
+                    dirent *entry;
+                    while (entry = readdir(dirp))
+                    {
+                        if (strcmp(entry->d_name, ".") != 0 &&
+                            strcmp(entry->d_name, "..") != 0 &&
+                            strcmp(entry->d_name, "/") != 0)
+                        {
+                            // Add only seed files and directories that haven't been renamed or deleted.
+                            const std::string child_seed_path = original_seed_path + (original_seed_path.back() == '/' ? "" : "/") + entry->d_name;
+                           // if (!seed_paths.is_removed(child_seed_path) && !seed_paths.is_renamed(child_seed_path))
+                                possible_child_names.emplace(entry->d_name);
+                        }
+                    }
 
-                closedir(dirp);
+                    closedir(dirp);
+                }
             }
         }
 
@@ -395,16 +426,9 @@ namespace hpfs::vfs
                 if (vn_path == "/")
                     continue;
 
-                char *path2 = strdup(vn_path.c_str());
-                char *parent_path = dirname(path2);
-                if (strcmp(parent_path, vpath) == 0)
-                {
-                    char *path3 = strdup(vn_path.c_str());
-                    char *child_name = basename(path3);
-                    possible_child_names.emplace(child_name);
-                    free(path3);
-                }
-                free(path2);
+                const std::string parent_path = util::get_parent_path(vn_path);
+                if (parent_path == vpath)
+                    possible_child_names.emplace(util::get_name(vn_path));
             }
         }
 

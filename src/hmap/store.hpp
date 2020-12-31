@@ -13,7 +13,7 @@ namespace hpfs::hmap::store
     {
         bool is_file;
         hasher::h32 node_hash;                 // Overall hash of this vnode.
-        hasher::h32 vpath_hash;                // Vpath hash.
+        hasher::h32 name_hash;                 // Name hash.
         std::vector<hasher::h32> block_hashes; // Only relevant for files.
     };
 
@@ -25,16 +25,18 @@ namespace hpfs::hmap::store
 
         // List of vpaths with modifications (including deletions) during the session.
         std::unordered_set<std::string> dirty_vpaths;
+        int read_hash_map_cache_file(vnode_hmap &node_hmap, const std::string &vpath);
+        int persist_hash_map_cache_file(const vnode_hmap &node_hmap, const std::string &filename);
+        const std::string get_vpath_cache_file(const std::string &vpath);
+        const std::string get_vpath_cache_dir(const std::string &vpath);
 
     public:
         void set_dirty(const std::string &vpath);
         vnode_hmap *find_hash_map(const std::string &vpath);
         void erase_hash_map(const std::string &vpath);
         void insert_hash_map(const std::string &vpath, vnode_hmap &&node_hmap);
+        int move_hash_map_cache(const std::string &from_vpath, const std::string &to_vpath, const bool is_dir);
         int persist_hash_maps();
-        int persist_hash_map_cache_file(const vnode_hmap &node_hmap, const std::string &filename);
-        int read_hash_map_cache_file(vnode_hmap &node_hmap, const std::string &vpath);
-        std::string get_vpath_cache_filename(const hasher::h32 vpath_hash);
     };
 } // namespace hpfs::hmap::store
 

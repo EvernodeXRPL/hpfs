@@ -18,6 +18,8 @@
 
 namespace hpfs::hmap::tree
 {
+#define PRINT_ROOT_HASH LOG_DEBUG << " Root hash: " << store.find_hash_map(ROOT_VPATH)->node_hash;
+
     constexpr size_t BLOCK_SIZE = 4194304; // 4MB
     constexpr const char *ROOT_VPATH = "/";
 
@@ -80,12 +82,10 @@ namespace hpfs::hmap::tree
             return -1;
         }
 
-        // Initialize dir hash with the dir path hash.
+        // Initialize dir hash with the dir name hash.
         store::vnode_hmap dir_hmap{false};
-        hash_buf(dir_hmap.vpath_hash, vpath.c_str(), vpath.length());
-
-        // Initial node hash is the vpath hash.
-        dir_hmap.node_hash = dir_hmap.vpath_hash;
+        hash_buf(dir_hmap.name_hash, util::get_name(vpath));
+        dir_hmap.node_hash = dir_hmap.name_hash;
 
         for (const auto &[child_name, st] : dir_children)
         {
@@ -122,7 +122,7 @@ namespace hpfs::hmap::tree
         }
 
         store::vnode_hmap file_hmap{true};
-        hash_buf(file_hmap.vpath_hash, vpath.c_str(), vpath.length());       // vpath hash.
+        hash_buf(file_hmap.name_hash, util::get_name(vpath));                // Name hash.
         if (apply_file_data_update(file_hmap, *vn, 0, vn->st.st_size) == -1) // File hash.
         {
             LOG_ERROR << "File hash calc failure in applying file data update. " << vpath;
@@ -138,8 +138,7 @@ namespace hpfs::hmap::tree
 
     void hmap_tree::propogate_hash_update(const std::string &vpath, const hasher::h32 &old_hash, const hasher::h32 &new_hash)
     {
-        char *path2 = strdup(vpath.c_str());
-        const char *parent_path = dirname(path2);
+        std::string parent_path = util::get_parent_path(vpath);
         store::vnode_hmap *hmap_entry = store.find_hash_map(parent_path);
         if (hmap_entry == NULL)
             return;
@@ -152,11 +151,8 @@ namespace hpfs::hmap::tree
         parent_hmap.node_hash ^= new_hash;
         store.set_dirty(parent_path);
 
-        if (strcmp(parent_path, ROOT_VPATH) != 0)
+        if (parent_path != ROOT_VPATH)
             propogate_hash_update(parent_path, parent_old_hash, parent_hmap.node_hash);
-
-        // Free strdup at the end of scope.
-        free(path2);
     }
 
     int hmap_tree::apply_vnode_create(const std::string &vpath)
@@ -167,13 +163,15 @@ namespace hpfs::hmap::tree
 
         const bool is_file = S_ISREG(vn->st.st_mode);
 
-        // Initial node hash is the vpath hash.
+        // Initial node hash is the name hash.
         hasher::h32 hash;
-        hash_buf(hash, vpath.c_str(), vpath.length());
+        hash_buf(hash, util::get_name(vpath));
         store.insert_hash_map(vpath, store::vnode_hmap{is_file, hash, hash});
         store.set_dirty(vpath);
 
         propogate_hash_update(vpath, hasher::h32_empty, hash);
+        PRINT_ROOT_HASH
+
         return 0;
     }
 
@@ -204,6 +202,8 @@ namespace hpfs::hmap::tree
         }
 
         propogate_hash_update(vpath, old_hash, node_hmap.node_hash);
+        PRINT_ROOT_HASH
+
         return 0;
     }
 
@@ -222,8 +222,8 @@ namespace hpfs::hmap::tree
         // Resize the block hashes list according to current file size.
         node_hmap.block_hashes.resize(required_block_count);
 
-        // Reset file hash with vpath hash.
-        node_hmap.node_hash = node_hmap.vpath_hash;
+        // Reset file hash with name hash.
+        node_hmap.node_hash = node_hmap.name_hash;
 
         const off_t update_end_offset = update_offset + update_size;
 
@@ -264,12 +264,14 @@ namespace hpfs::hmap::tree
         store.set_dirty(vpath);
 
         propogate_hash_update(vpath, node_hash, hasher::h32_empty);
+        PRINT_ROOT_HASH
+
         return 0;
     }
 
-    int hmap_tree::apply_vnode_rename(const std::string &from_vpath, const std::string &to_vpath)
+    int hmap_tree::apply_vnode_rename(const std::string &from_vpath, const std::string &to_vpath, const bool is_dir)
     {
-        // Backup and delete the hashed node.
+        // Backup and delete the hash node.
         store::vnode_hmap *hmap_entry = store.find_hash_map(from_vpath);
         if (hmap_entry == NULL)
         {
@@ -277,17 +279,21 @@ namespace hpfs::hmap::tree
             return -1;
         }
 
-        store::vnode_hmap node_hmap = *hmap_entry; // Create a copy.
+        // Persist all dirty hash maps so far and move the cache file/dir to new location.
+        store.persist_hash_maps();
+        if (store.move_hash_map_cache(from_vpath, to_vpath, is_dir) == -1)
+            return -1;
+
+        store::vnode_hmap node_hmap = *hmap_entry; // Create a copy and erase the hmap entry.
         store.erase_hash_map(from_vpath);
-        store.set_dirty(from_vpath);
 
         // Update hash map with removed node hash.
         propogate_hash_update(from_vpath, node_hmap.node_hash, hasher::h32_empty);
 
-        // Update the node hash for the new vpath.
-        node_hmap.node_hash ^= node_hmap.vpath_hash; // XOR old vpath hash.
-        hash_buf(node_hmap.vpath_hash, to_vpath.c_str(), to_vpath.length());
-        node_hmap.node_hash ^= node_hmap.vpath_hash; // XOR new vpath hash.
+        // Update the node hash for the new vpath name.
+        node_hmap.node_hash ^= node_hmap.name_hash; // XOR old name hash.
+        hash_buf(node_hmap.name_hash, util::get_name(to_vpath));
+        node_hmap.node_hash ^= node_hmap.name_hash; // XOR new name hash.
 
         // Update hash map with new node hash.
         propogate_hash_update(to_vpath, hasher::h32_empty, node_hmap.node_hash);
@@ -295,6 +301,7 @@ namespace hpfs::hmap::tree
         store.insert_hash_map(to_vpath, std::move(node_hmap));
         store.set_dirty(to_vpath);
 
+        PRINT_ROOT_HASH
         return 0;
     }
 

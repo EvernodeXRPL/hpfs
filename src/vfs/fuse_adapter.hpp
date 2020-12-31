@@ -15,19 +15,23 @@ namespace hpfs::vfs
         hpfs::audit::audit_logger &logger;
         std::optional<hpfs::hmap::tree::hmap_tree> &htree;
 
+    private:
+        int delete_entry(const std::string &to_vpath, const bool is_dir);
+        int rename_entry(const std::string &vpath, const std::string &new_vpath, const bool is_dir);
+
     public:
         fuse_adapter(const bool readonly, virtual_filesystem &virt_fs,
                      hpfs::audit::audit_logger &logger, std::optional<hpfs::hmap::tree::hmap_tree> &htree);
-        int getattr(const char *vpath, struct stat *stbuf);
-        int readdir(const char *vpath, vfs::vdir_children_map &children);
-        int mkdir(const char *vpath, mode_t mode);
-        int rmdir(const char *vpath);
-        int rename(const char *from_vpath, const char *to_vpath);
-        int unlink(const char *vpath);
-        int create(const char *vpath, mode_t mode);
-        int read(const char *vpath, char *buf, const size_t size, const off_t offset);
-        int write(const char *vpath, const char *buf, const size_t size, const off_t offset);
-        int truncate(const char *vpath, const off_t new_size);
+        int getattr(const std::string &vpath, struct stat *stbuf);
+        int readdir(const std::string &vpath, vfs::vdir_children_map &children);
+        int mkdir(const std::string &vpath, mode_t mode);
+        int rmdir(const std::string &vpath);
+        int rename(const std::string &from_vpath, const std::string &to_vpath);
+        int unlink(const std::string &vpath);
+        int create(const std::string &vpath, mode_t mode);
+        int read(const std::string &vpath, char *buf, const size_t size, const off_t offset);
+        int write(const std::string &vpath, const char *buf, const size_t size, const off_t offset);
+        int truncate(const std::string &vpath, const off_t new_size);
     };
 
 } // namespace hpfs::vfs

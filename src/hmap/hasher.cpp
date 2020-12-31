@@ -42,18 +42,18 @@ namespace hpfs::hmap::hasher
     std::ostream &operator<<(std::ostream &output, const h32 &h)
     {
         const uint8_t *buf = reinterpret_cast<const uint8_t *>(&h);
-        for (int i = 0; i < sizeof(h32); i++)
+        for (int i = 0; i < 5; i++) // Only print first 5 bytes in hex.
             output << std::hex << std::setfill('0') << std::setw(2) << (int)buf[i];
 
         return output;
     }
 
-    void hash_buf(h32 &hash, const void *buf, const size_t len)
+    void hash_buf(h32 &hash, std::string_view sv)
     {
         // Initialize the hasher.
         blake3_hasher hasher;
         blake3_hasher_init(&hasher);
-        blake3_hasher_update(&hasher, buf, len);
+        blake3_hasher_update(&hasher, sv.data(), sv.size());
 
         blake3_hasher_finalize(&hasher, reinterpret_cast<uint8_t *>(&hash), sizeof(h32));
     }

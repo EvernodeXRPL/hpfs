@@ -2,8 +2,8 @@
 #define _HPFS_VFS_VIRTUAL_FILESYSTEM_
 
 #include <unordered_map>
-#include <unordered_set>
 #include "vfs.hpp"
+#include "seed_path_tracker.hpp"
 #include "../audit.hpp"
 
 namespace hpfs::vfs
@@ -20,7 +20,7 @@ namespace hpfs::vfs
         std::string_view seed_dir;
         ino_t next_ino = hpfs::ROOT_INO; // inode numbers start from the root inode no.
         vnode_map vnodes;
-        std::unordered_set<std::string> loaded_vpaths;
+        seed_path_tracker seed_paths;
         hpfs::audit::audit_logger &logger;
 
         // Last checkpoint offset for the use of ReadOnly session
@@ -33,6 +33,11 @@ namespace hpfs::vfs
 
         virtual_filesystem(const bool readonly, std::string_view seed_dir, hpfs::audit::audit_logger &logger);
         int init();
+        void add_vnode(const std::string &vpath, vnode_map::iterator &vnode_iter);
+        int add_vnode_from_seed(const std::string &vpath, vnode_map::iterator &vnode_iter);
+        int apply_log_record(const hpfs::audit::log_record &record, const std::vector<uint8_t> payload);
+        int delete_vnode(vnode_map::iterator &vnode_iter);
+        int update_vnode_mmap(vnode &vn);
 
     public:
         static std::optional<virtual_filesystem> create(const bool readonly, std::string_view seed_dir,
@@ -40,13 +45,8 @@ namespace hpfs::vfs
         virtual_filesystem(const virtual_filesystem &) = delete; // No copy constructor;
         virtual_filesystem(virtual_filesystem &&old);
         int get_vnode(const std::string &vpath, vnode **vn);
-        void add_vnode(const std::string &vpath, vnode_map::iterator &vnode_iter);
-        int add_vnode_from_seed(const std::string &vpath, vnode_map::iterator &vnode_iter);
         int build_vfs();
-        int apply_log_record(const hpfs::audit::log_record &record, const std::vector<uint8_t> payload);
-        int delete_vnode(vnode_map::iterator &vnode_iter);
-        int update_vnode_mmap(vnode &vn);
-        int get_dir_children(const char *vpath, vdir_children_map &children);
+        int get_dir_children(const std::string &vpath, vdir_children_map &children);
         void populate_block_buf_segs(std::vector<iovec> &block_buf_segs,
                                      off_t &block_buf_start, off_t &block_buf_end,
                                      const char *buf, const size_t wr_size,

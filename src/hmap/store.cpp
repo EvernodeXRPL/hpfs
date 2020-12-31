@@ -9,6 +9,7 @@
 #include "hasher.hpp"
 #include "../hpfs.hpp"
 #include "../tracelog.hpp"
+#include "../util.hpp"
 
 namespace hpfs::hmap::store
 {
@@ -50,19 +51,35 @@ namespace hpfs::hmap::store
         hash_map.try_emplace(vpath, std::move(node_hmap));
     }
 
+    int hmap_store::move_hash_map_cache(const std::string &from_vpath, const std::string &to_vpath, const bool is_dir)
+    {
+        const std::string cache_filename_from = get_vpath_cache_file(from_vpath);
+        const std::string cache_filename_to = get_vpath_cache_file(to_vpath);
+        if (rename(cache_filename_from.data(), cache_filename_to.data()) == -1)
+        {
+            LOG_ERROR << errno << ": Error when moving cache file from " << cache_filename_from << " to " << cache_filename_to;
+            return -1;
+        }
+
+        if (is_dir)
+        {
+            const std::string cache_dir_from = get_vpath_cache_dir(from_vpath);
+            const std::string cache_dir_to = get_vpath_cache_dir(to_vpath);
+
+            // We do not check for rename errors in cache dir moving because cache dir might
+            // not exist if there are no files in it.
+            rename(cache_dir_from.data(), cache_dir_to.data());
+        }
+
+        return 0;
+    }
+
     int hmap_store::persist_hash_maps()
     {
         for (const std::string &vpath : dirty_vpaths)
         {
-            hasher::h32 vpath_hash;
             const auto iter = hash_map.find(vpath);
-
-            if (iter == hash_map.end())
-                hash_buf(vpath_hash, vpath.data(), vpath.size());
-            else
-                vpath_hash = iter->second.vpath_hash;
-
-            const std::string cache_filename = get_vpath_cache_filename(vpath_hash);
+            const std::string cache_filename = get_vpath_cache_file(vpath);
 
             if (iter == hash_map.end())
             {
@@ -75,12 +92,16 @@ namespace hpfs::hmap::store
                     return -1;
             }
         }
+        dirty_vpaths.clear();
 
         return 0;
     }
 
     int hmap_store::persist_hash_map_cache_file(const vnode_hmap &node_hmap, const std::string &filename)
     {
+        if (util::create_dir_tree_recursive(util::get_parent_path(filename)) == -1)
+            return -1;
+
         const int fd = open(filename.c_str(), O_CREAT | O_TRUNC | O_RDWR, FILE_PERMS);
         if (fd == -1)
             return -1;
@@ -89,7 +110,7 @@ namespace hpfs::hmap::store
 
         iovec memsegs[4] = {{(void *)&is_file, sizeof(is_file)},
                             {(void *)&node_hmap.node_hash, sizeof(hasher::h32)},
-                            {(void *)&node_hmap.vpath_hash, sizeof(hasher::h32)},
+                            {(void *)&node_hmap.name_hash, sizeof(hasher::h32)},
                             {(void *)node_hmap.block_hashes.data(), sizeof(hasher::h32) * node_hmap.block_hashes.size()}};
 
         if (writev(fd, memsegs, 4) == -1)
@@ -109,16 +130,14 @@ namespace hpfs::hmap::store
      */
     int hmap_store::read_hash_map_cache_file(vnode_hmap &node_hmap, const std::string &vpath)
     {
-        hasher::h32 vpath_hash;
-        hash_buf(vpath_hash, vpath.data(), vpath.size());
-        const std::string cache_filename = get_vpath_cache_filename(vpath_hash);
+        const std::string cache_filename = get_vpath_cache_file(vpath);
 
         const int fd = open(cache_filename.c_str(), O_RDONLY);
         if (fd == -1)
         {
             if (errno == ENOENT)
                 return 0;
-            
+
             LOG_ERROR << errno << ": Error in hmap cache file open. " << cache_filename;
             return -1;
         }
@@ -133,7 +152,7 @@ namespace hpfs::hmap::store
 
         const size_t file_size = st.st_size;
 
-        // 65 bytes are taken for the is_file flag, node hash and vpath hash.
+        // 65 bytes are taken for the is_file flag, node hash and name hash.
         // Rest of the bytes are block hashes.
         const uint32_t block_count = (file_size - 65) / sizeof(hasher::h32);
         node_hmap.block_hashes.resize(block_count);
@@ -141,7 +160,7 @@ namespace hpfs::hmap::store
 
         iovec memsegs[4] = {{(void *)&is_file, sizeof(is_file)},
                             {(void *)&node_hmap.node_hash, sizeof(hasher::h32)},
-                            {(void *)&node_hmap.vpath_hash, sizeof(hasher::h32)},
+                            {(void *)&node_hmap.name_hash, sizeof(hasher::h32)},
                             {(void *)node_hmap.block_hashes.data(), sizeof(hasher::h32) * node_hmap.block_hashes.size()}};
 
         if (readv(fd, memsegs, 4) == -1)
@@ -157,15 +176,14 @@ namespace hpfs::hmap::store
         return 1;
     }
 
-    std::string hmap_store::get_vpath_cache_filename(const hasher::h32 vpath_hash)
+    const std::string hmap_store::get_vpath_cache_file(const std::string &vpath)
     {
-        std::string cache_filename;
-        cache_filename
-            .append(hpfs::ctx.hmap_dir)
-            .append("/")
-            .append(vpath_hash.to_hex())
-            .append(HASH_MAP_CACHE_FILE_EXT);
-        return cache_filename;
+        return hpfs::ctx.hmap_dir + vpath + HASH_MAP_CACHE_FILE_EXT;
+    }
+
+    const std::string hmap_store::get_vpath_cache_dir(const std::string &vpath)
+    {
+        return hpfs::ctx.hmap_dir + vpath;
     }
 
 } // namespace hpfs::hmap::store

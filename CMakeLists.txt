@@ -21,6 +21,7 @@ add_executable(hpfs
     src/tracelog.cpp
     src/audit.cpp
     src/vfs/virtual_filesystem.cpp
+    src/vfs/seed_path_tracker.cpp
     src/vfs/fuse_adapter.cpp
     src/fusefs.cpp
     src/merger.cpp
