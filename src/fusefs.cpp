@@ -40,9 +40,9 @@
 /**
  * Sets the 'session' local variable if session exists. Otherwise returns error code.
  */
-#define CHECK_SESSION(path)                         \
-    session::fs_session *sess = session::get(path); \
-    if (!sess)                                      \
+#define CHECK_SESSION(sess_name)                         \
+    session::fs_session *sess = session::get(sess_name); \
+    if (!sess)                                           \
         return -ENOENT;
 
 namespace hpfs::fusefs
@@ -68,13 +68,13 @@ namespace hpfs::fusefs
         return NULL;
     }
 
-    int fs_getattr(const char *path, struct stat *stbuf, struct fuse_file_info *fi)
+    int fs_getattr(const char *full_path, struct stat *stbuf, struct fuse_file_info *fi)
     {
         (void)fi;
 
         // Treat root path as success so we will return dummy stat for root.
         // Fuse host will fail if we return error code for root.
-        if (strcmp(path, "/") == 0)
+        if (strcmp(full_path, "/") == 0)
         {
             *stbuf = ctx.default_stat;
             stbuf->st_ino = inodes::ROOT_INO;
@@ -85,11 +85,12 @@ namespace hpfs::fusefs
         // 0 = Successfuly interpreted as a session control request.
         // 1 = Request should be handled by the virtual fs.
         // <0 = Error code needs to be returned.
-        const int sess_check_result = session::session_check_getattr(path, stbuf);
+        const int sess_check_result = session::session_check_getattr(full_path, stbuf);
         if (sess_check_result < 1)
             return sess_check_result;
 
-        session::fs_session *sess = session::get(path);
+        const auto &[sess_name, res_path] = session::split_path(full_path);
+        session::fs_session *sess = session::get(sess_name);
         if (!sess)
             return -ENOENT;
 
@@ -97,34 +98,33 @@ namespace hpfs::fusefs
         {
             // Check whether this is a hash map query path.
             const hmap::query::hmap_query &hmap_query = sess->hmap_query.value();
-            const hmap::query::request req = hmap_query.parse_request_path(path);
+            const hmap::query::request req = hmap_query.parse_request_path(res_path.data());
             if (req.mode != hmap::query::MODE::UNDEFINED)
                 return hmap_query.getattr(req, stbuf);
         }
 
-        return sess->fuse_adapter->getattr(path, stbuf);
+        return sess->fuse_adapter->getattr(res_path, stbuf);
     }
 
-    int fs_access(const char *path, int mask)
+    int fs_access(const char *full_path, int mask)
     {
-        CHECK_SESSION(path);
         return 0;
     }
 
-    int fs_readlink(const char *path, char *buf, size_t size)
+    int fs_readlink(const char *full_path, char *buf, size_t size)
     {
-        CHECK_SESSION(path);
         return 0;
     }
 
-    int fs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
+    int fs_readdir(const char *full_path, void *buf, fuse_fill_dir_t filler,
                    off_t offset, struct fuse_file_info *fi,
                    enum fuse_readdir_flags flags)
     {
-        CHECK_SESSION(path);
+        const auto &[sess_name, res_path] = session::split_path(full_path);
+        CHECK_SESSION(sess_name);
 
         vfs::vdir_children_map children;
-        int res = sess->fuse_adapter->readdir(path, children);
+        int res = sess->fuse_adapter->readdir(res_path, children);
         if (res < 0)
             return res;
 
@@ -134,150 +134,153 @@ namespace hpfs::fusefs
         return 0;
     }
 
-    int fs_mkdir(const char *path, mode_t mode)
+    int fs_mkdir(const char *full_path, mode_t mode)
     {
-        CHECK_SESSION(path);
-        return sess->fuse_adapter->mkdir(path, mode);
+        const auto &[sess_name, res_path] = session::split_path(full_path);
+        CHECK_SESSION(sess_name);
+        return sess->fuse_adapter->mkdir(res_path, mode);
     }
 
-    int fs_rmdir(const char *path)
+    int fs_rmdir(const char *full_path)
     {
-        CHECK_SESSION(path);
-        return sess->fuse_adapter->rmdir(path);
+        const auto &[sess_name, res_path] = session::split_path(full_path);
+        CHECK_SESSION(sess_name);
+        return sess->fuse_adapter->rmdir(res_path);
     }
 
     int fs_symlink(const char *from, const char *to)
     {
-        CHECK_SESSION(from);
         return 0;
     }
 
     int fs_rename(const char *from, const char *to, unsigned int flags)
     {
-        CHECK_SESSION(from);
-
         if (flags)
             return -EINVAL;
 
-        return sess->fuse_adapter->rename(from, to);
+        const auto &[from_sess_name, from_res_path] = session::split_path(from);
+        const auto &[to_sess_name, to_res_path] = session::split_path(to);
+
+        if (from_sess_name != to_sess_name)
+            return -EINVAL;
+
+        CHECK_SESSION(from_sess_name);
+
+        return sess->fuse_adapter->rename(from_res_path, to_res_path);
     }
 
     int fs_link(const char *from, const char *to)
     {
-        CHECK_SESSION(from);
         return 0;
     }
 
-    int fs_unlink(const char *path)
+    int fs_unlink(const char *full_path)
     {
         // 0 = Successfuly interpreted as a session control request.
         // 1 = Request should be handled by the virtual fs.
         // <0 = Error code needs to be returned.
-        const int sess_check_result = session::session_check_unlink(path);
+        const int sess_check_result = session::session_check_unlink(full_path);
         if (sess_check_result < 1)
             return sess_check_result;
 
-        session::fs_session *sess = session::get(path);
+        const auto &[sess_name, res_path] = session::split_path(full_path);
+        session::fs_session *sess = session::get(sess_name);
         if (!sess)
             return -ENOENT;
 
-        return sess->fuse_adapter->unlink(path);
+        return sess->fuse_adapter->unlink(res_path);
     }
 
-    int fs_chmod(const char *path, mode_t mode,
+    int fs_chmod(const char *full_path, mode_t mode,
                  struct fuse_file_info *fi)
     {
-        CHECK_SESSION(path);
         return 0;
     }
 
-    int fs_chown(const char *path, uid_t uid, gid_t gid,
+    int fs_chown(const char *full_path, uid_t uid, gid_t gid,
                  struct fuse_file_info *fi)
     {
-        CHECK_SESSION(path);
         return 0;
     }
 
-    int fs_utimens(const char *path, const struct timespec ts[2],
+    int fs_utimens(const char *full_path, const struct timespec ts[2],
                    struct fuse_file_info *fi)
     {
-        CHECK_SESSION(path);
         return 0;
     }
 
-    int fs_create(const char *path, mode_t mode, struct fuse_file_info *fi)
+    int fs_create(const char *full_path, mode_t mode, struct fuse_file_info *fi)
     {
         // 0 = Successfuly interpreted as a session control request.
         // 1 = Request should be handled by the virtual fs.
         // <0 = Error code needs to be returned.
-        const int sess_check_result = session::session_check_create(path);
+        const int sess_check_result = session::session_check_create(full_path);
         if (sess_check_result < 1)
             return sess_check_result;
 
-        session::fs_session *sess = session::get(path);
+        const auto &[sess_name, res_path] = session::split_path(full_path);
+        session::fs_session *sess = session::get(sess_name);
         if (!sess)
             return -ENOENT;
 
-        return sess->fuse_adapter->create(path, mode);
+        return sess->fuse_adapter->create(res_path, mode);
     }
 
-    int fs_open(const char *path, struct fuse_file_info *fi)
+    int fs_open(const char *full_path, struct fuse_file_info *fi)
     {
-        CHECK_SESSION(path);
+        const auto &[sess_name, res_path] = session::split_path(full_path);
+        CHECK_SESSION(sess_name);
 
         if (sess->hmap_query)
         {
             // Check whether this is a hash map query path.
-            const hmap::query::request req = sess->hmap_query->parse_request_path(path);
+            const hmap::query::request req = sess->hmap_query->parse_request_path(res_path.data());
             if (req.mode != hmap::query::MODE::UNDEFINED)
                 return 0;
         }
 
         // Check if file is being opened in truncate mode.
         if (fi->flags & O_TRUNC)
-            sess->fuse_adapter->truncate(path, 0);
+            sess->fuse_adapter->truncate(res_path, 0);
 
         return 0;
     }
 
-    int fs_read(const char *path, char *buf, size_t size, off_t offset,
+    int fs_read(const char *full_path, char *buf, size_t size, off_t offset,
                 struct fuse_file_info *fi)
     {
-        CHECK_SESSION(path);
+        const auto &[sess_name, res_path] = session::split_path(full_path);
+        CHECK_SESSION(sess_name);
 
         if (sess->hmap_query)
         {
             // Check whether this is a hash map query path.
             const hmap::query::hmap_query &hmap_query = sess->hmap_query.value();
-            const hmap::query::request req = hmap_query.parse_request_path(path);
+            const hmap::query::request req = hmap_query.parse_request_path(res_path.data());
             if (req.mode != hmap::query::MODE::UNDEFINED)
                 return hmap_query.read(req, buf, size);
         }
 
         sleep(2);
 
-        return sess->fuse_adapter->read(path, buf, size, offset);
+        return sess->fuse_adapter->read(res_path, buf, size, offset);
     }
 
-    int fs_write(const char *path, const char *buf, size_t size,
+    int fs_write(const char *full_path, const char *buf, size_t size,
                  off_t offset, struct fuse_file_info *fi)
     {
-        CHECK_SESSION(path);
-        return sess->fuse_adapter->write(path, buf, size, offset);
+        const auto &[sess_name, res_path] = session::split_path(full_path);
+        CHECK_SESSION(sess_name);
+        return sess->fuse_adapter->write(res_path, buf, size, offset);
     }
 
-    int fs_statfs(const char *path, struct statvfs *stbuf)
+    int fs_statfs(const char *full_path, struct statvfs *stbuf)
     {
-        CHECK_SESSION(path);
         return 0;
     }
 
-    static int fs_flush(const char *path, struct fuse_file_info *fi)
+    static int fs_flush(const char *full_path, struct fuse_file_info *fi)
     {
-        (void)path;
-
-        CHECK_SESSION(path);
-
         /* This is called from every close on an open file, so call the
 	   close on the underlying filesystem.	But since flush may be
 	   called multiple times for an open file, this must not really
@@ -289,80 +292,68 @@ namespace hpfs::fusefs
         return 0;
     }
 
-    int fs_release(const char *path, struct fuse_file_info *fi)
+    int fs_release(const char *full_path, struct fuse_file_info *fi)
     {
-        (void)path;
-        CHECK_SESSION(path);
-
         if (fi->fh > 0)
             close(fi->fh);
         return 0;
     }
 
-    int fs_truncate(const char *path, off_t size,
-                    struct fuse_file_info *fi)
+    int fs_truncate(const char *full_path, off_t size, struct fuse_file_info *fi)
     {
-        CHECK_SESSION(path);
-        return sess->fuse_adapter->truncate(path, size);
+        const auto &[sess_name, res_path] = session::split_path(full_path);
+        CHECK_SESSION(sess_name);
+        return sess->fuse_adapter->truncate(res_path, size);
     }
 
-    int fs_fsync(const char *path, int isdatasync,
-                 struct fuse_file_info *fi)
+    int fs_fsync(const char *full_path, int isdatasync, struct fuse_file_info *fi)
     {
-        CHECK_SESSION(path);
         return 0;
     }
 
 #ifdef HAVE_POSIX_FALLOCATE
-    int fs_fallocate(const char *path, int mode,
+    int fs_fallocate(const char *full_path, int mode,
                      off_t offset, off_t length, struct fuse_file_info *fi)
     {
-        CHECK_SESSION(path);
         return 0;
     }
 #endif
 
 #ifdef HAVE_SETXATTR
     /* xattr operations are optional and can safely be left unimplemented */
-    int fs_setxattr(const char *path, const char *name, const char *value,
+    int fs_setxattr(const char *full_path, const char *name, const char *value,
                     size_t size, int flags)
     {
-        CHECK_SESSION(path);
         return 0;
     }
 
-    int fs_getxattr(const char *path, const char *name, char *value,
+    int fs_getxattr(const char *full_path, const char *name, char *value,
                     size_t size)
     {
-        CHECK_SESSION(path);
         return 0;
     }
 
-    int fs_listxattr(const char *path, char *list, size_t size)
+    int fs_listxattr(const char *full_path, char *list, size_t size)
     {
-        CHECK_SESSION(path);
         return 0;
     }
 
-    int fs_removexattr(const char *path, const char *name)
+    int fs_removexattr(const char *full_path, const char *name)
     {
-        CHECK_SESSION(path);
         return 0;
     }
 #endif /* HAVE_SETXATTR */
 
 #ifdef HAVE_LIBULOCKMGR
-    int fs_lock(const char *path, struct fuse_file_info *fi, int cmd,
+    int fs_lock(const char *full_path, struct fuse_file_info *fi, int cmd,
                 struct flock *lock)
     {
-        CHECK_SESSION(path);
         return 0;
     }
 #endif
 
-    int fs_flock(const char *path, struct fuse_file_info *fi, int op)
+    int fs_flock(const char *full_path, struct fuse_file_info *fi, int op)
     {
-        CHECK_SESSION(path);
         return 0;
     }
 
@@ -373,14 +364,12 @@ namespace hpfs::fusefs
                                struct fuse_file_info *fi_out,
                                off_t off_out, size_t len, int flags)
     {
-        CHECK_SESSION(path);
         return 0;
     }
 #endif
 
-    off_t fs_lseek(const char *path, off_t off, int whence, struct fuse_file_info *fi)
+    off_t fs_lseek(const char *full_path, off_t off, int whence, struct fuse_file_info *fi)
     {
-        CHECK_SESSION(path);
         return 0;
     }
 

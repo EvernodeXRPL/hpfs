@@ -30,11 +30,12 @@ namespace hpfs::session
         std::optional<hmap::query::hmap_query> hmap_query;
     };
 
+    const std::pair<std::string, std::string> split_path(std::string_view path);
+    const fs_session_args parse_session_args(std::string_view path);
     int session_check_getattr(const char *path, struct stat *stbuf);
     int session_check_create(const char *path);
     int session_check_unlink(const char *path);
-    const fs_session_args parse_session_args(std::string_view path);
-    fs_session *get(std::string_view path);
+    fs_session *get(const std::string &name);
     int start(const fs_session_args &args);
     void stop_all();
 

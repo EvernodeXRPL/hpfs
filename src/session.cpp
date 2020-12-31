@@ -35,6 +35,47 @@ namespace hpfs::session
     std::unordered_map<std::string, fs_session> sessions;
 
     /**
+     * Splits the provided path into session name and resource path components.
+     * First directory name will be the session name.
+     * Anything after session name is the resource path.
+     */
+    const std::pair<std::string, std::string> split_path(std::string_view path)
+    {
+        const size_t dir_separator = path.find("/", 1);
+        return std::pair<std::string, std::string>(
+            // Session name component.
+            std::string(dir_separator == std::string::npos ? path.substr(1) : path.substr(1, dir_separator - 1)),
+            // Resource path component.
+            std::string(dir_separator == std::string::npos ? "/" : path.substr(dir_separator)));
+    }
+
+    const fs_session_args parse_session_args(std::string_view path)
+    {
+        if (path == RW_HMAP_FILE)
+            return {true, false, RW_SESSION_NAME, true};
+        if (path == RW_NOHMAP_FILE)
+            return {true, false, RW_SESSION_NAME, false};
+
+        if (strncmp(path.data(), RO_HMAP_FILE, 16) == 0)
+        {
+            if (path.size() > 16)
+                return {true, true, std::string(path.substr(16)), true};
+            else
+                return {false};
+        }
+
+        if (strncmp(path.data(), RO_NOHMAP_FILE, 11) == 0)
+        {
+            if (path.size() > 11)
+                return {true, true, std::string(path.substr(11)), false};
+            else
+                return {false};
+        }
+
+        return {false};
+    }
+
+    /**
      * Checks getattr requests for any session-related metadata activity.
      * @return 0 if request succesfully was interpreted by session control. 1 if the request
      *         should be passed through to the virtual fs. <0 on error.
@@ -72,7 +113,7 @@ namespace hpfs::session
             return 1;
 
         // Check if this is a readonly session with reserved name.
-        if (args.readonly && args.name == RW_SESSION_NAME)
+        if (args.name.empty() || (args.readonly && args.name == RW_SESSION_NAME))
             return -EINVAL;
 
         if (sessions.count(args.name) == 1)
@@ -108,37 +149,9 @@ namespace hpfs::session
         return -ENOENT;
     }
 
-    const fs_session_args parse_session_args(std::string_view path)
+    fs_session *get(const std::string &name)
     {
-        if (path == RW_HMAP_FILE)
-            return {true, false, RW_SESSION_NAME, true};
-        if (path == RW_NOHMAP_FILE)
-            return {true, false, RW_SESSION_NAME, false};
-
-        if (strncmp(path.data(), RO_HMAP_FILE, 16) == 0)
-        {
-            if (path.size() > 16)
-                return {true, true, std::string(path.substr(16)), true};
-            else
-                return {false};
-        }
-
-        if (strncmp(path.data(), RO_NOHMAP_FILE, 11) == 0)
-        {
-            if (path.size() > 11)
-                return {true, true, std::string(path.substr(11)), false};
-            else
-                return {false};
-        }
-
-        return {false};
-    }
-
-    fs_session *get(std::string_view path)
-    {
-        const size_t dir_separator = path.find("/", 1);
-        std::string_view name = dir_separator == std::string::npos ? path.substr(1) : path.substr(1, dir_separator - 1);
-        const auto itr = sessions.find(std::string(name));
+        const auto itr = sessions.find(name);
         return itr == sessions.end() ? NULL : &itr->second;
     }
 
