@@ -35,6 +35,11 @@ namespace hpfs::session
         std::optional<audit::audit_logger> audit_logger;
         std::optional<hmap::tree::hmap_tree> hmap_tree;
         std::optional<hmap::query::hmap_query> hmap_query;
+
+        fs_session(const ino_t ino, const bool readonly, const bool hmap_enabled)
+            : ino(ino), readonly(readonly), hmap_enabled(hmap_enabled)
+        {
+        }
     };
 
     const std::pair<std::string, std::string> split_path(std::string_view path);

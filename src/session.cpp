@@ -164,7 +164,7 @@ namespace hpfs::session
 
     int start(const fs_session_args &args)
     {
-        const auto [itr, success] = sessions.try_emplace(args.name, fs_session{inodes::next(), args.readonly, args.hmap_enabled});
+        const auto [itr, success] = sessions.try_emplace(args.name, inodes::next(), args.readonly, args.hmap_enabled);
         fs_session &session = itr->second;
 
         LOG_INFO << "Starting " << (args.readonly ? "RO" : "RW") << " session '" << args.name << "'...";
