@@ -31,16 +31,16 @@ int64_t get_epoch_milliseconds()
 
 void start_hpfs(const char *mode, const bool hmap_enabled)
 {
+    const std::string mnt_dir = test_dir + "/mnt";
     const pid_t pid = fork();
     if (pid == 0)
     {
         // Child (hpfs)
-        const std::string mnt_dir = test_dir + "/mnt";
         char *argv[] = {(char *)hpfs_binary.c_str(),
-                        (char *)mode,
+                        (char *)"fs",
                         (char *)test_dir.c_str(),
                         (char *)mnt_dir.c_str(),
-                        (char *)(hmap_enabled ? "hmap=true" : "hmap=false"),
+                        (char *)"merge=true",
                         (char *)"trace=none",
                         NULL};
         execv(hpfs_binary.c_str(), argv);
@@ -51,7 +51,11 @@ void start_hpfs(const char *mode, const bool hmap_enabled)
         usleep(500000); //500ms
 
         if (kill(pid, 0) != -1)
+        {
             hpfs_pid = pid;
+            const std::string session_file = mnt_dir + (hmap_enabled ? "/::hpfs.rw.hmap" : "/::hpfs.rw");
+            mknod(session_file.data(), 0, 0);
+        }
     }
 }
 
@@ -82,7 +86,7 @@ void start_op(const bool hpfs, const bool hmap_enabled)
 {
     op_hpfs = hpfs;
     op_hmap_enabled = hmap_enabled;
-    op_dir = (op_hpfs ? (test_dir + "/mnt") : test_dir);
+    op_dir = (op_hpfs ? (test_dir + "/mnt/rw") : test_dir);
 
     init_test_dir();
 
