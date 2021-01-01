@@ -3,14 +3,20 @@
 
 #include <optional>
 #include <map>
+#include <shared_mutex>
 #include "vfs/virtual_filesystem.hpp"
 #include "vfs/fuse_adapter.hpp"
 #include "hmap/tree.hpp"
 #include "hmap/query.hpp"
 #include "audit.hpp"
 
+#define SESSION_READ_LOCK std::shared_lock lock(hpfs::session::sessions_mutex);
+#define SESSION_WRITE_LOCK std::unique_lock lock(hpfs::session::sessions_mutex);
+
 namespace hpfs::session
 {
+    extern std::shared_mutex sessions_mutex;
+
     struct fs_session_args
     {
         bool valid;

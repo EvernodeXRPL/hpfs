@@ -93,19 +93,15 @@ namespace hpfs::session
         if (!args.valid)
             return 1;
 
-        {
-            std::shared_lock lock(sessions_mutex);
+        const auto itr = sessions.find(args.name);
+        if (itr == sessions.end())
+            return -ENOENT; // No session found.
 
-            const auto itr = sessions.find(args.name);
-            if (itr == sessions.end())
-                return -ENOENT; // No session found.
-
-            // Session found. Return session stat with session id inode number.
-            *stbuf = ctx.default_stat;
-            stbuf->st_ino = itr->second.ino;
-            stbuf->st_mode |= S_IFREG;
-            return 0;
-        }
+        // Session found. Return session stat with session id inode number.
+        *stbuf = ctx.default_stat;
+        stbuf->st_ino = itr->second.ino;
+        stbuf->st_mode |= S_IFREG;
+        return 0;
     }
 
     /**
@@ -126,7 +122,7 @@ namespace hpfs::session
             return -EINVAL;
 
         {
-            std::unique_lock lock(sessions_mutex);
+            SESSION_WRITE_LOCK
 
             if (sessions.count(args.name) == 1)
                 return -EEXIST; // Session name already exists
@@ -149,7 +145,7 @@ namespace hpfs::session
             return 1;
 
         {
-            std::unique_lock lock(sessions_mutex);
+            SESSION_WRITE_LOCK
 
             const auto itr = sessions.find(args.name);
             if (itr != sessions.end())
@@ -169,7 +165,6 @@ namespace hpfs::session
 
     fs_session *get(const std::string &name)
     {
-        std::shared_lock lock(sessions_mutex);
         const auto itr = sessions.find(name);
         return itr == sessions.end() ? NULL : &itr->second;
     }
@@ -216,14 +211,12 @@ namespace hpfs::session
 
     void stop_all()
     {
-        std::unique_lock lock(sessions_mutex);
+        SESSION_WRITE_LOCK
         sessions.clear();
     }
 
     const std::map<ino_t, std::string> get_sessions()
     {
-        std::shared_lock lock(sessions_mutex);
-
         std::map<ino_t, std::string> list;
         for (const auto &[sess_name, sess] : sessions)
             list.emplace(sess.ino, sess_name);

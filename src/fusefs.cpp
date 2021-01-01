@@ -32,15 +32,16 @@
 #include <string>
 #include "hpfs.hpp"
 #include "session.hpp"
+#include "inodes.hpp"
 #include "vfs/vfs.hpp"
 #include "vfs/fuse_adapter.hpp"
 #include "hmap/query.hpp"
-#include "inodes.hpp"
 
 /**
  * Sets the 'session' local variable if session exists. Otherwise returns error code.
  */
 #define CHECK_SESSION(sess_name)                         \
+    SESSION_READ_LOCK                                    \
     session::fs_session *sess = session::get(sess_name); \
     if (!sess)                                           \
         return -ENOENT;
@@ -82,6 +83,8 @@ namespace hpfs::fusefs
             return 0;
         }
 
+        SESSION_READ_LOCK
+
         // 0 = Successfuly interpreted as a session control request.
         // 1 = Request should be handled by the virtual fs.
         // <0 = Error code needs to be returned.
@@ -122,6 +125,7 @@ namespace hpfs::fusefs
         if (strcmp(full_path, "/") == 0)
         {
             // Return listing of all sessions as child directories.
+            SESSION_READ_LOCK
             for (const auto &[ino, sess_name] : session::get_sessions())
             {
                 struct stat st;
@@ -198,11 +202,14 @@ namespace hpfs::fusefs
             return sess_check_result;
 
         const auto &[sess_name, res_path] = session::split_path(full_path);
-        session::fs_session *sess = session::get(sess_name);
-        if (!sess)
-            return -ENOENT;
+        {
+            SESSION_READ_LOCK
+            session::fs_session *sess = session::get(sess_name);
+            if (!sess)
+                return -ENOENT;
 
-        return sess->fuse_adapter->unlink(res_path);
+            return sess->fuse_adapter->unlink(res_path);
+        }
     }
 
     int fs_chmod(const char *full_path, mode_t mode,
@@ -233,11 +240,14 @@ namespace hpfs::fusefs
             return sess_check_result;
 
         const auto &[sess_name, res_path] = session::split_path(full_path);
-        session::fs_session *sess = session::get(sess_name);
-        if (!sess)
-            return -ENOENT;
+        {
+            SESSION_READ_LOCK
+            session::fs_session *sess = session::get(sess_name);
+            if (!sess)
+                return -ENOENT;
 
-        return sess->fuse_adapter->create(res_path, mode);
+            return sess->fuse_adapter->create(res_path, mode);
+        }
     }
 
     int fs_open(const char *full_path, struct fuse_file_info *fi)
@@ -274,8 +284,6 @@ namespace hpfs::fusefs
             if (req.mode != hmap::query::MODE::UNDEFINED)
                 return hmap_query.read(req, buf, size);
         }
-
-        sleep(2);
 
         return sess->fuse_adapter->read(res_path, buf, size, offset);
     }
