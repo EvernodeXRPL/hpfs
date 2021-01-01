@@ -1,6 +1,5 @@
 #include <string.h>
 #include <libgen.h>
-#include <shared_mutex>
 #include "vfs.hpp"
 #include "fuse_adapter.hpp"
 #include "virtual_filesystem.hpp"
@@ -12,14 +11,11 @@
  * Bridge between fuse interface and the hpfs virtual filesystem interface.
  */
 
-#define FS_READ_LOCK std::shared_lock lock(hpfs::vfs::fs_mutex);
-#define FS_WRITE_LOCK std::unique_lock lock(hpfs::vfs::fs_mutex);
+#define FS_READ_LOCK std::shared_lock lock(fs_mutex);
+#define FS_WRITE_LOCK std::unique_lock lock(fs_mutex);
 
 namespace hpfs::vfs
 {
-    // Global mutex between all fs session instances.
-    std::shared_mutex fs_mutex;
-
     fuse_adapter::fuse_adapter(const bool readonly, virtual_filesystem &virt_fs,
                                hpfs::audit::audit_logger &logger,
                                std::optional<hpfs::hmap::tree::hmap_tree> &htree) : readonly(readonly),

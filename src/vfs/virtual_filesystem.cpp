@@ -19,8 +19,9 @@
 
 namespace hpfs::vfs
 {
+
     int virtual_filesystem::create(std::optional<virtual_filesystem> &virt_fs, const bool readonly, std::string_view seed_dir,
-                                    hpfs::audit::audit_logger &logger)
+                                   hpfs::audit::audit_logger &logger)
     {
         virt_fs.emplace(readonly, seed_dir, logger);
         if (virt_fs->init() == -1)
@@ -28,7 +29,7 @@ namespace hpfs::vfs
             virt_fs.reset();
             return -1;
         }
-        
+
         return 0;
     }
 
@@ -62,6 +63,8 @@ namespace hpfs::vfs
 
     int virtual_filesystem::get_vnode(const std::string &vpath_ori, vnode **vn)
     {
+        std::scoped_lock lock(vnodes_mutex);
+
         const std::string &vpath = (vpath_ori.front() == '/' &&
                                     vpath_ori.find_first_not_of('/') == std::string::npos)
                                        ? "/"

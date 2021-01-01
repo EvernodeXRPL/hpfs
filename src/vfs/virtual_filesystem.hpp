@@ -2,6 +2,7 @@
 #define _HPFS_VFS_VIRTUAL_FILESYSTEM_
 
 #include <unordered_map>
+#include <mutex>
 #include "vfs.hpp"
 #include "seed_path_tracker.hpp"
 #include "../audit.hpp"
@@ -19,6 +20,7 @@ namespace hpfs::vfs
         const bool readonly;
         std::string_view seed_dir;
         vnode_map vnodes;
+        std::mutex vnodes_mutex;
         seed_path_tracker seed_paths;
         hpfs::audit::audit_logger &logger;
 
