@@ -31,10 +31,10 @@ namespace hpfs::vfs
     {
     }
 
-    seed_path_tracker::seed_path_tracker(seed_path_tracker &&old) : seed_dir(old.seed_dir)
+    seed_path_tracker::seed_path_tracker(seed_path_tracker &&old) : seed_dir(old.seed_dir),
+                                                                    renamed_seed_paths(std::move(old.renamed_seed_paths)),
+                                                                    deleted_seed_paths(std::move(old.deleted_seed_paths))
     {
-        old.renamed_seed_paths.swap(renamed_seed_paths);
-        old.deleted_seed_paths.swap(deleted_seed_paths);
         old.moved = true;
     }
 
@@ -80,11 +80,11 @@ namespace hpfs::vfs
     /**
      * @return Whether the provided seed path has been renamed.
      */
-    bool seed_path_tracker::is_renamed(const std::string &seed_path)
+    bool seed_path_tracker::is_renamed(const std::string &check_path)
     {
         for (auto [vpath, seed_path] : renamed_seed_paths)
         {
-            if (seed_path == seed_path)
+            if (seed_path == check_path)
                 return true;
         }
         return false;
@@ -93,9 +93,9 @@ namespace hpfs::vfs
     /**
      * @return Whether the provided seed path is considered deleted.
      */
-    bool seed_path_tracker::is_removed(const std::string &seed_path)
+    bool seed_path_tracker::is_removed(const std::string &check_path)
     {
-        return deleted_seed_paths.count(seed_path) == 1;
+        return deleted_seed_paths.count(check_path) == 1;
     }
 
     /**
@@ -110,7 +110,7 @@ namespace hpfs::vfs
         const std::string full_seed_path = std::string(seed_dir) + resolved;
 
         // Don't need to do anything if there is no such real seed path.
-        if ((is_dir && !util::is_dir_exists(full_seed_path)) || !is_dir && !util::is_file_exists(full_seed_path))
+        if ((is_dir && !util::is_dir_exists(full_seed_path)) || (!is_dir && !util::is_file_exists(full_seed_path)))
             return;
 
         // Find out any children seed paths previously renamed that are effected by this rename and update them.

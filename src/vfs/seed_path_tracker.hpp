@@ -26,8 +26,8 @@ namespace hpfs::vfs
         seed_path_tracker(const seed_path_tracker &) = delete; // No copy constructor;
         seed_path_tracker(seed_path_tracker &&old);
         const std::string resolve(const std::string &vpath_to_resolve);
-        bool is_renamed(const std::string &seed_path);
-        bool is_removed(const std::string &seed_path);
+        bool is_renamed(const std::string &check_path);
+        bool is_removed(const std::string &check_path);
         void rename(const std::string &from, const std::string &to, const bool is_dir);
         void remove(const std::string &vpath, const bool is_dir);
     };
