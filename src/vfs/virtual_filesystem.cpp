@@ -19,14 +19,17 @@
 
 namespace hpfs::vfs
 {
-    std::optional<virtual_filesystem> virtual_filesystem::create(const bool readonly, std::string_view seed_dir,
-                                                                 hpfs::audit::audit_logger &logger)
+    int virtual_filesystem::create(std::optional<virtual_filesystem> &virt_fs, const bool readonly, std::string_view seed_dir,
+                                    hpfs::audit::audit_logger &logger)
     {
-        std::optional<virtual_filesystem> virt_fs = std::optional<virtual_filesystem>(virtual_filesystem(readonly, seed_dir, logger));
+        virt_fs.emplace(readonly, seed_dir, logger);
         if (virt_fs->init() == -1)
+        {
             virt_fs.reset();
-
-        return virt_fs;
+            return -1;
+        }
+        
+        return 0;
     }
 
     virtual_filesystem::virtual_filesystem(const bool readonly,
@@ -36,18 +39,6 @@ namespace hpfs::vfs
                                                                                 seed_paths(seed_dir),
                                                                                 logger(logger)
     {
-    }
-
-    virtual_filesystem::virtual_filesystem(virtual_filesystem &&old) : initialized(old.initialized),
-                                                                       readonly(old.readonly),
-                                                                       seed_dir(old.seed_dir),
-                                                                       vnodes(std::move(old.vnodes)),
-                                                                       seed_paths(std::move(old.seed_paths)),
-                                                                       logger(old.logger),
-                                                                       last_checkpoint(old.last_checkpoint),
-                                                                       log_scanned_upto(old.log_scanned_upto)
-    {
-        old.moved = true;
     }
 
     int virtual_filesystem::init()
@@ -65,6 +56,7 @@ namespace hpfs::vfs
         }
 
         initialized = true;
+        LOG_DEBUG << "VFS init complete.";
         return 0;
     }
 

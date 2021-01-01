@@ -52,8 +52,8 @@ namespace hpfs
 
         if (ctx.run_mode == RUN_MODE::RDLOG)
         {
-            std::optional<audit::audit_logger> audit_logger = audit::audit_logger::create(audit::LOG_MODE::PRINT, ctx.log_file_path);
-            if (!audit_logger)
+            std::optional<audit::audit_logger> audit_logger;
+            if (audit::audit_logger::create(audit_logger, audit::LOG_MODE::PRINT, ctx.log_file_path) == -1)
                 return -1;
 
             audit_logger->print_log();

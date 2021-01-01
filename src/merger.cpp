@@ -24,10 +24,8 @@ namespace hpfs::merger
         if (!ctx.merge_enabled)
             return 0;
 
-        auto logger = hpfs::audit::audit_logger::create(audit::LOG_MODE::MERGE, ctx.log_file_path);
-        if (!logger)
+        if (hpfs::audit::audit_logger::create(audit_logger, audit::LOG_MODE::MERGE, ctx.log_file_path) == -1)
             return -1;
-        audit_logger.emplace(std::move(logger.value()));
 
         merger_thread = std::thread(merger_loop);
         return 0;

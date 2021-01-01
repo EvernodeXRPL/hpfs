@@ -30,7 +30,6 @@ namespace hpfs::vfs
         // (inclusive of log record).
         off_t log_scanned_upto = 0;
 
-        virtual_filesystem(const bool readonly, std::string_view seed_dir, hpfs::audit::audit_logger &logger);
         int init();
         void add_vnode(const std::string &vpath, vnode_map::iterator &vnode_iter);
         int add_vnode_from_seed(const std::string &vpath, vnode_map::iterator &vnode_iter);
@@ -39,10 +38,9 @@ namespace hpfs::vfs
         int update_vnode_mmap(vnode &vn);
 
     public:
-        static std::optional<virtual_filesystem> create(const bool readonly, std::string_view seed_dir,
+        static int create(std::optional<virtual_filesystem> &virt_fs, const bool readonly, std::string_view seed_dir,
                                                         hpfs::audit::audit_logger &logger);
-        virtual_filesystem(const virtual_filesystem &) = delete; // No copy constructor;
-        virtual_filesystem(virtual_filesystem &&old);
+        virtual_filesystem(const bool readonly, std::string_view seed_dir, hpfs::audit::audit_logger &logger);
         int get_vnode(const std::string &vpath, vnode **vn);
         int build_vfs();
         int get_dir_children(const std::string &vpath, vdir_children_map &children);

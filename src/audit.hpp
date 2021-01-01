@@ -110,14 +110,12 @@ namespace hpfs::audit
         struct log_header header = {};  // The log file header loaded into memory.
         struct flock session_lock = {}; // Session lock placed on the log file.
 
-        audit_logger(const LOG_MODE mode, std::string_view log_file_path);
         int init();
         int init_log_header();
 
     public:
-        static std::optional<audit_logger> create(const LOG_MODE mode, std::string_view log_file_path);
-        audit_logger(const audit_logger &) = delete; // No copy constructor;
-        audit_logger(audit_logger &&old);
+        static int create(std::optional<audit_logger> &logger, const LOG_MODE mode, std::string_view log_file_path);
+        audit_logger(const LOG_MODE mode, std::string_view log_file_path);
         int get_fd();
         const log_header &get_header();
         void print_log();

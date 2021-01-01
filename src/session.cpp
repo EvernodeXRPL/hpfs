@@ -13,13 +13,6 @@
 #include "hpfs.hpp"
 #include "tracelog.hpp"
 
-#define CHECK_FAILURE(optional) \
-    if (!optional.has_value())  \
-    {                           \
-        sessions.erase(itr);    \
-        return -1;              \
-    }
-
 namespace hpfs::session
 {
 
@@ -171,39 +164,39 @@ namespace hpfs::session
 
     int start(const fs_session_args &args)
     {
-        const auto [itr, success] = sessions.emplace(args.name, fs_session{inodes::next(), args.readonly, args.hmap_enabled});
+        const auto [itr, success] = sessions.try_emplace(args.name, fs_session{inodes::next(), args.readonly, args.hmap_enabled});
         fs_session &session = itr->second;
 
         LOG_INFO << "Starting " << (args.readonly ? "RO" : "RW") << " session '" << args.name << "'...";
 
-        auto audit_logger = audit::audit_logger::create(args.readonly ? audit::LOG_MODE::RO : audit::LOG_MODE::RW,
-                                                        ctx.log_file_path);
-
-        CHECK_FAILURE(audit_logger);
-        session.audit_logger.emplace(std::move(audit_logger.value()));
-
-        auto virt_fs = vfs::virtual_filesystem::create(args.readonly,
-                                                       ctx.seed_dir,
-                                                       session.audit_logger.value());
-        CHECK_FAILURE(virt_fs);
-        session.virt_fs.emplace(std::move(virt_fs.value()));
-        LOG_DEBUG << "VFS init complete.";
+        if (audit::audit_logger::create(session.audit_logger,
+                                        args.readonly ? audit::LOG_MODE::RO : audit::LOG_MODE::RW,
+                                        ctx.log_file_path) == -1 ||
+            vfs::virtual_filesystem::create(session.virt_fs,
+                                            args.readonly,
+                                            ctx.seed_dir,
+                                            session.audit_logger.value()) == -1)
+        {
+            sessions.erase(itr);
+            return -1;
+        };
 
         if (args.hmap_enabled)
         {
-            auto hmap_tree = hmap::tree::hmap_tree::create(session.virt_fs.value());
+            if (hmap::tree::hmap_tree::create(session.hmap_tree, session.virt_fs.value()) == -1)
+            {
+                sessions.erase(itr);
+                return -1;
+            };
 
-            CHECK_FAILURE(hmap_tree);
-            session.hmap_tree.emplace(std::move(hmap_tree.value()));
-            session.hmap_query.emplace(hmap::query::hmap_query(session.hmap_tree.value(),
-                                                               session.virt_fs.value()));
+            session.hmap_query.emplace(session.hmap_tree.value(), session.virt_fs.value());
             LOG_DEBUG << "Hashmap init complete.";
         }
 
-        session.fuse_adapter.emplace(vfs::fuse_adapter(args.readonly,
-                                                       session.virt_fs.value(),
-                                                       session.audit_logger.value(),
-                                                       session.hmap_tree));
+        session.fuse_adapter.emplace(args.readonly,
+                                     session.virt_fs.value(),
+                                     session.audit_logger.value(),
+                                     session.hmap_tree);
 
         LOG_INFO << (args.readonly ? "RO" : "RW") << " session '" << args.name << "' started.";
         return 0;

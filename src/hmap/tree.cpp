@@ -23,24 +23,20 @@ namespace hpfs::hmap::tree
     constexpr size_t BLOCK_SIZE = 4194304; // 4MB
     constexpr const char *ROOT_VPATH = "/";
 
-    std::optional<hmap_tree> hmap_tree::create(hpfs::vfs::virtual_filesystem &virt_fs)
+    int hmap_tree::create(std::optional<hmap_tree> &tree, hpfs::vfs::virtual_filesystem &virt_fs)
     {
-        std::optional<hmap_tree> tree = std::optional<hmap_tree>(hmap_tree(virt_fs));
+        tree.emplace(virt_fs);
         if (tree->init() == -1)
+        {
             tree.reset();
+            return -1;
+        }
 
-        return tree;
+        return 0;
     }
 
     hmap_tree::hmap_tree(hpfs::vfs::virtual_filesystem &virt_fs) : virt_fs(virt_fs)
     {
-    }
-
-    hmap_tree::hmap_tree(hmap_tree &&old) : initialized(old.initialized),
-                                            store(std::move(old.store)),
-                                            virt_fs(old.virt_fs)
-    {
-        old.moved = true;
     }
 
     int hmap_tree::init()

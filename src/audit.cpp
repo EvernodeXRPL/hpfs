@@ -18,29 +18,21 @@ namespace hpfs::audit
     constexpr int FILE_PERMS = 0644;
     constexpr uint16_t HPFS_VERSION = 1;
 
-    std::optional<audit_logger> audit_logger::create(const LOG_MODE mode, std::string_view log_file_path)
+    int audit_logger::create(std::optional<audit_logger> &logger, const LOG_MODE mode, std::string_view log_file_path)
     {
-        std::optional<audit_logger> logger = std::optional<audit_logger>(audit_logger(mode, log_file_path));
+        logger.emplace(mode, log_file_path);
         if (logger->init() == -1)
+        {
             logger.reset();
-
-        return logger;
+            return -1;
+        }
+        
+        return 0;
     }
 
     audit_logger::audit_logger(const LOG_MODE mode, std::string_view log_file_path) : mode(mode),
                                                                                       log_file_path(log_file_path)
     {
-    }
-
-    audit_logger::audit_logger(audit_logger &&old) : initialized(old.initialized),
-                                                     mode(old.mode),
-                                                     log_file_path(old.log_file_path),
-                                                     fd(old.fd),
-                                                     eof(old.eof),
-                                                     header(std::move(old.header)),
-                                                     session_lock(std::move(old.session_lock))
-    {
-        old.moved = true;
     }
 
     int audit_logger::init()
