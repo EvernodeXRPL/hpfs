@@ -7,6 +7,7 @@
 namespace hpfs::merger
 {
     int init();
+    void deinit();
     void signal_handler(int signum);
     void merger_loop();
     int merge_log_front();

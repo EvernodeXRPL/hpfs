@@ -6,16 +6,10 @@
 
 namespace hpfs
 {
-    // Reserved inode numbers for hpfs.
-    constexpr ino_t SESSION_METAFILE_INO = 1; // Session metafile inode.
-    constexpr ino_t ROOT_INO = 2;             // Filesystem root inode
-
     enum RUN_MODE
     {
-        RO,
-        RW,
-        MERGE,
-        RDLOG
+        FS,    // rw/ro filesystem sessions.
+        RDLOG  // Log printing.
     };
 
     enum TRACE_LEVEL
@@ -31,13 +25,13 @@ namespace hpfs
     {
         RUN_MODE run_mode;
         TRACE_LEVEL trace_level;
+        bool merge_enabled;
         std::string fs_dir;
         std::string seed_dir;
         std::string mount_dir;
         std::string hmap_dir;
         std::string trace_dir;
         std::string log_file_path;
-        bool hmap_enabled;
         struct stat default_stat; // Stat used as a base stat for virtual entries.
     };
     extern hpfs_context ctx;

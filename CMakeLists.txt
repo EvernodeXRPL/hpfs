@@ -17,6 +17,7 @@ add_executable(hpfs
     src/hmap/query.cpp
     src/hmap/store.cpp
     src/hmap/tree.cpp
+    src/inodes.cpp
     src/util.cpp
     src/tracelog.cpp
     src/audit.cpp

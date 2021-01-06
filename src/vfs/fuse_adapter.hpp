@@ -1,6 +1,7 @@
 #ifndef _HPFS_VFS_FUSE_ADAPTER_
 #define _HPFS_VFS_FUSE_ADAPTER_
 
+#include <shared_mutex>
 #include "virtual_filesystem.hpp"
 #include "../hmap/tree.hpp"
 #include "../audit.hpp"
@@ -14,6 +15,7 @@ namespace hpfs::vfs
         virtual_filesystem &virt_fs;
         hpfs::audit::audit_logger &logger;
         std::optional<hpfs::hmap::tree::hmap_tree> &htree;
+        std::shared_mutex fs_mutex;
 
     private:
         int delete_entry(const std::string &to_vpath, const bool is_dir);

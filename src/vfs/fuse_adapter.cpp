@@ -11,6 +11,9 @@
  * Bridge between fuse interface and the hpfs virtual filesystem interface.
  */
 
+#define FS_READ_LOCK std::shared_lock lock(fs_mutex);
+#define FS_WRITE_LOCK std::unique_lock lock(fs_mutex);
+
 namespace hpfs::vfs
 {
     fuse_adapter::fuse_adapter(const bool readonly, virtual_filesystem &virt_fs,
@@ -24,6 +27,8 @@ namespace hpfs::vfs
 
     int fuse_adapter::getattr(const std::string &vpath, struct stat *stbuf)
     {
+        FS_READ_LOCK
+
         vfs::vnode *vn;
         if (virt_fs.get_vnode(vpath, &vn) == -1)
             return -1;
@@ -36,6 +41,8 @@ namespace hpfs::vfs
 
     int fuse_adapter::readdir(const std::string &vpath, vfs::vdir_children_map &children)
     {
+        FS_READ_LOCK
+
         vfs::vnode *vn;
         if (virt_fs.get_vnode(vpath, &vn) == -1)
             return -1;
@@ -51,6 +58,8 @@ namespace hpfs::vfs
     {
         if (readonly)
             return -EACCES;
+
+        FS_WRITE_LOCK
 
         vfs::vnode *vn;
         if (virt_fs.get_vnode(vpath, &vn) == -1)
@@ -75,6 +84,8 @@ namespace hpfs::vfs
         if (readonly)
             return -EACCES;
 
+        FS_WRITE_LOCK
+
         vfs::vnode *vn;
         if (virt_fs.get_vnode(vpath, &vn) == -1)
             return -1;
@@ -96,6 +107,8 @@ namespace hpfs::vfs
     {
         if (readonly)
             return -EACCES;
+
+        FS_WRITE_LOCK
 
         // Fail if 'from' does not exist.
         vfs::vnode *vn_from;
@@ -172,6 +185,8 @@ namespace hpfs::vfs
         if (readonly)
             return -EACCES;
 
+        FS_WRITE_LOCK
+
         vfs::vnode *vn;
         if (virt_fs.get_vnode(vpath, &vn) == -1)
             return -1;
@@ -188,6 +203,8 @@ namespace hpfs::vfs
     {
         if (readonly)
             return -EACCES;
+
+        FS_WRITE_LOCK
 
         vfs::vnode *vn;
         if (virt_fs.get_vnode(vpath, &vn) == -1)
@@ -209,6 +226,8 @@ namespace hpfs::vfs
 
     int fuse_adapter::read(const std::string &vpath, char *buf, const size_t size, const off_t offset)
     {
+        FS_READ_LOCK
+
         vfs::vnode *vn;
         if (virt_fs.get_vnode(vpath, &vn) == -1)
             return -1;
@@ -231,6 +250,8 @@ namespace hpfs::vfs
     {
         if (readonly)
             return -EACCES;
+
+        FS_WRITE_LOCK
 
         vfs::vnode *vn;
         if (virt_fs.get_vnode(vpath, &vn) == -1)
@@ -265,6 +286,8 @@ namespace hpfs::vfs
     {
         if (readonly)
             return -EACCES;
+
+        FS_WRITE_LOCK
 
         vfs::vnode *vn;
         if (virt_fs.get_vnode(vpath, &vn) == -1)

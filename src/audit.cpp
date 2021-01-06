@@ -18,29 +18,21 @@ namespace hpfs::audit
     constexpr int FILE_PERMS = 0644;
     constexpr uint16_t HPFS_VERSION = 1;
 
-    std::optional<audit_logger> audit_logger::create(const hpfs::RUN_MODE run_mode, std::string_view log_file_path)
+    int audit_logger::create(std::optional<audit_logger> &logger, const LOG_MODE mode, std::string_view log_file_path)
     {
-        std::optional<audit_logger> logger = std::optional<audit_logger>(audit_logger(run_mode, log_file_path));
+        logger.emplace(mode, log_file_path);
         if (logger->init() == -1)
+        {
             logger.reset();
-
-        return logger;
+            return -1;
+        }
+        
+        return 0;
     }
 
-    audit_logger::audit_logger(const hpfs::RUN_MODE run_mode, std::string_view log_file_path) : run_mode(run_mode),
-                                                                                                log_file_path(log_file_path)
+    audit_logger::audit_logger(const LOG_MODE mode, std::string_view log_file_path) : mode(mode),
+                                                                                      log_file_path(log_file_path)
     {
-    }
-
-    audit_logger::audit_logger(audit_logger &&old) : initialized(old.initialized),
-                                                     run_mode(old.run_mode),
-                                                     log_file_path(old.log_file_path),
-                                                     fd(old.fd),
-                                                     eof(old.eof),
-                                                     header(std::move(old.header)),
-                                                     session_lock(std::move(old.session_lock))
-    {
-        old.moved = true;
     }
 
     int audit_logger::init()
@@ -56,7 +48,7 @@ namespace hpfs::audit
 
         // RW sessions acquire a read lock on first byte of the log file.
         // This is to prevent merge operation from running when any RO/RW sessions are live.
-        if ((run_mode == hpfs::RUN_MODE::RW || run_mode == hpfs::RUN_MODE::RO) &&
+        if ((mode == LOG_MODE::RW || mode == LOG_MODE::RO) &&
             set_lock(session_lock, LOCK_TYPE::SESSION_LOCK) == -1)
         {
             close(fd);
@@ -230,8 +222,8 @@ namespace hpfs::audit
      * Append the new log record at the end of the log file
      * @return Returns the offset at the start of the new log record. 0 if error.
     */
-    off_t audit_logger::append_log(log_record_header& rh, std::string_view vpath, const FS_OPERATION operation, const iovec *payload_buf,
-                                 const iovec *block_bufs, const int block_buf_count)
+    off_t audit_logger::append_log(log_record_header &rh, std::string_view vpath, const FS_OPERATION operation, const iovec *payload_buf,
+                                   const iovec *block_bufs, const int block_buf_count)
     {
         rh = {};
         rh.timestamp = util::epoch();
@@ -256,8 +248,8 @@ namespace hpfs::audit
 
         // Log record buffer collection that will be written to the file.
         std::vector<iovec> record_bufs;
-        record_bufs.push_back({&rh, sizeof(rh)}); // Header
-        record_bufs.push_back({(void *)vpath.data(), vpath.length()});          // Vpath
+        record_bufs.push_back({&rh, sizeof(rh)});                      // Header
+        record_bufs.push_back({(void *)vpath.data(), vpath.length()}); // Vpath
 
         if (payload_buf)
             record_bufs.push_back(*payload_buf);
@@ -452,7 +444,7 @@ namespace hpfs::audit
         if (initialized && !moved)
         {
             // In ReadWrite session, mark the eof offset as last checkpoint (if there are records).
-            if (run_mode == hpfs::RUN_MODE::RW && eof > header.last_checkpoint && header.last_record > 0)
+            if (mode == LOG_MODE::RW && eof > header.last_checkpoint && header.last_record > 0)
             {
                 header.last_checkpoint = eof;
 
@@ -464,8 +456,8 @@ namespace hpfs::audit
                 }
             }
 
-            if (run_mode == hpfs::RUN_MODE::RW ||
-                run_mode == hpfs::RUN_MODE::RO)
+            if (mode == LOG_MODE::RW ||
+                mode == LOG_MODE::RO)
                 release_lock(session_lock);
 
             close(fd);

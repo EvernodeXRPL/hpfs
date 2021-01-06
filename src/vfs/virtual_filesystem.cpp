@@ -13,19 +13,24 @@
 #include "vfs.hpp"
 #include "virtual_filesystem.hpp"
 #include "../audit.hpp"
+#include "../inodes.hpp"
 #include "../util.hpp"
 #include "../tracelog.hpp"
 
 namespace hpfs::vfs
 {
-    std::optional<virtual_filesystem> virtual_filesystem::create(const bool readonly, std::string_view seed_dir,
-                                                                 hpfs::audit::audit_logger &logger)
-    {
-        std::optional<virtual_filesystem> virt_fs = std::optional<virtual_filesystem>(virtual_filesystem(readonly, seed_dir, logger));
-        if (virt_fs->init() == -1)
-            virt_fs.reset();
 
-        return virt_fs;
+    int virtual_filesystem::create(std::optional<virtual_filesystem> &virt_fs, const bool readonly, std::string_view seed_dir,
+                                   hpfs::audit::audit_logger &logger)
+    {
+        virt_fs.emplace(readonly, seed_dir, logger);
+        if (virt_fs->init() == -1)
+        {
+            virt_fs.reset();
+            return -1;
+        }
+
+        return 0;
     }
 
     virtual_filesystem::virtual_filesystem(const bool readonly,
@@ -35,19 +40,6 @@ namespace hpfs::vfs
                                                                                 seed_paths(seed_dir),
                                                                                 logger(logger)
     {
-    }
-
-    virtual_filesystem::virtual_filesystem(virtual_filesystem &&old) : initialized(old.initialized),
-                                                                       readonly(old.readonly),
-                                                                       seed_dir(old.seed_dir),
-                                                                       next_ino(old.next_ino),
-                                                                       vnodes(std::move(old.vnodes)),
-                                                                       seed_paths(std::move(old.seed_paths)),
-                                                                       logger(old.logger),
-                                                                       last_checkpoint(old.last_checkpoint),
-                                                                       log_scanned_upto(old.log_scanned_upto)
-    {
-        old.moved = true;
     }
 
     int virtual_filesystem::init()
@@ -65,11 +57,14 @@ namespace hpfs::vfs
         }
 
         initialized = true;
+        LOG_DEBUG << "VFS init complete.";
         return 0;
     }
 
     int virtual_filesystem::get_vnode(const std::string &vpath_ori, vnode **vn)
     {
+        std::scoped_lock lock(vnodes_mutex);
+
         const std::string &vpath = (vpath_ori.front() == '/' &&
                                     vpath_ori.find_first_not_of('/') == std::string::npos)
                                        ? "/"
@@ -91,7 +86,7 @@ namespace hpfs::vfs
     {
         vnode vn;
         vn.st = ctx.default_stat;
-        vn.st.st_ino = vn.ino = next_ino++;
+        vn.st.st_ino = vn.ino = inodes::next();
 
         auto [iter, success] = vnodes.try_emplace(vpath, std::move(vn));
         vnode_iter = iter;
@@ -117,7 +112,7 @@ namespace hpfs::vfs
         {
             vnode vn;
             vn.st = st;
-            vn.st.st_ino = vn.ino = next_ino++;
+            vn.st.st_ino = vn.ino = inodes::next();
 
             if (S_ISREG(st.st_mode)) // is file.
             {

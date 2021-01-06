@@ -30,14 +30,7 @@ namespace hpfs::vfs
     seed_path_tracker::seed_path_tracker(std::string_view seed_dir) : seed_dir(seed_dir)
     {
     }
-
-    seed_path_tracker::seed_path_tracker(seed_path_tracker &&old) : seed_dir(old.seed_dir),
-                                                                    renamed_seed_paths(std::move(old.renamed_seed_paths)),
-                                                                    deleted_seed_paths(std::move(old.deleted_seed_paths))
-    {
-        old.moved = true;
-    }
-
+    
     /**
      * Returns whether the specified subpath is an ancestor of the specified full path.
      */

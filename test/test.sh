@@ -2,9 +2,10 @@
 # Test script to test hpfs filesystem operations.
 # Usage: ./test.sh
 
-fsdir=./testrun/fs
-rwdir=./testrun/rw
-rodir=./testrun/ro
+fsdir=./testrun
+mntdir=./testrun/mnt
+rwdir=./testrun/mnt/rw
+rodir=./testrun/mnt/ro
 hpfs=../build/hpfs
 trace=none
 
@@ -14,20 +15,16 @@ mkdir -p $fsdir/seed > /dev/null 2>&1
 echo "Create a seed text file with random text."
 tr -dc A-Za-z0-9 </dev/urandom | head -c 10240 > $fsdir/seed/sample.txt
 
-echo "Start MERGE session."
-./$hpfs merge $fsdir trace=$trace &
-pid_merge=$!
+echo "Start hpfs process with merge support."
+./$hpfs fs $fsdir $mntdir merge=true trace=$trace &
+pid=$!
 sleep 1
 
-echo "Start RW session."
-./$hpfs rw $fsdir $rwdir hmap=true trace=$trace &
-pid_rw=$!
+echo "Start RW session with hash map enabled."
+touch $mntdir/::hpfs.rw.hmap
 
 echo "Start RO session 1."
-./$hpfs ro $fsdir $rodir hmap=true trace=$trace &
-pid_ro=$!
-
-sleep 1
+touch $mntdir/::hpfs.ro.hmap.ro
 
 echo "Perform some filesystem operations on the RW session."
 mkdir $rwdir/dir1
@@ -38,34 +35,34 @@ truncate -s 100K $rwdir/dir2_renamed/copied.txt
 rmdir $rwdir/dir1
 rm $rwdir/sample.txt
 
-echo "Read from RO session before RW session is killed."
+echo "Read from RO session before RW session is ended."
 echo "RO session 1: Read from sample.txt"
 head -c 10 $rodir/sample.txt
 echo ""
 
-kill $pid_rw
+echo "Stop RW session."
+rm $mntdir/::hpfs.rw.hmap
 
-echo "Read from RO session after RW session is killed."
+echo "Read from RO session after RW session is ended."
 echo "RO session 1: Read from sample.txt"
 head -c 10 $rodir/sample.txt
 echo ""
 
-kill $pid_ro
-sleep 1
+echo "Stop RO session 1."
+rm $mntdir/::hpfs.ro.hmap.ro
 
 echo "Start RO session 2."
-./$hpfs ro $fsdir $rodir hmap=true trace=$trace &
-pid_ro=$!
-sleep 1
+touch $mntdir/::hpfs.ro.hmap.ro
 
 echo "Read from RO session 2."
 echo "RO session 2: Check for now-deleted sample.txt"
 stat $rodir/sample.txt
 
-kill $pid_ro
+echo "Stop RO session 2."
+rm $mntdir/::hpfs.ro.hmap.ro
 
 sleep 1
-kill $pid_merge
+kill $pid
 sleep 1
 
 echo "Verify whether operations are merged to seed."
