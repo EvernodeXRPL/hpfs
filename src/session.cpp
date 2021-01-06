@@ -143,13 +143,9 @@ namespace hpfs::session
             const auto itr = sessions.find(args.name);
             if (itr != sessions.end())
             {
-                const fs_session &session = itr->second;
-                if (session.readonly == args.readonly && session.hmap_enabled == args.hmap_enabled)
-                {
-                    sessions.erase(itr);
-                    LOG_INFO << (args.readonly ? "RO" : "RW") << " session '" << args.name << "' stopped.";
-                    return 0;
-                }
+                sessions.erase(itr);
+                LOG_INFO << (args.readonly ? "RO" : "RW") << " session '" << args.name << "' stopped.";
+                return 0;
             }
 
             return -ENOENT;
