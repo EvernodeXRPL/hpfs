@@ -110,7 +110,7 @@ namespace util
 
         return 0;
     }
-    
+
     void uint32_to_bytes(uint8_t *dest, const uint32_t x)
     {
         dest[0] = (uint8_t)((x >> 24) & 0xff);
@@ -125,6 +125,30 @@ namespace util
                ((uint32_t)data[1] << 16) +
                ((uint32_t)data[2] << 8) +
                ((uint32_t)data[3]);
+    }
+
+    void uint64_to_bytes(uint8_t *dest, const uint64_t x)
+    {
+        dest[0] = (uint8_t)((x >> 56) & 0xff);
+        dest[1] = (uint8_t)((x >> 48) & 0xff);
+        dest[2] = (uint8_t)((x >> 40) & 0xff);
+        dest[3] = (uint8_t)((x >> 32) & 0xff);
+        dest[4] = (uint8_t)((x >> 24) & 0xff);
+        dest[5] = (uint8_t)((x >> 16) & 0xff);
+        dest[6] = (uint8_t)((x >> 8) & 0xff);
+        dest[7] = (uint8_t)((x >> 0) & 0xff);
+    }
+
+    uint64_t uint64_from_bytes(const uint8_t *data)
+    {
+        return ((uint64_t)data[0] << 56) +
+               ((uint64_t)data[1] << 48) +
+               ((uint64_t)data[2] << 40) +
+               ((uint64_t)data[3] << 32) +
+               ((uint64_t)data[4] << 24) +
+               ((uint64_t)data[5] << 16) +
+               ((uint64_t)data[6] << 8) +
+               ((uint64_t)data[7]);
     }
 
 } // namespace util

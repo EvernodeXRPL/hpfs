@@ -48,14 +48,7 @@ namespace hpfs::hmap::hasher
 
         return output;
     }
-
-    void hash_uint32(h32 &hash, const uint32_t val)
-    {
-        uint8_t buf[4];
-        util::uint32_to_bytes(buf, val);
-        hash_buf(hash, std::string_view((const char *)buf, 4));
-    }
-
+    
     void hash_buf(h32 &hash, std::string_view sv)
     {
         // Initialize the hasher.

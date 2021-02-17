@@ -276,8 +276,12 @@ namespace hpfs::hmap::tree
             // Calculate the new block hash.
             const void *read_buf = (uint8_t *)vn.mmap.ptr + block_offset;
             const int read_len = MIN(BLOCK_SIZE, (file_size - block_offset));
+
+            uint8_t block_offset_buf[8];
+            util::uint64_to_bytes(block_offset_buf, block_offset);
+
             hasher::h32 block_hash;
-            hasher::hash_buf(block_hash, &block_offset, sizeof(off_t), read_buf, read_len);
+            hasher::hash_buf(block_hash, block_offset_buf, sizeof(block_offset_buf), read_buf, read_len);
 
             node_hmap.block_hashes[block_id] = block_hash;
         }
@@ -361,8 +365,9 @@ namespace hpfs::hmap::tree
 
     void hmap_tree::generate_meta_hash(store::vnode_hmap &vn_hmap, const vfs::vnode &vn)
     {
-        std::cout << vn.st.st_mode << "    mode==========\n";
-        hasher::hash_uint32(vn_hmap.meta_hash, vn.st.st_mode);
+        uint8_t buf[4];
+        util::uint32_to_bytes(buf, vn.st.st_mode);
+        hasher::hash_buf(vn_hmap.meta_hash, std::string_view((const char *)buf, sizeof(buf)));
     }
 
     hmap_tree::~hmap_tree()
