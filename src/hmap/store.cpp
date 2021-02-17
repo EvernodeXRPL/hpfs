@@ -108,12 +108,13 @@ namespace hpfs::hmap::store
 
         const uint8_t is_file = node_hmap.is_file ? 1 : 0;
 
-        iovec memsegs[4] = {{(void *)&is_file, sizeof(is_file)},
+        iovec memsegs[5] = {{(void *)&is_file, sizeof(is_file)},
                             {(void *)&node_hmap.node_hash, sizeof(hasher::h32)},
                             {(void *)&node_hmap.name_hash, sizeof(hasher::h32)},
+                            {(void *)&node_hmap.meta_hash, sizeof(hasher::h32)},
                             {(void *)node_hmap.block_hashes.data(), sizeof(hasher::h32) * node_hmap.block_hashes.size()}};
 
-        if (writev(fd, memsegs, 4) == -1)
+        if (writev(fd, memsegs, 5) == -1)
         {
             LOG_ERROR << errno << ": Error in persist hmap writev. " << filename;
             close(fd);
@@ -152,18 +153,19 @@ namespace hpfs::hmap::store
 
         const size_t file_size = st.st_size;
 
-        // 65 bytes are taken for the is_file flag, node hash and name hash.
+        // 97 bytes are taken for the is_file flag, node hash, name hash and meta hash.
         // Rest of the bytes are block hashes.
-        const uint32_t block_count = (file_size - 65) / sizeof(hasher::h32);
+        const uint32_t block_count = (file_size - 97) / sizeof(hasher::h32);
         node_hmap.block_hashes.resize(block_count);
         uint8_t is_file = 0;
 
-        iovec memsegs[4] = {{(void *)&is_file, sizeof(is_file)},
+        iovec memsegs[5] = {{(void *)&is_file, sizeof(is_file)},
                             {(void *)&node_hmap.node_hash, sizeof(hasher::h32)},
                             {(void *)&node_hmap.name_hash, sizeof(hasher::h32)},
+                            {(void *)&node_hmap.meta_hash, sizeof(hasher::h32)},
                             {(void *)node_hmap.block_hashes.data(), sizeof(hasher::h32) * node_hmap.block_hashes.size()}};
 
-        if (readv(fd, memsegs, 4) == -1)
+        if (readv(fd, memsegs, 5) == -1)
         {
             close(fd);
             LOG_ERROR << errno << ": Error in hmap cache file readv. " << cache_filename;
