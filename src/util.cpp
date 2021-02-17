@@ -111,7 +111,7 @@ namespace util
         return 0;
     }
     
-    void uint32_to_bytes(uint8_t *dest, uint32_t x)
+    void uint32_to_bytes(uint8_t *dest, const uint32_t x)
     {
         dest[0] = (uint8_t)((x >> 24) & 0xff);
         dest[1] = (uint8_t)((x >> 16) & 0xff);
@@ -119,7 +119,7 @@ namespace util
         dest[3] = (uint8_t)((x >> 0) & 0xff);
     }
 
-    uint32_t uint32_from_bytes(uint8_t *data)
+    uint32_t uint32_from_bytes(const uint8_t *data)
     {
         return ((uint32_t)data[0] << 24) +
                ((uint32_t)data[1] << 16) +
