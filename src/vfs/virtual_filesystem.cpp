@@ -310,6 +310,10 @@ namespace hpfs::vfs
 
             break;
         }
+
+        case hpfs::audit::FS_OPERATION::CHMOD:
+            vn.st.st_mode = (S_ISREG(vn.st.st_mode) ? S_IFREG : S_IFDIR) | *(mode_t *)payload.data();
+            break;
         }
 
         return 0;

@@ -19,6 +19,8 @@ namespace hpfs::hmap::tree
         store::hmap_store store;
         hpfs::vfs::virtual_filesystem &virt_fs;
         int init();
+        void generate_name_hash(store::vnode_hmap &vn_hmap, std::string_view vpath);
+        void generate_meta_hash(store::vnode_hmap &vn_hmap, const vfs::vnode &vn);
 
     public:
         static int create(std::optional<hmap_tree> &tree, hpfs::vfs::virtual_filesystem &virt_fs);
@@ -28,8 +30,9 @@ namespace hpfs::hmap::tree
         int calculate_file_hash(hasher::h32 &node_hash, const std::string &vpath);
         void propogate_hash_update(const std::string &vpath, const hasher::h32 &old_hash, const hasher::h32 &new_hash);
         int apply_vnode_create(const std::string &vpath);
-        int apply_vnode_update(const std::string &vpath, const vfs::vnode &vn,
-                               const off_t file_update_offset, const size_t file_update_size);
+        int apply_vnode_metadata_update(const std::string &vpath, const vfs::vnode &vn);
+        int apply_vnode_data_update(const std::string &vpath, const vfs::vnode &vn,
+                                    const off_t file_update_offset, const size_t file_update_size);
         int apply_file_data_update(store::vnode_hmap &node_hmap, const vfs::vnode &vn,
                                    const off_t update_offset, const size_t update_size);
         int apply_vnode_delete(const std::string &vpath);

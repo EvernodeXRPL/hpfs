@@ -232,6 +232,17 @@ namespace hpfs::merger
             }
             break;
         }
+
+        case hpfs::audit::FS_OPERATION::CHMOD:
+        {
+            const mode_t mode = *(mode_t *)payload.data();
+            if (chmod(seed_path, mode) == -1)
+            {
+                LOG_ERROR << errno << ": Error in log merge chmod. " << seed_path;
+                return -1;
+            }
+            break;
+        }
         }
 
         LOG_DEBUG << "Merge record complete.";

@@ -21,9 +21,10 @@ namespace hpfs::hmap::hasher
     extern h32 h32_empty;
 
     std::ostream &operator<<(std::ostream &output, const h32 &h);
+    void hash_uint32(h32 &hash, const uint32_t val);
     void hash_buf(h32 &hash, std::string_view sv);
     void hash_buf(h32 &hash, const void *buf1, const size_t len1, const void *buf2, const size_t len2);
 
-} // namespace hmap
+} // namespace hpfs::hmap::hasher
 
 #endif
