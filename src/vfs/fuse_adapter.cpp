@@ -29,7 +29,7 @@ namespace hpfs::vfs
     {
         FS_READ_LOCK
 
-        vfs::vnode *vn;
+        vfs::vnode *vn = NULL;
         if (virt_fs.get_vnode(vpath, &vn) == -1)
             return -1;
         if (!vn)
@@ -43,7 +43,7 @@ namespace hpfs::vfs
     {
         FS_READ_LOCK
 
-        vfs::vnode *vn;
+        vfs::vnode *vn = NULL;
         if (virt_fs.get_vnode(vpath, &vn) == -1)
             return -1;
         if (!vn)
@@ -61,7 +61,7 @@ namespace hpfs::vfs
 
         FS_WRITE_LOCK
 
-        vfs::vnode *vn;
+        vfs::vnode *vn = NULL;
         if (virt_fs.get_vnode(vpath, &vn) == -1)
             return -1;
         if (vn)
@@ -86,7 +86,7 @@ namespace hpfs::vfs
 
         FS_WRITE_LOCK
 
-        vfs::vnode *vn;
+        vfs::vnode *vn = NULL;
         if (virt_fs.get_vnode(vpath, &vn) == -1)
             return -1;
         if (!vn)
@@ -187,7 +187,7 @@ namespace hpfs::vfs
 
         FS_WRITE_LOCK
 
-        vfs::vnode *vn;
+        vfs::vnode *vn = NULL;
         if (virt_fs.get_vnode(vpath, &vn) == -1)
             return -1;
         if (!vn)
@@ -206,7 +206,7 @@ namespace hpfs::vfs
 
         FS_WRITE_LOCK
 
-        vfs::vnode *vn;
+        vfs::vnode *vn = NULL;
         if (virt_fs.get_vnode(vpath, &vn) == -1)
             return -1;
         if (vn)
@@ -228,7 +228,7 @@ namespace hpfs::vfs
     {
         FS_READ_LOCK
 
-        vfs::vnode *vn;
+        vfs::vnode *vn = NULL;
         if (virt_fs.get_vnode(vpath, &vn) == -1)
             return -1;
         if (!vn)
@@ -253,7 +253,7 @@ namespace hpfs::vfs
 
         FS_WRITE_LOCK
 
-        vfs::vnode *vn;
+        vfs::vnode *vn = NULL;
         if (virt_fs.get_vnode(vpath, &vn) == -1)
             return -1;
         if (!vn)
@@ -275,7 +275,7 @@ namespace hpfs::vfs
                                                        block_buf_segs.data(), block_buf_segs.size());
         if (log_rec_start_offset == 0 ||
             virt_fs.build_vfs() == -1 ||
-            (htree && htree->apply_vnode_update(vpath, *vn, wr_start, wr_size) == -1) ||
+            (htree && htree->apply_vnode_data_update(vpath, *vn, wr_start, wr_size) == -1) ||
             (htree && logger.update_log_record(log_rec_start_offset, htree->get_root_hash(), rh) == -1))
             return -1;
 
@@ -289,7 +289,7 @@ namespace hpfs::vfs
 
         FS_WRITE_LOCK
 
-        vfs::vnode *vn;
+        vfs::vnode *vn = NULL;
         if (virt_fs.get_vnode(vpath, &vn) == -1)
             return -1;
         if (!vn)
@@ -321,9 +321,34 @@ namespace hpfs::vfs
                                                        block_buf_segs.data(), block_buf_segs.size());
         if (log_rec_start_offset == 0 ||
             virt_fs.build_vfs() == -1 ||
-            (htree && htree->apply_vnode_update(vpath, *vn,
+            (htree && htree->apply_vnode_data_update(vpath, *vn,
                                                 MIN(new_size, current_size),
                                                 MAX(0, new_size - current_size)) == -1) ||
+            (htree && logger.update_log_record(log_rec_start_offset, htree->get_root_hash(), rh) == -1))
+            return -1;
+
+        return 0;
+    }
+
+    int fuse_adapter::chmod(const std::string &vpath, mode_t mode)
+    {
+        if (readonly)
+            return -EACCES;
+
+        FS_WRITE_LOCK
+
+        vfs::vnode *vn = NULL;
+        if (virt_fs.get_vnode(vpath, &vn) == -1)
+            return -1;
+        if (!vn)
+            return -ENOENT;
+
+        audit::log_record_header rh;
+        iovec payload{&mode, sizeof(mode)};
+        off_t log_rec_start_offset = logger.append_log(rh, vpath, hpfs::audit::FS_OPERATION::CHMOD, &payload);
+        if (log_rec_start_offset == 0 ||
+            virt_fs.build_vfs() == -1 ||
+            (htree && htree->apply_vnode_metadata_update(vpath, *vn) == -1) ||
             (htree && logger.update_log_record(log_rec_start_offset, htree->get_root_hash(), rh) == -1))
             return -1;
 

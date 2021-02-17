@@ -23,6 +23,8 @@ namespace util
     const std::string get_name(std::string_view path);
     const std::string get_parent_path(std::string_view path);
     int create_dir_tree_recursive(std::string_view path);
+    void uint32_to_bytes(uint8_t *dest, uint32_t x);
+    uint32_t uint32_from_bytes(uint8_t *data);
 
 } // namespace util
 

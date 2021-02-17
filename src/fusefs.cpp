@@ -215,7 +215,9 @@ namespace hpfs::fusefs
     int fs_chmod(const char *full_path, mode_t mode,
                  struct fuse_file_info *fi)
     {
-        return 0;
+        const auto &[sess_name, res_path] = session::split_path(full_path);
+        CHECK_SESSION(sess_name);
+        return sess->fuse_adapter->chmod(res_path, mode);
     }
 
     int fs_chown(const char *full_path, uid_t uid, gid_t gid,

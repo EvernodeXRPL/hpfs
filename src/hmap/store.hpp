@@ -14,6 +14,7 @@ namespace hpfs::hmap::store
         bool is_file;
         hasher::h32 node_hash;                 // Overall hash of this vnode.
         hasher::h32 name_hash;                 // Name hash.
+        hasher::h32 meta_hash;                 // Metadata (mode) hash.
         std::vector<hasher::h32> block_hashes; // Only relevant for files.
     };
 

@@ -71,6 +71,13 @@ namespace hpfs::hmap::tree
 
     int hmap_tree::calculate_dir_hash(hasher::h32 &node_hash, const std::string &vpath)
     {
+        vfs::vnode *vn = NULL;
+        if (vpath != ROOT_VPATH && (virt_fs.get_vnode(vpath, &vn) == -1 || !vn))
+        {
+            LOG_ERROR << "File hash calc failure in vfs vnode get. " << vpath;
+            return -1;
+        }
+
         vfs::vdir_children_map dir_children;
         if (virt_fs.get_dir_children(vpath.c_str(), dir_children) == -1)
         {
@@ -80,8 +87,14 @@ namespace hpfs::hmap::tree
 
         // Initialize dir hash with the dir name hash.
         store::vnode_hmap dir_hmap{false};
-        hash_buf(dir_hmap.name_hash, util::get_name(vpath));
+        generate_name_hash(dir_hmap, vpath);
+        if (vn)
+            generate_meta_hash(dir_hmap, *vn);
+        else
+            dir_hmap.meta_hash = hasher::h32_empty;
+
         dir_hmap.node_hash = dir_hmap.name_hash;
+        dir_hmap.node_hash ^= dir_hmap.meta_hash;
 
         for (const auto &[child_name, st] : dir_children)
         {
@@ -110,7 +123,7 @@ namespace hpfs::hmap::tree
 
     int hmap_tree::calculate_file_hash(hasher::h32 &node_hash, const std::string &vpath)
     {
-        vfs::vnode *vn;
+        vfs::vnode *vn = NULL;
         if (virt_fs.get_vnode(vpath, &vn) == -1 || !vn)
         {
             LOG_ERROR << "File hash calc failure in vfs vnode get. " << vpath;
@@ -118,7 +131,8 @@ namespace hpfs::hmap::tree
         }
 
         store::vnode_hmap file_hmap{true};
-        hash_buf(file_hmap.name_hash, util::get_name(vpath));                // Name hash.
+        generate_name_hash(file_hmap, vpath);                                // Name hash.
+        generate_meta_hash(file_hmap, *vn);                                  // Meta hash.
         if (apply_file_data_update(file_hmap, *vn, 0, vn->st.st_size) == -1) // File hash.
         {
             LOG_ERROR << "File hash calc failure in applying file data update. " << vpath;
@@ -153,26 +167,54 @@ namespace hpfs::hmap::tree
 
     int hmap_tree::apply_vnode_create(const std::string &vpath)
     {
-        vfs::vnode *vn;
+        vfs::vnode *vn = NULL;
         if (virt_fs.get_vnode(vpath, &vn) == -1 || !vn)
             return -1;
 
         const bool is_file = S_ISREG(vn->st.st_mode);
 
-        // Initial node hash is the name hash.
-        hasher::h32 hash;
-        hash_buf(hash, util::get_name(vpath));
-        store.insert_hash_map(vpath, store::vnode_hmap{is_file, hash, hash});
+        // Initial node hash is the name+meta hash.
+        store::vnode_hmap vn_hmap{is_file};
+        generate_name_hash(vn_hmap, vpath);
+        generate_meta_hash(vn_hmap, *vn);
+        vn_hmap.node_hash = vn_hmap.name_hash;
+        vn_hmap.node_hash ^= vn_hmap.meta_hash;
+
+        hasher::h32 new_node_hash = vn_hmap.node_hash;
+        store.insert_hash_map(vpath, std::move(vn_hmap));
         store.set_dirty(vpath);
 
-        propogate_hash_update(vpath, hasher::h32_empty, hash);
+        propogate_hash_update(vpath, hasher::h32_empty, new_node_hash);
         PRINT_ROOT_HASH
 
         return 0;
     }
 
-    int hmap_tree::apply_vnode_update(const std::string &vpath, const vfs::vnode &vn,
-                                      const off_t file_update_offset, const size_t file_update_size)
+    int hmap_tree::apply_vnode_metadata_update(const std::string &vpath, const vfs::vnode &vn)
+    {
+        store::vnode_hmap *hmap_entry = store.find_hash_map(vpath);
+        if (hmap_entry == NULL)
+        {
+            LOG_ERROR << "Hash calc vnode update apply failed. No hmap entry. " << vpath;
+            return -1;
+        }
+
+        store::vnode_hmap &node_hmap = *hmap_entry;
+        const hasher::h32 old_hash = node_hmap.node_hash; // Remember old hash before we modify.
+
+        node_hmap.node_hash ^= node_hmap.meta_hash;
+        generate_meta_hash(node_hmap, vn);
+        node_hmap.node_hash ^= node_hmap.meta_hash;
+        store.set_dirty(vpath);
+
+        propogate_hash_update(vpath, old_hash, node_hmap.node_hash);
+        PRINT_ROOT_HASH
+
+        return 0;
+    }
+
+    int hmap_tree::apply_vnode_data_update(const std::string &vpath, const vfs::vnode &vn,
+                                           const off_t file_update_offset, const size_t file_update_size)
     {
         store::vnode_hmap *hmap_entry = store.find_hash_map(vpath);
         if (hmap_entry == NULL)
@@ -218,8 +260,9 @@ namespace hpfs::hmap::tree
         // Resize the block hashes list according to current file size.
         node_hmap.block_hashes.resize(required_block_count);
 
-        // Reset file hash with name hash.
+        // Reset file hash with name and meta hash.
         node_hmap.node_hash = node_hmap.name_hash;
+        node_hmap.node_hash ^= node_hmap.meta_hash;
 
         const off_t update_end_offset = update_offset + update_size;
 
@@ -234,7 +277,7 @@ namespace hpfs::hmap::tree
             const void *read_buf = (uint8_t *)vn.mmap.ptr + block_offset;
             const int read_len = MIN(BLOCK_SIZE, (file_size - block_offset));
             hasher::h32 block_hash;
-            hash_buf(block_hash, &block_offset, sizeof(off_t), read_buf, read_len);
+            hasher::hash_buf(block_hash, &block_offset, sizeof(off_t), read_buf, read_len);
 
             node_hmap.block_hashes[block_id] = block_hash;
         }
@@ -288,7 +331,7 @@ namespace hpfs::hmap::tree
 
         // Update the node hash for the new vpath name.
         node_hmap.node_hash ^= node_hmap.name_hash; // XOR old name hash.
-        hash_buf(node_hmap.name_hash, util::get_name(to_vpath));
+        generate_name_hash(node_hmap, to_vpath);
         node_hmap.node_hash ^= node_hmap.name_hash; // XOR new name hash.
 
         // Update hash map with new node hash.
@@ -309,6 +352,17 @@ namespace hpfs::hmap::tree
             return hmap::hasher::h32_empty;
         }
         return node_hmap->node_hash;
+    }
+
+    void hmap_tree::generate_name_hash(store::vnode_hmap &vn_hmap, std::string_view vpath)
+    {
+        hasher::hash_buf(vn_hmap.name_hash, util::get_name(vpath));
+    }
+
+    void hmap_tree::generate_meta_hash(store::vnode_hmap &vn_hmap, const vfs::vnode &vn)
+    {
+        std::cout << vn.st.st_mode << "    mode==========\n";
+        hasher::hash_uint32(vn_hmap.meta_hash, vn.st.st_mode);
     }
 
     hmap_tree::~hmap_tree()

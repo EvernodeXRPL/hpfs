@@ -34,6 +34,7 @@ namespace hpfs::vfs
         int read(const std::string &vpath, char *buf, const size_t size, const off_t offset);
         int write(const std::string &vpath, const char *buf, const size_t size, const off_t offset);
         int truncate(const std::string &vpath, const off_t new_size);
+        int chmod(const std::string &vpath, mode_t mode);
     };
 
 } // namespace hpfs::vfs
