@@ -9,7 +9,7 @@ namespace tracelog
     constexpr size_t MAX_TRACE_FILECOUNT = 10;
 
     class hpfs_plog_formatter;
-    static plog::ConsoleAppender<hpfs_plog_formatter> consoleAppender;
+    static plog::ColorConsoleAppender<hpfs_plog_formatter> colour_console_appender;
 
     // Custom formatter adopted from:
     // https://github.com/SergiusTheBest/plog/blob/master/include/plog/Formatters/TxtFormatter.h
@@ -83,7 +83,7 @@ namespace tracelog
             .append(".log");
 
         plog::init<hpfs_plog_formatter>(level, trace_file.c_str(), MAX_TRACE_FILESIZE, MAX_TRACE_FILECOUNT)
-            .addAppender(&consoleAppender);
+            .addAppender(&colour_console_appender);
 
         return 0;
     }
