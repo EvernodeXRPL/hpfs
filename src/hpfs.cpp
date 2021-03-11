@@ -23,7 +23,7 @@ namespace hpfs
 
     int init(int argc, char **argv)
     {
-        int n = 1;
+        const int n = 1;
         if(*(char *)&n != 1)
         {
             std::cerr << "Bigendian not supported.\n";
