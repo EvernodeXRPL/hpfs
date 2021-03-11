@@ -51,7 +51,7 @@ namespace hpfs::audit
 
         // Last checkpoint offset (inclusive of the checkpointed log record).
         off_t last_checkpoint;
-    };
+    }__attribute__((packed));
 
     struct log_record_header
     {
@@ -61,7 +61,7 @@ namespace hpfs::audit
         size_t payload_len;
         size_t block_data_len;
         hmap::hasher::h32 state_hash;
-    };
+    }__attribute__((packed));
 
     struct log_record
     {
