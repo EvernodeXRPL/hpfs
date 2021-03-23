@@ -168,7 +168,7 @@ namespace hpfs::audit
                       << ", payload_len: " << std::to_string(record.payload_len)
                       << ", blkdata_off: " << std::to_string(record.block_data_offset)
                       << ", blkdata_len: " << std::to_string(record.block_data_len)
-                      << ", state_hash: " << record.state_hash
+                      << ", root_hash: " << record.root_hash
                       << "\n";
 
         } while (log_offset > 0);
@@ -348,7 +348,7 @@ namespace hpfs::audit
         record.block_data_offset = rh.block_data_len == 0
                                        ? 0
                                        : record.offset + record.size - record.block_data_len;
-        record.state_hash = rh.state_hash;
+        record.root_hash = rh.root_hash;
 
         std::string vpath;
         vpath.resize(rh.vpath_len);
@@ -417,18 +417,18 @@ namespace hpfs::audit
         return 0;
     }
 
-    int audit_logger::update_log_record(const off_t log_rec_start_offset, const hmap::hasher::h32 state_hash, log_record_header &rh)
+    int audit_logger::update_log_record(const off_t log_rec_start_offset, const hmap::hasher::h32 root_hash, log_record_header &rh)
     {
         if (header.first_record == 0 || log_rec_start_offset > header.last_record)
         {
             return 0;
         }
         // Return if the given hash is an empty hash.
-        if (state_hash == hmap::hasher::h32_empty)
+        if (root_hash == hmap::hasher::h32_empty)
             return -1;
 
-        // Replace state hash with the new state hash.
-        rh.state_hash = state_hash;
+        // Replace root hash with the new root hash.
+        rh.root_hash = root_hash;
 
         if (pwrite(fd, &rh, sizeof(rh), log_rec_start_offset) == -1)
         {
