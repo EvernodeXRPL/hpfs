@@ -84,7 +84,7 @@ namespace hpfs::fusefs
             return 0;
         }
 
-        // Check whether this is a index file write request.
+        // Check whether this is a index file control request.
         // 0 = Successfuly interpreted as a log index control request.
         // 1 = Request should be handled by the virtual fs.
         // <0 = Error code needs to be returned.
@@ -263,7 +263,7 @@ namespace hpfs::fusefs
 
     int fs_open(const char *full_path, struct fuse_file_info *fi)
     {
-        // Check whether this is a index file write request.
+        // Check whether this is a index file control request.
         // 0 = Successfuly interpreted as a log index control request.
         // 1 = Request should be handled by the virtual fs.
         // <0 = Error code needs to be returned.
@@ -310,7 +310,7 @@ namespace hpfs::fusefs
     int fs_write(const char *full_path, const char *buf, size_t size,
                  off_t offset, struct fuse_file_info *fi)
     {
-        // Check whether this is a index file write request.
+        // Check whether this is a index file control request.
         // 0 = Successfuly interpreted as a log index control request.
         // 1 = Request should be handled by the virtual fs.
         // <0 = Error code needs to be returned.

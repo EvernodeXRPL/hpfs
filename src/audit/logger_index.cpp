@@ -7,7 +7,6 @@
 namespace hpfs::audit::logger_index
 {
     constexpr int FILE_PERMS = 0644;
-    constexpr uint16_t HPFS_VERSION = 1;
     constexpr const char *INDEX_UPDATE_QUERY = "/::hpfs.index";
 
     int fd = -1;              // The index file fd used throughout the session.
@@ -23,8 +22,6 @@ namespace hpfs::audit::logger_index
     */
     int init(std::string_view file_path)
     {
-        index_file_path = file_path;
-
         // First initialize the logger.
         if (audit::audit_logger::create(logger, audit::LOG_MODE::RO, ctx.log_file_path) == -1)
         {
@@ -34,14 +31,13 @@ namespace hpfs::audit::logger_index
         }
 
         // Open or create the index file.
-        const int res = open(index_file_path.c_str(), O_CREAT | O_RDWR, FILE_PERMS);
-        if (res == -1)
+        fd = open(file_path.data(), O_CREAT | O_RDWR, FILE_PERMS);
+        if (fd == -1)
         {
             LOG_ERROR << errno << ": Error in opening index file.";
             logger.reset();
             return -1;
         }
-        fd = res;
 
         struct stat st;
         if (fstat(fd, &st) == -1)
@@ -94,7 +90,7 @@ namespace hpfs::audit::logger_index
         // Read the log header to get the offset.
         const hpfs::audit::log_header header = logger->get_header();
 
-        // Read the last log record
+        // Read the last log record.
         off_t next_offset;
         hpfs::audit::log_record log_record;
         if (logger->read_log_at(header.last_record, next_offset, log_record) == -1)
@@ -160,8 +156,9 @@ namespace hpfs::audit::logger_index
 
     /**
      * Handles the log index control signals.
-     * @param query Query provided from the outside.
-     * @return Returns 0 on success, -1 error, 1 if invalid control.
+     * @param query Query passed from the outside.
+     * @return 0 if request succesfully was interpreted by index control. 1 if the request
+     *         should be passed through to the virtual fs. <0 on error.
     */
     int index_check_write(std::string_view query)
     {
@@ -173,8 +170,9 @@ namespace hpfs::audit::logger_index
 
     /**
      * Handles the log index control signals.
-     * @param query Query provided from the outside.
-     * @return Returns 0 on success, -1 error, 1 if invalid control.
+     * @param query Query passed from the outside.
+     * @return 0 if request succesfully was interpreted by index control. 1 if the request
+     *         should be passed through to the virtual fs. <0 on error.
     */
     int index_check_open(std::string_view query)
     {
@@ -186,7 +184,9 @@ namespace hpfs::audit::logger_index
 
     /**
      * Checks getattr requests for any session-related metadata activity.
-     * @return 0 if request succesfully was interpreted by session control. 1 if the request
+     * @param query Query passed from the outside.
+     * @param stbuf Stat to be populated if this is a index control
+     * @return 0 if request succesfully was interpreted by index control. 1 if the request
      *         should be passed through to the virtual fs. <0 on error.
      */
     int index_check_getattr(std::string_view query, struct stat *stbuf)
@@ -207,4 +207,4 @@ namespace hpfs::audit::logger_index
         return 1;
     }
 
-} // namespace hpfs::logger_index
+} // namespace hpfs::audit::logger_index

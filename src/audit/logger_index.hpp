@@ -23,6 +23,7 @@ namespace hpfs::audit::logger_index
     int index_check_open(std::string_view query);
 
     int index_check_getattr(std::string_view query, struct stat *stbuf);
+    
 } // namespace hpfs::audit::logger_index
 
 #endif
