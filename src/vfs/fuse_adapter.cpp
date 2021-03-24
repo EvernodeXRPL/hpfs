@@ -4,7 +4,6 @@
 #include "fuse_adapter.hpp"
 #include "virtual_filesystem.hpp"
 #include "../hmap/tree.hpp"
-#include "../audit.hpp"
 #include "../util.hpp"
 
 /**

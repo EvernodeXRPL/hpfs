@@ -36,6 +36,7 @@
 #include "vfs/vfs.hpp"
 #include "vfs/fuse_adapter.hpp"
 #include "hmap/query.hpp"
+#include "audit/logger_index.hpp"
 
 /**
  * Sets the 'session' local variable if session exists. Otherwise returns error code.
@@ -241,6 +242,21 @@ namespace hpfs::fusefs
         if (sess_check_result < 1)
             return sess_check_result;
 
+        // 0 = Successfuly interpreted as a log index control request.
+        // 1 = Request should be handled by the virtual fs.
+        // <0 = Error code needs to be returned.
+        const int index_check_result = audit::logger_index::handle_log_index_control(full_path);
+        if (index_check_result < 1)
+        {
+            if (index_check_result == 0)
+            {
+                hmap::hasher::h32 hash;
+                audit::logger_index::read_last_root_hash(hash);
+                std::cout << hash << " " << std::to_string(audit::logger_index::get_last_seq_no()) << "\n";
+            }
+            return index_check_result;
+        }
+        
         const auto &[sess_name, res_path] = session::split_path(full_path);
         {
             SESSION_READ_LOCK

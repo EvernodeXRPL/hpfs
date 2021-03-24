@@ -8,8 +8,9 @@
 #include "fusefs.hpp"
 #include "merger.hpp"
 #include "tracelog.hpp"
-#include "audit.hpp"
+#include "audit/audit.hpp"
 #include "session.hpp"
+#include "audit/logger_index.hpp"
 
 namespace hpfs
 {
@@ -17,6 +18,7 @@ namespace hpfs
     constexpr const char *TRACE_DIR_NAME = "trace";
     constexpr const char *HMAP_DIR_NAME = "hmap";
     constexpr const char *LOG_FILE_NAME = "log.hpfs";
+    constexpr const char *LOG_INDEX_FILE_NAME = "log.hpfs.idx";
     constexpr int DIR_PERMS = 0755;
 
     hpfs_context ctx;
@@ -24,7 +26,7 @@ namespace hpfs
     int init(int argc, char **argv)
     {
         const int n = 1;
-        if(*(char *)&n != 1)
+        if (*(char *)&n != 1)
         {
             std::cerr << "Bigendian not supported.\n";
             return -1;
@@ -68,15 +70,17 @@ namespace hpfs
         }
         else
         {
-            if (merger::init() == -1)
+            if (merger::init() == -1 || audit::logger_index::init(ctx.log_index_file_path))
                 return -1;
 
             if (run_ro_rw_session(argv[0]) == -1)
             {
                 merger::deinit();
+                audit::logger_index::deinit();
                 return -1;
             }
 
+            audit::logger_index::deinit();
             merger::deinit();
             return 0;
         }
@@ -129,6 +133,7 @@ namespace hpfs
         ctx.trace_dir.append(ctx.fs_dir).append("/").append(TRACE_DIR_NAME);
         ctx.hmap_dir.append(ctx.fs_dir).append("/").append(HMAP_DIR_NAME);
         ctx.log_file_path.append(ctx.fs_dir).append("/").append(LOG_FILE_NAME);
+        ctx.log_index_file_path.append(ctx.fs_dir).append("/").append(LOG_INDEX_FILE_NAME);
 
         if (!util::is_dir_exists(ctx.seed_dir) && mkdir(ctx.seed_dir.c_str(), DIR_PERMS) == -1)
         {

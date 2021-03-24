@@ -32,6 +32,7 @@ namespace hpfs
         std::string hmap_dir;
         std::string trace_dir;
         std::string log_file_path;
+        std::string log_index_file_path;
         struct stat default_stat; // Stat used as a base stat for virtual entries.
     };
     extern hpfs_context ctx;
