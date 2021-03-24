@@ -322,7 +322,6 @@ namespace hpfs::fusefs
                 return size;
             else
                 return index_check_result;
-            return size;
         }
 
         const auto &[sess_name, res_path] = session::split_path(full_path);

@@ -4,6 +4,12 @@
 #include "../tracelog.hpp"
 #include "../util.hpp"
 
+/**
+ * Log index file keeps offset and the root_hash of log records.
+ * Format - [log1_off,log1_r_hash,log2_off,log2_r_hash,log3_off,log3_r_hash...]
+ * When a ledger created in the hpcore, offset and root_hash of the latest hpfs log is recorded.
+ * So, the corresponding offsets for the ledger logs can be obtained from the index file by the ledger seq number.
+*/
 namespace hpfs::audit::logger_index
 {
     constexpr int FILE_PERMS = 0644;
@@ -43,11 +49,8 @@ namespace hpfs::audit::logger_index
         if (fstat(fd, &st) == -1)
         {
             LOG_ERROR << errno << ": Error in stat of index file.";
-            if (fd != -1)
-            {
-                close(fd);
-                fd = -1;
-            }
+            close(fd);
+            fd = -1;
             logger.reset();
             return -1;
         }
@@ -74,7 +77,7 @@ namespace hpfs::audit::logger_index
     int update_log_index()
     {
         // If logger isn't initialized show error.
-        if (!initialized && !logger.has_value())
+        if (!initialized)
         {
             LOG_ERROR << errno << ": Index hasn't been initialized properly.";
             return -1;
@@ -185,7 +188,7 @@ namespace hpfs::audit::logger_index
     }
 
     /**
-     * Checks getattr requests for any session-related metadata activity.
+     * Checks getattr requests for any index-related metadata activity.
      * @param query Query passed from the outside.
      * @param stbuf Stat to be populated if this is a index control
      * @return 0 if request succesfully was interpreted by index control. 1 if the request
