@@ -36,6 +36,7 @@
 #include "vfs/vfs.hpp"
 #include "vfs/fuse_adapter.hpp"
 #include "hmap/query.hpp"
+#include "audit/logger_index.hpp"
 
 /**
  * Sets the 'session' local variable if session exists. Otherwise returns error code.
@@ -82,6 +83,14 @@ namespace hpfs::fusefs
             stbuf->st_mode |= S_IFDIR;
             return 0;
         }
+
+        // Check whether this is a index file control request.
+        // 0 = Successfuly interpreted as a log index control request.
+        // 1 = Request should be handled by the virtual fs.
+        // <0 = Error code needs to be returned.
+        const int index_check_result = audit::logger_index::index_check_getattr(full_path, stbuf);
+        if (index_check_result < 1)
+            return index_check_result;
 
         SESSION_READ_LOCK
 
@@ -254,6 +263,14 @@ namespace hpfs::fusefs
 
     int fs_open(const char *full_path, struct fuse_file_info *fi)
     {
+        // Check whether this is a index file control request.
+        // 0 = Successfuly interpreted as a log index control request.
+        // 1 = Request should be handled by the virtual fs.
+        // <0 = Error code needs to be returned.
+        const int index_check_result = audit::logger_index::index_check_open(full_path);
+        if (index_check_result < 1)
+            return index_check_result;
+
         const auto &[sess_name, res_path] = session::split_path(full_path);
         CHECK_SESSION(sess_name);
 
@@ -293,6 +310,20 @@ namespace hpfs::fusefs
     int fs_write(const char *full_path, const char *buf, size_t size,
                  off_t offset, struct fuse_file_info *fi)
     {
+        // Check whether this is a index file control request.
+        // 0 = Successfuly interpreted as a log index control request.
+        // 1 = Request should be handled by the virtual fs.
+        // <0 = Error code needs to be returned.
+        const int index_check_result = audit::logger_index::index_check_write(full_path);
+        if (index_check_result < 1)
+        {
+            // If the write is success send the size as a dummy.
+            if (index_check_result == 0)
+                return size;
+            else
+                return index_check_result;
+        }
+
         const auto &[sess_name, res_path] = session::split_path(full_path);
         CHECK_SESSION(sess_name);
         return sess->fuse_adapter->write(res_path, buf, size, offset);

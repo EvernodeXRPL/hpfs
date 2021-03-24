@@ -9,7 +9,7 @@
 #include "hmap/tree.hpp"
 #include "hmap/query.hpp"
 #include "inodes.hpp"
-#include "audit.hpp"
+#include "audit/audit.hpp"
 #include "hpfs.hpp"
 #include "tracelog.hpp"
 

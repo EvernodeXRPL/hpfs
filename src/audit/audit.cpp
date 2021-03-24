@@ -8,10 +8,10 @@
 #include <iostream>
 #include <vector>
 #include <optional>
-#include "util.hpp"
-#include "tracelog.hpp"
+#include "../util.hpp"
+#include "../tracelog.hpp"
 #include "audit.hpp"
-#include "hpfs.hpp"
+#include "../hpfs.hpp"
 
 namespace hpfs::audit
 {
@@ -26,7 +26,7 @@ namespace hpfs::audit
             logger.reset();
             return -1;
         }
-        
+
         return 0;
     }
 

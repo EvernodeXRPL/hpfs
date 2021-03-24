@@ -12,7 +12,6 @@
 #include <optional>
 #include "vfs.hpp"
 #include "virtual_filesystem.hpp"
-#include "../audit.hpp"
 #include "../inodes.hpp"
 #include "../util.hpp"
 #include "../tracelog.hpp"

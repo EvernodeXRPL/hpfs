@@ -4,7 +4,7 @@
 #include <shared_mutex>
 #include "virtual_filesystem.hpp"
 #include "../hmap/tree.hpp"
-#include "../audit.hpp"
+#include "../audit/audit.hpp"
 
 namespace hpfs::vfs
 {
