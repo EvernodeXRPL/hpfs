@@ -162,9 +162,10 @@ namespace hpfs::audit::logger_index
     */
     int index_check_write(std::string_view query)
     {
+        // If logger index isn't initialized return no entry.
         if (query == INDEX_UPDATE_QUERY)
             return initialized ? update_log_index() : -ENOENT;
-        
+
         return 1;
     }
 
@@ -176,6 +177,7 @@ namespace hpfs::audit::logger_index
     */
     int index_check_open(std::string_view query)
     {
+        // If logger index isn't initialized return no entry.
         if (query == INDEX_UPDATE_QUERY)
             return initialized ? 0 : -ENOENT;
 
@@ -193,9 +195,10 @@ namespace hpfs::audit::logger_index
     {
         if (query == INDEX_UPDATE_QUERY)
         {
+            // If logger index isn't initialized return no entry.
             if (!initialized)
                 return -ENOENT;
-            
+
             if (fstat(fd, stbuf) == -1)
             {
                 LOG_ERROR << errno << ": Error in stat of index file.";
