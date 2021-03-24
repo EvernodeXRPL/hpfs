@@ -3,6 +3,7 @@
 
 #include <string>
 #include <optional>
+#include <sys/stat.h>
 #include "../hmap/hasher.hpp"
 
 namespace hpfs::audit::logger_index
@@ -17,7 +18,11 @@ namespace hpfs::audit::logger_index
 
     uint64_t get_last_seq_no();
 
-    int handle_log_index_control(std::string_view query);
+    int index_check_write(std::string_view query);
+
+    int index_check_open(std::string_view query);
+
+    int index_check_getattr(std::string_view query, struct stat *stbuf);
 } // namespace hpfs::audit::logger_index
 
 #endif

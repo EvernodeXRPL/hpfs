@@ -84,6 +84,14 @@ namespace hpfs::fusefs
             return 0;
         }
 
+        // Check whether this is a index file write request.
+        // 0 = Successfuly interpreted as a log index control request.
+        // 1 = Request should be handled by the virtual fs.
+        // <0 = Error code needs to be returned.
+        const int index_check_result = audit::logger_index::index_check_getattr(full_path, stbuf);
+        if (index_check_result < 1)
+            return index_check_result;
+
         SESSION_READ_LOCK
 
         // 0 = Successfuly interpreted as a session control request.
@@ -242,21 +250,6 @@ namespace hpfs::fusefs
         if (sess_check_result < 1)
             return sess_check_result;
 
-        // 0 = Successfuly interpreted as a log index control request.
-        // 1 = Request should be handled by the virtual fs.
-        // <0 = Error code needs to be returned.
-        const int index_check_result = audit::logger_index::handle_log_index_control(full_path);
-        if (index_check_result < 1)
-        {
-            if (index_check_result == 0)
-            {
-                hmap::hasher::h32 hash;
-                audit::logger_index::read_last_root_hash(hash);
-                std::cout << hash << " " << std::to_string(audit::logger_index::get_last_seq_no()) << "\n";
-            }
-            return index_check_result;
-        }
-        
         const auto &[sess_name, res_path] = session::split_path(full_path);
         {
             SESSION_READ_LOCK
@@ -270,6 +263,14 @@ namespace hpfs::fusefs
 
     int fs_open(const char *full_path, struct fuse_file_info *fi)
     {
+        // Check whether this is a index file write request.
+        // 0 = Successfuly interpreted as a log index control request.
+        // 1 = Request should be handled by the virtual fs.
+        // <0 = Error code needs to be returned.
+        const int index_check_result = audit::logger_index::index_check_open(full_path);
+        if (index_check_result < 1)
+            return index_check_result;
+
         const auto &[sess_name, res_path] = session::split_path(full_path);
         CHECK_SESSION(sess_name);
 
@@ -309,6 +310,21 @@ namespace hpfs::fusefs
     int fs_write(const char *full_path, const char *buf, size_t size,
                  off_t offset, struct fuse_file_info *fi)
     {
+        // Check whether this is a index file write request.
+        // 0 = Successfuly interpreted as a log index control request.
+        // 1 = Request should be handled by the virtual fs.
+        // <0 = Error code needs to be returned.
+        const int index_check_result = audit::logger_index::index_check_write(full_path);
+        if (index_check_result < 1)
+        {
+            // If the write is success send the size as a dummy.
+            if (index_check_result == 0)
+                return size;
+            else
+                return index_check_result;
+            return size;
+        }
+
         const auto &[sess_name, res_path] = session::split_path(full_path);
         CHECK_SESSION(sess_name);
         return sess->fuse_adapter->write(res_path, buf, size, offset);

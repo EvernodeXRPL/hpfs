@@ -75,8 +75,8 @@ namespace hpfs
 
             if (run_ro_rw_session(argv[0]) == -1)
             {
-                merger::deinit();
                 audit::logger_index::deinit();
+                merger::deinit();
                 return -1;
             }
 

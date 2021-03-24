@@ -8,9 +8,9 @@
 #include <iostream>
 #include <vector>
 #include <optional>
-#include "audit.hpp"
 #include "../util.hpp"
 #include "../tracelog.hpp"
+#include "audit.hpp"
 #include "../hpfs.hpp"
 
 namespace hpfs::audit

@@ -8,10 +8,12 @@ namespace hpfs::audit::logger_index
 {
     constexpr int FILE_PERMS = 0644;
     constexpr uint16_t HPFS_VERSION = 1;
-    constexpr const char *INDEX_UPDATE_FILE = "/::hpfs.log.update.index";
+    constexpr const char *INDEX_UPDATE_QUERY = "/::hpfs.index";
 
-    int fd = 0;    // The index file fd used throughout the session.
-    off_t eof = 0; // End of file (End offset of index file).
+    int fd = -1;              // The index file fd used throughout the session.
+    off_t eof = 0;            // End of file (End offset of index file).
+    bool initialized = false; // Indicates that the index has been initialized properly.
+    std::string index_file_path;
     std::optional<audit::audit_logger> logger;
 
     /**
@@ -21,6 +23,8 @@ namespace hpfs::audit::logger_index
     */
     int init(std::string_view file_path)
     {
+        index_file_path = file_path;
+
         // First initialize the logger.
         if (audit::audit_logger::create(logger, audit::LOG_MODE::RO, ctx.log_file_path) == -1)
         {
@@ -30,7 +34,7 @@ namespace hpfs::audit::logger_index
         }
 
         // Open or create the index file.
-        const int res = open(file_path.data(), O_CREAT | O_RDWR | O_APPEND, FILE_PERMS);
+        const int res = open(index_file_path.c_str(), O_CREAT | O_RDWR, FILE_PERMS);
         if (res == -1)
         {
             LOG_ERROR << errno << ": Error in opening index file.";
@@ -43,20 +47,28 @@ namespace hpfs::audit::logger_index
         if (fstat(fd, &st) == -1)
         {
             LOG_ERROR << errno << ": Error in stat of index file.";
-            close(fd);
+            if (fd != -1)
+            {
+                close(fd);
+                fd = -1;
+            }
             logger.reset();
             return -1;
         }
-
         eof = st.st_size;
-
+        initialized = true;
         return 0;
     }
 
     void deinit()
     {
-        close(fd);
+        if (fd != -1)
+        {
+            close(fd);
+            fd = -1;
+        }
         logger.reset();
+        initialized = false;
     }
 
     /**
@@ -66,9 +78,9 @@ namespace hpfs::audit::logger_index
     int update_log_index()
     {
         // If logger isn't initialized show error.
-        if (!logger.has_value())
+        if (!initialized && !logger.has_value())
         {
-            LOG_ERROR << errno << ": Logger isn't opened.";
+            LOG_ERROR << errno << ": Index hasn't been initialized properly.";
             return -1;
         }
 
@@ -103,7 +115,7 @@ namespace hpfs::audit::logger_index
         iov_vec[1].iov_base = &(log_record.state_hash);
         iov_vec[1].iov_len = sizeof(log_record.state_hash);
 
-        if (writev(fd, iov_vec, 2) == -1)
+        if (pwritev(fd, iov_vec, 2, eof) == -1)
         {
             LOG_ERROR << errno << ": Error writing to log index file.";
             return -1;
@@ -151,11 +163,47 @@ namespace hpfs::audit::logger_index
      * @param query Query provided from the outside.
      * @return Returns 0 on success, -1 error, 1 if invalid control.
     */
-    int handle_log_index_control(std::string_view query)
+    int index_check_write(std::string_view query)
     {
-        if (query == INDEX_UPDATE_FILE)
-            return update_log_index();
+        if (query == INDEX_UPDATE_QUERY)
+            return initialized ? update_log_index() : -ENOENT;
         
+        return 1;
+    }
+
+    /**
+     * Handles the log index control signals.
+     * @param query Query provided from the outside.
+     * @return Returns 0 on success, -1 error, 1 if invalid control.
+    */
+    int index_check_open(std::string_view query)
+    {
+        if (query == INDEX_UPDATE_QUERY)
+            return initialized ? 0 : -ENOENT;
+
+        return 1;
+    }
+
+    /**
+     * Checks getattr requests for any session-related metadata activity.
+     * @return 0 if request succesfully was interpreted by session control. 1 if the request
+     *         should be passed through to the virtual fs. <0 on error.
+     */
+    int index_check_getattr(std::string_view query, struct stat *stbuf)
+    {
+        if (query == INDEX_UPDATE_QUERY)
+        {
+            if (!initialized)
+                return -ENOENT;
+            
+            if (fstat(fd, stbuf) == -1)
+            {
+                LOG_ERROR << errno << ": Error in stat of index file.";
+                return -1;
+            }
+            return 0;
+        }
+
         return 1;
     }
 
