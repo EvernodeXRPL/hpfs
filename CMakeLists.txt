@@ -20,7 +20,7 @@ add_executable(hpfs
     src/inodes.cpp
     src/util.cpp
     src/tracelog.cpp
-    src/audit.cpp
+    src/audit/audit.cpp
     src/vfs/virtual_filesystem.cpp
     src/vfs/seed_path_tracker.cpp
     src/vfs/fuse_adapter.cpp
@@ -29,6 +29,7 @@ add_executable(hpfs
     src/session.cpp
     src/hpfs.cpp
     src/main.cpp
+    src/audit/logger_index.cpp
 )
 target_link_libraries(hpfs
     pthread

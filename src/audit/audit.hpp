@@ -6,8 +6,8 @@
 #include <fcntl.h>
 #include <vector>
 #include <optional>
-#include "hpfs.hpp"
-#include "hmap/hasher.hpp"
+#include "../hpfs.hpp"
+#include "../hmap/hasher.hpp"
 
 namespace hpfs::audit
 {

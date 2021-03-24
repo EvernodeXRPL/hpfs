@@ -8,7 +8,7 @@
 #include "vfs/fuse_adapter.hpp"
 #include "hmap/tree.hpp"
 #include "hmap/query.hpp"
-#include "audit.hpp"
+#include "audit/audit.hpp"
 
 #define SESSION_READ_LOCK std::shared_lock lock(hpfs::session::sessions_mutex);
 #define SESSION_WRITE_LOCK std::unique_lock lock(hpfs::session::sessions_mutex);
