@@ -270,7 +270,7 @@ namespace hpfs::audit::logger_index
     /**
      * Truncate the log file including the log record from the given seq_no.
      * @param seq_no Sequence number to start truncating. (Inclusive)
-     * @return Returns  on success, -1 on error or on merge=true mode.
+     * @return Returns 0 on success and -1 on error or on merge enabled mode.
     */
     int truncate_log_and_index_file(const uint64_t seq_no)
     {
