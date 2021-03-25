@@ -14,6 +14,7 @@ namespace hpfs::audit::logger_index
 {
     constexpr int FILE_PERMS = 0644;
     constexpr const char *INDEX_UPDATE_QUERY = "/::hpfs.index";
+    constexpr const char *INDEX_FILENAME_FULLSTOP = "/::hpfs.index.";
 
     int fd = -1;              // The index file fd used throughout the session.
     off_t eof = 0;            // End of file (End offset of index file).
@@ -28,8 +29,13 @@ namespace hpfs::audit::logger_index
     */
     int init(std::string_view file_path)
     {
+        // Don't initialize if the merge is enabled.
+        // No point of storing log offsets if the merger is purging the log records.
+        if (ctx.merge_enabled)
+            return 0;
+
         // First initialize the logger.
-        if (audit::audit_logger::create(logger, audit::LOG_MODE::RO, ctx.log_file_path) == -1)
+        if (audit::audit_logger::create(logger, audit::LOG_MODE::LOG_TRUNCATE, ctx.log_file_path) == -1)
         {
             LOG_ERROR << errno << ": Error in opening log file.";
             logger.reset();
@@ -209,8 +215,124 @@ namespace hpfs::audit::logger_index
             }
             return 0;
         }
+        else if (strncmp(query.data(), INDEX_FILENAME_FULLSTOP, 14) == 0)
+        {
+            // If logger index isn't initialized return no entry.
+            if (!initialized)
+                return -ENOENT;
+
+            // Given path should contain a sequnce number.
+            if (query.size() > 14)
+            {
+                if (fstat(fd, stbuf) == -1)
+                {
+                    LOG_ERROR << errno << ": Error in stat of index file.";
+                    return -1;
+                }
+                return 0;
+            }
+            else
+                return 1;
+        }
 
         return 1;
+    }
+
+    /**
+     * Checks truncate requests for index file related truncate operations. If so it is interpreted for log file and index file truncates.
+     * @return 0 if request succesfully was interpreted by index truncate control. 1 if the request
+     *         should be passed through to the virtual fs. <0 on error.
+     */
+    int index_check_truncate(const char *path)
+    {
+        std::string path_str(path);
+        if (strncmp(path_str.c_str(), INDEX_FILENAME_FULLSTOP, 14) == 0)
+        {
+            // Given path should create a sequnce number.
+            if (path_str.size() > 14)
+            {
+                uint64_t seq_no;
+                if (util::stoull(path_str.substr(14), seq_no) == -1 ||
+                    truncate_log_and_index_file(seq_no) == -1)
+                {
+                    LOG_ERROR << "Error truncating log file.";
+                    return -1;
+                };
+                return 0;
+            }
+            else
+                return 1;
+        }
+        else
+            return 1;
+    }
+
+    /**
+     * Truncate the log file including the log record from the given seq_no.
+     * @param seq_no Sequence number to start truncating. (Inclusive)
+     * @return Returns  on success, -1 on error or on merge=true mode.
+    */
+    int truncate_log_and_index_file(const uint64_t seq_no)
+    {
+        // If logger isn't initialized, show an error.
+        if (!initialized)
+        {
+            LOG_ERROR << errno << ": Index hasn't been initialized properly.";
+            return -1;
+        }
+
+        off_t log_offset;
+        if (get_log_offset_from_index_file(log_offset, seq_no) == -1)
+        {
+            LOG_ERROR << "Error getting log offset from index file";
+            return -1;
+        }
+
+        if (log_offset < 1)
+        {
+            LOG_ERROR << "Offset must be greater than zero to truncate the log file.";
+            return -1;
+        }
+
+        const off_t end_of_index = get_data_offset_of_index_file(seq_no);
+        if (logger->truncate_log_file(log_offset) == -1 ||
+            ftruncate(fd, end_of_index) == -1)
+        {
+            LOG_ERROR << "Error truncating log and index file";
+            return -1;
+        }
+
+        eof = end_of_index;
+        return 0;
+    }
+
+    /**
+     * Gets the log record offset corresponding to the given seq_no from the index file.
+     * @param log_offset Log offset of the given sequence number.
+     * @param seq_no Sequnce number to obtain the relevant log record offset.
+     * @return Returns 0 on success and -1 on error.
+    */
+    int get_log_offset_from_index_file(off_t &log_offset, const uint64_t seq_no)
+    {
+        uint8_t offset_bytes[8];
+        off_t data_offset = get_data_offset_of_index_file(seq_no);
+        if (pread(fd, offset_bytes, 8, data_offset) < 8)
+        {
+            LOG_ERROR << errno << ": Error getting log offset for seq_no: " << std::to_string(seq_no);
+            return -1;
+        }
+        log_offset = util::uint64_from_bytes(offset_bytes);
+        return 0;
+    }
+
+    /**
+     * Gives the offset of the index file to the given sequence number.
+     * @param seq_no Sequence number.
+     * @return Returns the offset of the data of the given sequence number.
+    */
+    off_t get_data_offset_of_index_file(const uint64_t seq_no)
+    {
+        return (seq_no - 1) * (sizeof(uint64_t) + sizeof(hmap::hasher::h32));
     }
 
 } // namespace hpfs::audit::logger_index

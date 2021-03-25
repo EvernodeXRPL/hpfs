@@ -29,14 +29,16 @@ namespace hpfs::audit
         RO,
         RW,
         MERGE,
-        PRINT
+        PRINT,
+        LOG_TRUNCATE
     };
 
     enum LOCK_TYPE
     {
         SESSION_LOCK, // Used by RO/RW session to indicate existance of session.
         UPDATE_LOCK,  // Used by RW session to make updates to the header.
-        MERGE_LOCK    // Used by MERGE session to acquire exclusive access to the log.
+        MERGE_LOCK,   // Used by MERGE session to acquire exclusive access to the log.
+        TRUNCATE_LOCK // Used by LOG_TRUNCATE session to acquire exclusive access to the log.
     };
 
     struct log_header
@@ -51,7 +53,7 @@ namespace hpfs::audit
 
         // Last checkpoint offset (inclusive of the checkpointed log record).
         off_t last_checkpoint;
-    }__attribute__((packed));
+    } __attribute__((packed));
 
     struct log_record_header
     {
@@ -61,7 +63,7 @@ namespace hpfs::audit
         size_t payload_len;
         size_t block_data_len;
         hmap::hasher::h32 root_hash;
-    }__attribute__((packed));
+    } __attribute__((packed));
 
     struct log_record
     {
@@ -129,6 +131,7 @@ namespace hpfs::audit
         int read_payload(std::vector<uint8_t> &payload, const log_record &record);
         int purge_log(const log_record &record);
         int update_log_record(const off_t log_rec_start_offset, const hmap::hasher::h32 root_hash, log_record_header &rh);
+        int truncate_log_file(const off_t log_record_offset);
         ~audit_logger();
     };
 

@@ -356,6 +356,14 @@ namespace hpfs::fusefs
 
     int fs_truncate(const char *full_path, off_t size, struct fuse_file_info *fi)
     {
+        // Check whether this is a index file truncate control request.
+        // 0 = Successfuly interpreted as a log index truncate control request.
+        // 1 = Request should be handled by the virtual fs.
+        // <0 = Error code needs to be returned.
+        const int index_check_result = audit::logger_index::index_check_truncate(full_path);
+        if (index_check_result < 1)
+            return index_check_result;
+
         const auto &[sess_name, res_path] = session::split_path(full_path);
         CHECK_SESSION(sess_name);
         return sess->fuse_adapter->truncate(res_path, size);
