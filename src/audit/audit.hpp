@@ -30,7 +30,7 @@ namespace hpfs::audit
         RW,
         MERGE,
         PRINT,
-        LOG_TRUNCATE
+        LOG_SYNC
     };
 
     enum LOCK_TYPE
@@ -38,7 +38,7 @@ namespace hpfs::audit
         SESSION_LOCK, // Used by RO/RW session to indicate existance of session.
         UPDATE_LOCK,  // Used by RW session to make updates to the header.
         MERGE_LOCK,   // Used by MERGE session to acquire exclusive access to the log.
-        TRUNCATE_LOCK // Used by LOG_TRUNCATE session to acquire exclusive access to the log.
+        SYNC_LOCK     // Used by LOG_SYNC session to acquire exclusive access to the log.
     };
 
     struct log_header
@@ -131,7 +131,7 @@ namespace hpfs::audit
         int read_payload(std::vector<uint8_t> &payload, const log_record &record);
         int purge_log(const log_record &record);
         int update_log_record(const off_t log_rec_start_offset, const hmap::hasher::h32 root_hash, log_record_header &rh);
-        int truncate_log_file(const off_t log_record_offset);
+        int truncate_log_file(const off_t log_record_offset, const off_t prev_ledger_log_record_offset);
         ~audit_logger();
     };
 

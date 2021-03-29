@@ -35,7 +35,7 @@ namespace hpfs::audit::logger_index
             return 0;
 
         // First initialize the logger.
-        if (audit::audit_logger::create(logger, audit::LOG_MODE::LOG_TRUNCATE, ctx.log_file_path) == -1)
+        if (audit::audit_logger::create(logger, audit::LOG_MODE::LOG_SYNC, ctx.log_file_path) == -1)
         {
             LOG_ERROR << errno << ": Error in opening log file.";
             logger.reset();
@@ -282,7 +282,9 @@ namespace hpfs::audit::logger_index
         }
 
         off_t log_offset;
-        if (get_log_offset_from_index_file(log_offset, seq_no) == -1)
+        off_t prev_ledger_log_offset = 0;
+        if (get_log_offset_from_index_file(log_offset, seq_no) == -1 ||
+            (seq_no > 1 && get_log_offset_from_index_file(prev_ledger_log_offset, seq_no - 1)) == -1) // Get log record offset of previous record only if seq number is greater than 1.
         {
             LOG_ERROR << "Error getting log offset from index file";
             return -1;
@@ -295,7 +297,7 @@ namespace hpfs::audit::logger_index
         }
 
         const off_t end_of_index = get_data_offset_of_index_file(seq_no);
-        if (logger->truncate_log_file(log_offset) == -1 ||
+        if (logger->truncate_log_file(log_offset, prev_ledger_log_offset) == -1 ||
             ftruncate(fd, end_of_index) == -1)
         {
             LOG_ERROR << "Error truncating log and index file";
