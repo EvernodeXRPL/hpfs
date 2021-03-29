@@ -29,14 +29,16 @@ namespace hpfs::audit
         RO,
         RW,
         MERGE,
-        PRINT
+        PRINT,
+        LOG_SYNC
     };
 
     enum LOCK_TYPE
     {
         SESSION_LOCK, // Used by RO/RW session to indicate existance of session.
         UPDATE_LOCK,  // Used by RW session to make updates to the header.
-        MERGE_LOCK    // Used by MERGE session to acquire exclusive access to the log.
+        MERGE_LOCK,   // Used by MERGE session to acquire exclusive access to the log.
+        SYNC_LOCK     // Used by LOG_SYNC session to acquire exclusive access to the log.
     };
 
     struct log_header
@@ -51,7 +53,7 @@ namespace hpfs::audit
 
         // Last checkpoint offset (inclusive of the checkpointed log record).
         off_t last_checkpoint;
-    }__attribute__((packed));
+    } __attribute__((packed));
 
     struct log_record_header
     {
@@ -60,8 +62,8 @@ namespace hpfs::audit
         size_t vpath_len;
         size_t payload_len;
         size_t block_data_len;
-        hmap::hasher::h32 state_hash;
-    }__attribute__((packed));
+        hmap::hasher::h32 root_hash;
+    } __attribute__((packed));
 
     struct log_record
     {
@@ -75,7 +77,7 @@ namespace hpfs::audit
         size_t payload_len;
         off_t block_data_offset;
         size_t block_data_len;
-        hmap::hasher::h32 state_hash;
+        hmap::hasher::h32 root_hash;
     };
 
     struct op_write_payload_header
@@ -128,7 +130,8 @@ namespace hpfs::audit
         int read_log_at(const off_t offset, off_t &next_offset, log_record &record);
         int read_payload(std::vector<uint8_t> &payload, const log_record &record);
         int purge_log(const log_record &record);
-        int update_log_record(const off_t log_rec_start_offset, const hmap::hasher::h32 state_hash, log_record_header &rh);
+        int update_log_record(const off_t log_rec_start_offset, const hmap::hasher::h32 root_hash, log_record_header &rh);
+        int truncate_log_file(const off_t log_record_offset, const off_t prev_ledger_log_record_offset);
         ~audit_logger();
     };
 

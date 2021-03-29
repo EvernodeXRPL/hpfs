@@ -151,4 +151,24 @@ namespace util
                ((uint64_t)data[7]);
     }
 
+    /**
+     * Converts given string to a uint_64. A wrapper function for std::stoull. 
+     * @param str String variable.
+     * @param result Variable to store the answer from the conversion.
+     * @return Returns 0 in a successful conversion and -1 on error.
+    */
+    int stoull(const std::string &str, uint64_t &result)
+    {
+        try
+        {
+            result = std::stoull(str);
+        }
+        catch (const std::exception &e)
+        {
+            // Return -1 if any exceptions are captured.
+            return -1;
+        }
+        return 0;
+    }
+
 } // namespace util

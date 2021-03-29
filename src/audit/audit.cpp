@@ -47,7 +47,7 @@ namespace hpfs::audit
         fd = res;
 
         // RW sessions acquire a read lock on first byte of the log file.
-        // This is to prevent merge operation from running when any RO/RW sessions are live.
+        // This is to prevent merge or sync operation from running when any RO/RW sessions are live.
         if ((mode == LOG_MODE::RW || mode == LOG_MODE::RO) &&
             set_lock(session_lock, LOCK_TYPE::SESSION_LOCK) == -1)
         {
@@ -168,7 +168,7 @@ namespace hpfs::audit
                       << ", payload_len: " << std::to_string(record.payload_len)
                       << ", blkdata_off: " << std::to_string(record.block_data_offset)
                       << ", blkdata_len: " << std::to_string(record.block_data_len)
-                      << ", state_hash: " << record.state_hash
+                      << ", root_hash: " << record.root_hash
                       << "\n";
 
         } while (log_offset > 0);
@@ -183,7 +183,9 @@ namespace hpfs::audit
         else if (type == LOCK_TYPE::UPDATE_LOCK)
             return util::set_lock(fd, lock, true, 1, 1); // Write lock second byte.
         else if (type == LOCK_TYPE::MERGE_LOCK)
-            return util::set_lock(fd, lock, true, 0, 2); // Write lock inclusive of both bytes above
+            return util::set_lock(fd, lock, true, 0, 2); // Write lock inclusive of both bytes above.
+        else if (type == LOCK_TYPE::SYNC_LOCK)
+            return util::set_lock(fd, lock, true, 0, 2); // Write lock inclusive of both bytes above.
 
         return -1;
     }
@@ -348,7 +350,7 @@ namespace hpfs::audit
         record.block_data_offset = rh.block_data_len == 0
                                        ? 0
                                        : record.offset + record.size - record.block_data_len;
-        record.state_hash = rh.state_hash;
+        record.root_hash = rh.root_hash;
 
         std::string vpath;
         vpath.resize(rh.vpath_len);
@@ -417,18 +419,18 @@ namespace hpfs::audit
         return 0;
     }
 
-    int audit_logger::update_log_record(const off_t log_rec_start_offset, const hmap::hasher::h32 state_hash, log_record_header &rh)
+    int audit_logger::update_log_record(const off_t log_rec_start_offset, const hmap::hasher::h32 root_hash, log_record_header &rh)
     {
         if (header.first_record == 0 || log_rec_start_offset > header.last_record)
         {
             return 0;
         }
         // Return if the given hash is an empty hash.
-        if (state_hash == hmap::hasher::h32_empty)
+        if (root_hash == hmap::hasher::h32_empty)
             return -1;
 
-        // Replace state hash with the new state hash.
-        rh.state_hash = state_hash;
+        // Replace root hash with the new root hash.
+        rh.root_hash = root_hash;
 
         if (pwrite(fd, &rh, sizeof(rh), log_rec_start_offset) == -1)
         {
@@ -436,6 +438,91 @@ namespace hpfs::audit
             return -1;
         }
 
+        return 0;
+    }
+
+    /**
+     * Truncate log file upto the given log file offset value.
+     * @param log_record_offset The offset where the log file is truncated.
+     * @param prev_ledger_log_record_offset The offset of the previous ledger log record. Search for previous record is perform from top if this is zero.
+     * @return Returns 0 on success and -1 on error.
+    */
+    int audit_logger::truncate_log_file(const off_t log_record_offset, const off_t prev_ledger_log_record_offset)
+    {
+        if (mode != LOG_MODE::LOG_SYNC)
+            return -1;
+
+        if (header.first_record == 0 || log_record_offset > header.last_record)
+        {
+            // Empty log file or offset is beyond the last record's offset.
+            return -1;
+        }
+
+        flock truncate_lock;
+        // This is a blocking call. This will wait until running RO and RW sessions exits.
+        if (set_lock(truncate_lock, LOCK_TYPE::SYNC_LOCK) == -1)
+        {
+            LOG_ERROR << "Error acquiring log file sync lock.";
+            return -1;
+        }
+
+        // We are removing all the log records.
+        if (header.first_record == log_record_offset)
+        {
+            header.first_record = 0;
+            header.last_checkpoint = 0;
+            header.last_record = 0;
+        }
+        else
+        {
+            // Start searching for the last record that will remain after the truncation happens.
+            // The search is done before the real file truncation.
+            off_t cur_log_offset;
+            // If the given previous log record offset is zero means that the search should start from top.
+            if (prev_ledger_log_record_offset == 0)
+                cur_log_offset = header.first_record;
+            else
+                cur_log_offset = prev_ledger_log_record_offset;
+
+            off_t next_log_offset;
+            log_record rh;
+            do
+            {
+                if (read_log_at(cur_log_offset, next_log_offset, rh) == -1)
+                {
+                    LOG_ERROR << "Error reading log record for last log update at offset: " << prev_ledger_log_record_offset;
+                    release_lock(truncate_lock);
+                    return -1;
+                }
+                cur_log_offset = next_log_offset;
+            } while (next_log_offset == log_record_offset);
+
+            // Update new last record offset.
+            header.last_record = log_record_offset - rh.size;
+
+            // Update last checkpoint if the check point was in a truncated offset.
+            if (header.last_checkpoint > header.last_record)
+                header.last_checkpoint = header.last_record;
+        }
+
+        if (ftruncate(fd, log_record_offset) == -1) // Truncate the file.
+        {
+            LOG_ERROR << "Error truncating log file at offset: " << std::to_string(log_record_offset);
+            release_lock(truncate_lock);
+            return -1;
+        }
+
+        eof = log_record_offset;
+
+        if (commit_header() == -1)
+        {
+            LOG_ERROR << errno << ": Error updating header during truncate log.";
+            release_lock(truncate_lock);
+            return -1;
+        }
+
+        // Release aquired lock after truncate operation finishes.
+        release_lock(truncate_lock);
         return 0;
     }
 

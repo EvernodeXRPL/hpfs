@@ -27,6 +27,7 @@ namespace util
     uint32_t uint32_from_bytes(const uint8_t *data);
     void uint64_to_bytes(uint8_t *dest, const uint64_t x);
     uint64_t uint64_from_bytes(const uint8_t *data);
+    int stoull(const std::string &str, uint64_t &result);
 
 } // namespace util
 
