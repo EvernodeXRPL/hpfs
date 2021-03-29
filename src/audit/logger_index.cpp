@@ -281,10 +281,16 @@ namespace hpfs::audit::logger_index
             return -1;
         }
 
+        if (seq_no == 0)
+        {
+            LOG_ERROR << "Sequence number should be greater than zero for log truncation. Given: " << std::to_string(seq_no);
+            return -1;
+        }
+
         off_t log_offset;
         off_t prev_ledger_log_offset = 0;
         if (get_log_offset_from_index_file(log_offset, seq_no) == -1 ||
-            (seq_no > 1 && get_log_offset_from_index_file(prev_ledger_log_offset, seq_no - 1)) == -1) // Get log record offset of previous record only if seq number is greater than 1.
+            (seq_no > 1 && get_log_offset_from_index_file(prev_ledger_log_offset, seq_no - 1) == -1)) // Get log record offset of previous record only if seq number is greater than 1.
         {
             LOG_ERROR << "Error getting log offset from index file";
             return -1;
