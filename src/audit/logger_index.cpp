@@ -17,7 +17,7 @@ namespace hpfs::audit::logger_index
     constexpr const char *INDEX_UPDATE_QUERY = "/::hpfs.index";
     constexpr const char *INDEX_UPDATE_QUERY_FULLSTOP = "/::hpfs.index.";
 
-    constexpr uint64_t MAX_LOG_READ_SIZE = 32901;
+    constexpr uint64_t MAX_LOG_READ_SIZE = 1 * 1024 * 1024;
 
     int fd = -1;              // The index file fd used throughout the session.
     off_t eof = 0;            // End of file (End offset of index file).
@@ -414,7 +414,7 @@ namespace hpfs::audit::logger_index
 
             std::string records;
             // We send the requested size limit to collect the logs.
-            if (read_log_records(records, min_seq_no, max_seq_no, MAX_LOG_READ_SIZE) == -1)
+            if (read_log_records(records, min_seq_no, max_seq_no, *size) == -1)
                 return -1;
 
             // Then we resize size to the actual buffer size to return back.
