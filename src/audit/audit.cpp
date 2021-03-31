@@ -389,19 +389,18 @@ namespace hpfs::audit
         const off_t read_offset = offset == 0 ? header.first_record : offset;
 
         // Reading the log header.
-        buf.resize(sizeof(log_record_header));
-        if (pread(fd, buf.data(), sizeof(log_record_header), read_offset) < sizeof(log_record_header))
+        log_record_header rh;
+        if (pread(fd, &rh, sizeof(log_record_header), read_offset) < sizeof(log_record_header))
         {
             LOG_ERROR << errno << ": Error reading log record header from log file.";
             return -1;
         }
-        size_t buf_offset = sizeof(log_record_header);
 
-        // Keeps a local copy of log record header to get data lengths.
-        const log_record_header rh = *(const log_record_header *)buf.data();
+        buf.resize(sizeof(rh) + rh.vpath_len + rh.payload_len + rh.block_data_len);
+        memcpy(buf.data(), &rh, sizeof(rh));
+        size_t buf_offset = sizeof(rh);
 
         // Reading the vpath.
-        buf.resize(buf.length() + rh.vpath_len);
         if (pread(fd, buf.data() + buf_offset, rh.vpath_len, read_offset + buf_offset) < rh.vpath_len)
         {
             LOG_ERROR << errno << ": Error reading log record vpath from log file.";
@@ -412,7 +411,6 @@ namespace hpfs::audit
         // Reading the payload.
         if (rh.payload_len > 0)
         {
-            buf.resize(buf.length() + rh.payload_len);
             if (pread(fd, buf.data() + buf_offset, rh.payload_len, read_offset + buf_offset) < rh.payload_len)
             {
                 LOG_ERROR << errno << ": Error reading log record payload from log file.";
@@ -426,7 +424,6 @@ namespace hpfs::audit
         const off_t block_data_offset = read_offset + BLOCK_END(buf_offset);
         if (rh.block_data_len > 0)
         {
-            buf.resize(buf.length() + rh.block_data_len);
             if (pread(fd, buf.data() + buf_offset, rh.block_data_len, block_data_offset) < rh.block_data_len)
             {
                 LOG_ERROR << errno << ": Error reading log record block data from log file.";

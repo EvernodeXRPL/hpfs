@@ -13,8 +13,9 @@ namespace hpfs::audit::logger_index
 {
     constexpr int FILE_PERMS = 0644;
     constexpr int INDEX_UPDATE_QUERY_LEN = 13;
+    constexpr int INDEX_UPDATE_QUERY_FULLSTOP_LEN = 13;
     constexpr const char *INDEX_UPDATE_QUERY = "/::hpfs.index";
-    constexpr const char *INDEX_FILENAME_FULLSTOP = "/::hpfs.index.";
+    constexpr const char *INDEX_UPDATE_QUERY_FULLSTOP = "/::hpfs.index.";
 
     constexpr uint64_t MAX_LOG_READ_SIZE = 32901;
 
@@ -276,7 +277,7 @@ namespace hpfs::audit::logger_index
         // If min seq no is 0 start collecting from the very begining.
         if (min_seq_no == 0)
             current_offset = 0;
-        
+
         // If max seq mo is 0 collect until the end.
         if (max_seq_no == 0)
             max_offset = 0;
@@ -285,7 +286,6 @@ namespace hpfs::audit::logger_index
             max_seq_no > 0 && read_offset(max_offset, max_seq_no - 1) == -1)
             return -1;
 
-        std::string log_record;
         uint64_t seq_no = min_seq_no;
         off_t next_seq_no_offset;
         // Take the offset if the frontmost seq_no log record.
@@ -321,6 +321,7 @@ namespace hpfs::audit::logger_index
 
             // Read the log record buf at currect offset.
             // After reading current_offset would be nect records offset.
+            std::string log_record;
             if (logger->init_log_header() == -1 || logger->read_log_record_buf_at(current_offset, current_offset, log_record) == -1)
                 return -1;
             record_buf.append(log_record);
@@ -345,7 +346,7 @@ namespace hpfs::audit::logger_index
         return 0;
     }
 
-    // This is the test function to decorde the hpfs log read buffer.
+    // This is the test function to decode the hpfs log read buffer.
     /**
      * Appending log records to hpfs log file.
      * @param buf Buffer to append.
@@ -381,7 +382,7 @@ namespace hpfs::audit::logger_index
     }
 
     /**
-     * Checks open request for any read.
+     * Checks request for any read.
      * @param query Query passed from the outside.
      * @param buf Data buffer to be returned.
      * @param size Read size.
@@ -390,7 +391,7 @@ namespace hpfs::audit::logger_index
     */
     int index_check_read(std::string_view query, char *buf, size_t *size)
     {
-        if (strncmp(query.data(), INDEX_UPDATE_QUERY, INDEX_UPDATE_QUERY_LEN) == 0 && query.length() > INDEX_UPDATE_QUERY_LEN)
+        if (strncmp(query.data(), INDEX_UPDATE_QUERY_FULLSTOP, INDEX_UPDATE_QUERY_FULLSTOP_LEN) == 0 && query.length() > INDEX_UPDATE_QUERY_FULLSTOP_LEN)
         {
             // If logger index isn't initialized return no entry.
             if (!initialized)
@@ -399,11 +400,17 @@ namespace hpfs::audit::logger_index
             // Split the query by '.'.
             const std::vector<std::string> params = util::split_string(query, ".");
             if (params.size() != 4)
-                return -EFAULT;
+            {
+                LOG_ERROR << "Log read parameter error: Invalid parameters";
+                return -1;
+            }
 
             uint64_t min_seq_no, max_seq_no;
             if (util::stoull(params.at(2).data(), min_seq_no) == -1 || util::stoull(params.at(3).data(), max_seq_no) == -1)
-                return -EFAULT;
+            {
+                LOG_ERROR << "Log read parameter error: Invalid parameters";
+                return -1;
+            }
 
             std::string records;
             // We send the requested size limit to collect the logs.
@@ -466,27 +473,24 @@ namespace hpfs::audit::logger_index
      */
     int index_check_getattr(std::string_view query, struct stat *stbuf)
     {
-        if (strncmp(query.data(), INDEX_UPDATE_QUERY, INDEX_UPDATE_QUERY_LEN) == 0)
+        if (query == INDEX_UPDATE_QUERY)
         {
             // If logger index isn't initialized return no entry.
             if (!initialized)
                 return -ENOENT;
-
             if (fstat(fd, stbuf) == -1)
             {
                 LOG_ERROR << errno << ": Error in stat of index file.";
                 return -1;
             }
-
-            stbuf->st_size = MAX_LOG_READ_SIZE;
             return 0;
         }
-        else if (strncmp(query.data(), INDEX_FILENAME_FULLSTOP, 14) == 0)
+        // Read or truncate calls will contains paramters.
+        else if (strncmp(query.data(), INDEX_UPDATE_QUERY_FULLSTOP, 14) == 0)
         {
             // If logger index isn't initialized return no entry.
             if (!initialized)
                 return -ENOENT;
-
             // Given path should contain a sequnce number.
             if (query.size() > 14)
             {
@@ -495,12 +499,13 @@ namespace hpfs::audit::logger_index
                     LOG_ERROR << errno << ": Error in stat of index file.";
                     return -1;
                 }
+                // Send maximum read size as dummy file size.
+                stbuf->st_size = MAX_LOG_READ_SIZE;
                 return 0;
             }
             else
                 return 1;
         }
-
         return 1;
     }
 
@@ -512,13 +517,13 @@ namespace hpfs::audit::logger_index
     int index_check_truncate(const char *path)
     {
         std::string path_str(path);
-        if (strncmp(path_str.c_str(), INDEX_FILENAME_FULLSTOP, 14) == 0)
+        if (strncmp(path_str.c_str(), INDEX_UPDATE_QUERY_FULLSTOP, INDEX_UPDATE_QUERY_FULLSTOP_LEN) == 0)
         {
             // Given path should create a sequnce number.
             if (path_str.size() > 14)
             {
                 uint64_t seq_no;
-                if (util::stoull(path_str.substr(14), seq_no) == -1 ||
+                if (util::stoull(path_str.substr(INDEX_UPDATE_QUERY_FULLSTOP_LEN), seq_no) == -1 ||
                     truncate_log_and_index_file(seq_no) == -1)
                 {
                     LOG_ERROR << "Error truncating log file.";
