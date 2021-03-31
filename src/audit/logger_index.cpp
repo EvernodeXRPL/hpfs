@@ -13,7 +13,7 @@ namespace hpfs::audit::logger_index
 {
     constexpr int FILE_PERMS = 0644;
     constexpr int INDEX_UPDATE_QUERY_LEN = 13;
-    constexpr int INDEX_UPDATE_QUERY_FULLSTOP_LEN = 13;
+    constexpr int INDEX_UPDATE_QUERY_FULLSTOP_LEN = 14;
     constexpr const char *INDEX_UPDATE_QUERY = "/::hpfs.index";
     constexpr const char *INDEX_UPDATE_QUERY_FULLSTOP = "/::hpfs.index.";
 
@@ -486,13 +486,13 @@ namespace hpfs::audit::logger_index
             return 0;
         }
         // Read or truncate calls will contains paramters.
-        else if (strncmp(query.data(), INDEX_UPDATE_QUERY_FULLSTOP, 14) == 0)
+        else if (strncmp(query.data(), INDEX_UPDATE_QUERY_FULLSTOP, INDEX_UPDATE_QUERY_FULLSTOP_LEN) == 0)
         {
             // If logger index isn't initialized return no entry.
             if (!initialized)
                 return -ENOENT;
             // Given path should contain a sequnce number.
-            if (query.size() > 14)
+            if (query.size() > INDEX_UPDATE_QUERY_FULLSTOP_LEN)
             {
                 if (fstat(fd, stbuf) == -1)
                 {
