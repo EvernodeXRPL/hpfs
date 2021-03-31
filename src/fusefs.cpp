@@ -292,6 +292,21 @@ namespace hpfs::fusefs
     int fs_read(const char *full_path, char *buf, size_t size, off_t offset,
                 struct fuse_file_info *fi)
     {
+        // Check whether this is a index file control request.
+        // 0 = Successfuly interpreted as a log index control request.
+        // 1 = Request should be handled by the virtual fs.
+        // <0 = Error code needs to be returned.
+        // Only is this is successfully interprited buf and size will be populated otherwise they will be kept as it is.
+        const int index_check_result = audit::logger_index::index_check_read(full_path, buf, &size);
+        if (index_check_result < 1)
+        {
+            // If the read is success send the size as the response.
+            if (index_check_result == 0)
+                return size;
+            else
+                return index_check_result;
+        }
+
         const auto &[sess_name, res_path] = session::split_path(full_path);
         CHECK_SESSION(sess_name);
 
@@ -314,7 +329,7 @@ namespace hpfs::fusefs
         // 0 = Successfuly interpreted as a log index control request.
         // 1 = Request should be handled by the virtual fs.
         // <0 = Error code needs to be returned.
-        const int index_check_result = audit::logger_index::index_check_write(full_path);
+        const int index_check_result = audit::logger_index::index_check_write(full_path, buf, size);
         if (index_check_result < 1)
         {
             // If the write is success send the size as a dummy.

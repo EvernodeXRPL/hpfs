@@ -171,4 +171,25 @@ namespace util
         return 0;
     }
 
+    /**
+     * Splits the provided query by given delimeter.
+     * @param s String value to be splited.
+     * @param delimiter Splitting delimiter.
+     * @return returns the list of resuling strings.
+     */
+    const std::vector<std::string> split_string(std::string_view s, std::string_view delimiter)
+    {
+        size_t pos = 0;
+        std::vector<std::string> list;
+        std::string value(s);
+        while ((pos = value.find(delimiter)) != std::string::npos)
+        {
+            list.push_back(value.substr(0, pos));
+            value.erase(0, pos + delimiter.length());
+        }
+        list.push_back(value);
+
+        return list;
+    }
+
 } // namespace util

@@ -113,9 +113,9 @@ namespace hpfs::audit
         struct flock session_lock = {}; // Session lock placed on the log file.
 
         int init();
-        int init_log_header();
 
     public:
+        int init_log_header();
         static int create(std::optional<audit_logger> &logger, const LOG_MODE mode, std::string_view log_file_path);
         audit_logger(const LOG_MODE mode, std::string_view log_file_path);
         int get_fd();
@@ -128,6 +128,7 @@ namespace hpfs::audit
         off_t append_log(log_record_header &log_record, std::string_view vpath, const FS_OPERATION operation, const iovec *payload_buf = NULL,
                          const iovec *block_bufs = NULL, const int block_buf_count = 0);
         int read_log_at(const off_t offset, off_t &next_offset, log_record &record);
+        int read_log_record_buf_at(const off_t offset, off_t &next_offset, std::string &buf);
         int read_payload(std::vector<uint8_t> &payload, const log_record &record);
         int purge_log(const log_record &record);
         int update_log_record(const off_t log_rec_start_offset, const hmap::hasher::h32 root_hash, log_record_header &rh);
