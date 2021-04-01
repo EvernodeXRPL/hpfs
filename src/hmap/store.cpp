@@ -10,6 +10,7 @@
 #include "../hpfs.hpp"
 #include "../tracelog.hpp"
 #include "../util.hpp"
+#include "../version.hpp"
 
 namespace hpfs::hmap::store
 {
@@ -108,13 +109,14 @@ namespace hpfs::hmap::store
 
         const uint8_t is_file = node_hmap.is_file ? 1 : 0;
 
-        iovec memsegs[5] = {{(void *)&is_file, sizeof(is_file)},
+        iovec memsegs[6] = {{(void *)version::HP_VERSION_BYTES, version::VERSION_BYTES_LEN},
+                            {(void *)&is_file, sizeof(is_file)},
                             {(void *)&node_hmap.node_hash, sizeof(hasher::h32)},
                             {(void *)&node_hmap.name_hash, sizeof(hasher::h32)},
                             {(void *)&node_hmap.meta_hash, sizeof(hasher::h32)},
                             {(void *)node_hmap.block_hashes.data(), sizeof(hasher::h32) * node_hmap.block_hashes.size()}};
 
-        if (writev(fd, memsegs, 5) == -1)
+        if (writev(fd, memsegs, 6) == -1)
         {
             LOG_ERROR << errno << ": Error in persist hmap writev. " << filename;
             close(fd);
@@ -165,7 +167,7 @@ namespace hpfs::hmap::store
                             {(void *)&node_hmap.meta_hash, sizeof(hasher::h32)},
                             {(void *)node_hmap.block_hashes.data(), sizeof(hasher::h32) * node_hmap.block_hashes.size()}};
 
-        if (readv(fd, memsegs, 5) == -1)
+        if (preadv(fd, memsegs, 5, version::VERSION_BYTES_LEN) == -1)
         {
             close(fd);
             LOG_ERROR << errno << ": Error in hmap cache file readv. " << cache_filename;

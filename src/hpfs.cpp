@@ -11,6 +11,7 @@
 #include "audit/audit.hpp"
 #include "session.hpp"
 #include "audit/logger_index.hpp"
+#include "version.hpp"
 
 namespace hpfs
 {
@@ -40,7 +41,7 @@ namespace hpfs
                       << "hpfs fs [fsdir] [mountdir] merge=[true|false] trace=[debug|info|warn|error]\n";
             return -1;
         }
-        if (vaidate_context() == -1 || tracelog::init() == -1)
+        if (vaidate_context() == -1 || tracelog::init() == -1 || version::init() == -1)
             return -1;
 
         // Populate default stat using seed dir stat.

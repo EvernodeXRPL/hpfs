@@ -111,6 +111,28 @@ namespace util
         return 0;
     }
 
+    /**
+     * Convert the given uint16_t number to bytes in big endian format.
+     * @param dest Byte array pointer.
+     * @param x Number to be converted.
+    */
+    void uint16_to_bytes(uint8_t *dest, const uint16_t x)
+    {
+        dest[0] = (uint8_t)((x >> 8) & 0xff);
+        dest[1] = (uint8_t)((x >> 0) & 0xff);
+    }
+
+    /**
+     * Read the uint16_t number from the given byte array which is in big endian format.
+     * @param data Byte array pointer.
+     * @return The uint16_t number in the given byte array.
+    */
+    uint16_t uint16_from_bytes(const uint8_t *data)
+    {
+        return ((uint16_t)data[0] << 8) +
+               (uint16_t)data[1];
+    }
+
     void uint32_to_bytes(uint8_t *dest, const uint32_t x)
     {
         dest[0] = (uint8_t)((x >> 24) & 0xff);
