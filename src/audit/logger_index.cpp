@@ -2,6 +2,7 @@
 #include "logger_index.hpp"
 #include "../tracelog.hpp"
 #include "../util.hpp"
+#include "../version.hpp"
 
 /**
  * Log index file keeps offset and the root_hash of log records.
@@ -46,7 +47,26 @@ namespace hpfs::audit::logger_index
         }
 
         // Open or create the index file.
-        fd = open(file_path.data(), O_CREAT | O_RDWR, FILE_PERMS);
+        if (!util::is_file_exists(file_path))
+        {
+            // Create new file and include version header.
+            fd = open(file_path.data(), O_CREAT | O_RDWR, FILE_PERMS);
+            if (fd != -1)
+            {
+                if (write(fd, version::HP_VERSION_BYTES, version::VERSION_BYTES_LEN) < version::VERSION_BYTES_LEN)
+                {
+                    LOG_ERROR << errno << ": Error adding version header to the hpfs index file";
+                    close(fd);
+                    logger.reset();
+                    return -1;
+                }
+            }
+        }
+        else
+        {
+            // Open an already existing file.
+            fd = open(file_path.data(), O_RDWR, FILE_PERMS);
+        }
         if (fd == -1)
         {
             LOG_ERROR << errno << ": Error in opening index file.";
@@ -141,7 +161,7 @@ namespace hpfs::audit::logger_index
     int read_last_root_hash(hmap::hasher::h32 &root_hash)
     {
         // If index file is empty return empty hash.
-        if (eof == 0)
+        if (eof == version::VERSION_BYTES_LEN)
         {
             root_hash = hmap::hasher::h32_empty;
             return 0;
@@ -163,7 +183,7 @@ namespace hpfs::audit::logger_index
     */
     uint64_t get_last_seq_no()
     {
-        return eof / (sizeof(uint64_t) + sizeof(hmap::hasher::h32));
+        return (eof - version::VERSION_BYTES_LEN) / (sizeof(uint64_t) + sizeof(hmap::hasher::h32));
     }
 
     /**
@@ -180,14 +200,14 @@ namespace hpfs::audit::logger_index
             LOG_ERROR << errno << ": Index hasn't been initialized properly.";
             return -1;
         }
-        else if (eof == 0)
+        else if (eof == version::VERSION_BYTES_LEN)
         {
             LOG_ERROR << errno << ": Index hasn't been updated.";
             return -1;
         }
 
         // Calculate offset position of the index.
-        const uint64_t index_offset = (seq_no - 1) * (sizeof(uint64_t) + sizeof(hmap::hasher::h32));
+        const uint64_t index_offset = get_data_offset_of_index_file(seq_no);
         // If the offset is end of file set offset 0.
         if (index_offset == eof)
         {
@@ -224,14 +244,14 @@ namespace hpfs::audit::logger_index
             LOG_ERROR << errno << ": Index hasn't been initialized properly.";
             return -1;
         }
-        else if (eof == 0)
+        else if (eof == version::VERSION_BYTES_LEN)
         {
             LOG_ERROR << errno << ": Index hasn't been updated.";
             return -1;
         }
 
         // Calculate offset position of the index.
-        const uint64_t index_offset = (seq_no - 1) * (sizeof(uint64_t) + sizeof(hmap::hasher::h32));
+        const uint64_t index_offset = get_data_offset_of_index_file(seq_no);
         if (index_offset >= eof)
             return -1;
 
@@ -261,7 +281,7 @@ namespace hpfs::audit::logger_index
             LOG_ERROR << errno << ": Index hasn't been initialized properly.";
             return -1;
         }
-        else if (eof == 0)
+        else if (eof == version::VERSION_BYTES_LEN)
         {
             LOG_ERROR << errno << ": Index hasn't been updated.";
             return -1;
@@ -613,7 +633,7 @@ namespace hpfs::audit::logger_index
     */
     off_t get_data_offset_of_index_file(const uint64_t seq_no)
     {
-        return (seq_no - 1) * (sizeof(uint64_t) + sizeof(hmap::hasher::h32));
+        return version::VERSION_BYTES_LEN + (seq_no - 1) * (sizeof(uint64_t) + sizeof(hmap::hasher::h32));
     }
 
 } // namespace hpfs::audit::logger_index
