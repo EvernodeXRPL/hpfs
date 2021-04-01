@@ -2,6 +2,7 @@
 #define _HPFS_UTIL_
 
 #include <string>
+#include <vector>
 
 // Write() data block size. We choose this to be the page size for mmap() page alignment.
 constexpr size_t BLOCK_SIZE = 4096;
@@ -28,6 +29,7 @@ namespace util
     void uint64_to_bytes(uint8_t *dest, const uint64_t x);
     uint64_t uint64_from_bytes(const uint8_t *data);
     int stoull(const std::string &str, uint64_t &result);
+    const std::vector<std::string> split_string(std::string_view s, std::string_view delimiter);
 
 } // namespace util
 

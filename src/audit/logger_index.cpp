@@ -1,6 +1,5 @@
 
 #include "logger_index.hpp"
-#include "audit.hpp"
 #include "../tracelog.hpp"
 #include "../util.hpp"
 
@@ -13,8 +12,12 @@
 namespace hpfs::audit::logger_index
 {
     constexpr int FILE_PERMS = 0644;
+    constexpr int INDEX_UPDATE_QUERY_LEN = 13;
+    constexpr int INDEX_UPDATE_QUERY_FULLSTOP_LEN = 14;
     constexpr const char *INDEX_UPDATE_QUERY = "/::hpfs.index";
-    constexpr const char *INDEX_FILENAME_FULLSTOP = "/::hpfs.index.";
+    constexpr const char *INDEX_UPDATE_QUERY_FULLSTOP = "/::hpfs.index.";
+
+    constexpr uint64_t MAX_LOG_READ_SIZE = 1 * 1024 * 1024;
 
     int fd = -1;              // The index file fd used throughout the session.
     off_t eof = 0;            // End of file (End offset of index file).
@@ -164,22 +167,292 @@ namespace hpfs::audit::logger_index
     }
 
     /**
-     * Handles the log index control signals.
+     * Read the log offset of a given position.
+     * @param offset Log offset if requested position is equal to the eof offset will be 0.
+     * @param pos Position of the log.
+     * @return Returns -1 on error otherwise 0.
+    */
+    int read_offset(off_t &offset, const uint64_t seq_no)
+    {
+        // If logger isn't initialized show error.
+        if (!initialized)
+        {
+            LOG_ERROR << errno << ": Index hasn't been initialized properly.";
+            return -1;
+        }
+        else if (eof == 0)
+        {
+            LOG_ERROR << errno << ": Index hasn't been updated.";
+            return -1;
+        }
+
+        // Calculate offset position of the index.
+        const uint64_t index_offset = (seq_no - 1) * (sizeof(uint64_t) + sizeof(hmap::hasher::h32));
+        // If the offset is end of file set offset 0.
+        if (index_offset == eof)
+        {
+            offset = 0;
+            return 0;
+        }
+        else if (index_offset > eof)
+            return -1;
+
+        // Reading the offset value as big endian by calculating the offset position from the sequence number.
+        uint8_t be_offset[8];
+        if (pread(fd, &be_offset, sizeof(be_offset), index_offset) < sizeof(be_offset))
+        {
+            LOG_ERROR << errno << ": Error reading log index file. " << seq_no;
+            return -1;
+        }
+
+        // Convert big endian value to unit64_t;
+        offset = util::uint64_from_bytes(be_offset);
+        return 0;
+    }
+
+    /**
+     * Read the hash of a given position.
+     * @param hash Hash at the given position.
+     * @param seq_no Sequence number of the log.
+     * @return Returns -1 on error otherwise 0.
+    */
+    int read_hash(hmap::hasher::h32 &hash, const uint64_t seq_no)
+    {
+        // If logger isn't initialized show error.
+        if (!initialized)
+        {
+            LOG_ERROR << errno << ": Index hasn't been initialized properly.";
+            return -1;
+        }
+        else if (eof == 0)
+        {
+            LOG_ERROR << errno << ": Index hasn't been updated.";
+            return -1;
+        }
+
+        // Calculate offset position of the index.
+        const uint64_t index_offset = (seq_no - 1) * (sizeof(uint64_t) + sizeof(hmap::hasher::h32));
+        if (index_offset >= eof)
+            return -1;
+
+        // Reading the hash value.
+        if (pread(fd, &hash, sizeof(hmap::hasher::h32), index_offset + sizeof(hmap::hasher::h32)) < sizeof(hmap::hasher::h32))
+        {
+            LOG_ERROR << errno << ": Error reading log index file. " << seq_no;
+            return -1;
+        }
+
+        return 0;
+    }
+
+    /**
+     * Reading the log records withing min and max seq_no range and populate them along with the seq_no.
+     * @param buf Buffer to populate logs. Layout [00000000][log record][00000000][log record]....[seq_no1][log record][00000000][log record]....
+     * @param min_seq_no Minimum seq_no to start scanning. If 0 start from the first record of the log.
+     * @param max_seq_no Maximum seq_no to stop scanning. If 0 give the records until the end.
+     * @param max_size Max buffer size to read. If 0 buffer size is unlimited.
+     * @return Returns buffer length on success, -1 on error.
+    */
+    int read_log_records(char *buf, const uint64_t min_seq_no, const uint64_t max_seq_no, const uint64_t max_size)
+    {
+        // If logger isn't initialized show error.
+        if (!initialized)
+        {
+            LOG_ERROR << errno << ": Index hasn't been initialized properly.";
+            return -1;
+        }
+        else if (eof == 0)
+        {
+            LOG_ERROR << errno << ": Index hasn't been updated.";
+            return -1;
+        }
+        else if (max_seq_no > 0 && min_seq_no > max_seq_no)
+        {
+            LOG_ERROR << errno << ": min_seq_no cannot be greated than max_seq_no.";
+            return -1;
+        }
+
+        off_t current_offset, max_offset;
+
+        // If min seq no is 0 start collecting from the very begining.
+        if (min_seq_no == 0)
+            current_offset = 0;
+
+        // If max seq mo is 0 collect until the end.
+        if (max_seq_no == 0)
+            max_offset = 0;
+
+        if (min_seq_no > 0 && read_offset(current_offset, min_seq_no) == -1 ||
+            max_seq_no > 0 && read_offset(max_offset, max_seq_no) == -1)
+            return -1;
+
+        uint64_t seq_no = min_seq_no;
+        off_t next_seq_no_offset;
+        // Take the offset of the frontmost seq_no log record.
+        // if current offset is 0 take the 1st seq_no log record's offset.
+        if (current_offset == 0)
+        {
+            if (read_offset(next_seq_no_offset, ++seq_no) == -1)
+                return -1;
+        }
+        else
+            next_seq_no_offset = current_offset;
+
+        // Tempory buffer to keep the intermidiate records bitween seq_no log records.
+        // To ensure endpoint of the main buf is a seq_no log record.
+        std::string record_buf;
+        size_t buf_length = 0;
+
+        // Loop until the max_offset
+        while (max_offset == 0 || current_offset <= max_offset)
+        {
+            record_buf.resize(record_buf.length() + sizeof(seq_no));
+            // If we reached to a seq_no log record
+            const bool is_seq_no_log = (next_seq_no_offset == current_offset);
+            // If this is a seq_no log append seq_no to the buf and read the next seq_no record's offset.
+            // otherwise it's 0.
+            if (is_seq_no_log)
+            {
+                memcpy(record_buf.data() + record_buf.length() - sizeof(seq_no), &seq_no, sizeof(seq_no));
+                if (read_offset(next_seq_no_offset, ++seq_no) == -1)
+                    return -1;
+            }
+            else
+                memset(record_buf.data() + record_buf.length() - sizeof(seq_no), 0, sizeof(seq_no));
+
+            // Read the log record buf at current offset.
+            // After reading current_offset would be next records offset.
+            std::string log_record;
+            if (logger->init_log_header() == -1 || logger->read_log_record_buf_at(current_offset, current_offset, log_record) == -1)
+                return -1;
+            record_buf.append(log_record);
+            log_record.clear();
+
+            // If reached the max_size limit break from the loop before adding the temp buffer to main and return the collected buffer.
+            if (max_size != 0 && (buf_length + record_buf.length()) > max_size)
+                break;
+
+            // If the current log record is a seq_no log record, Append collected to the main buffer and clean the temp buffer.
+            // Buffer layout - [00000000][log record][00000000][log record]....[seq_no1][log record][00000000][log record]...
+            if (is_seq_no_log)
+            {
+                memcpy(buf + buf_length, record_buf.c_str(), record_buf.length());
+                buf_length += record_buf.length();
+                record_buf.resize(0);
+            }
+
+            // If we reached to the eof of the log file, break from the loop and return collected.
+            if (current_offset == 0)
+                break;
+        }
+
+        return buf_length;
+    }
+
+    // This is the test function to decode the hpfs log read buffer.
+    /**
+     * Appending log records to hpfs log file.
+     * @param buf Buffer to append.
+     * @return Returns 0 on success, -1 on error.
+    */
+    int append_log_records(const char *buf, const size_t size)
+    {
+        off_t offset = 0;
+        while (offset < size)
+        {
+            const uint64_t *seq_no = (const uint64_t *)std::string_view(buf + offset, 8).data();
+            offset += 8;
+            LOG_ERROR << std::to_string(*seq_no);
+            const log_record_header *rh = (const log_record_header *)std::string_view(buf + offset, sizeof(log_record_header)).data();
+            offset += sizeof(log_record_header);
+            LOG_ERROR << rh->operation << " " << rh->root_hash.to_hex() << " " << rh->vpath_len << " " << rh->payload_len << " " << rh->block_data_len;
+            const std::string vpath = std::string(buf + offset, rh->vpath_len).data();
+            offset += rh->vpath_len;
+            LOG_ERROR << vpath;
+            if (rh->payload_len > 0)
+            {
+                const char *payload = (const char *)std::string_view(buf + offset, rh->payload_len).data();
+                offset += rh->payload_len;
+            }
+            if (rh->block_data_len > 0)
+            {
+                const char *block_data = (const char *)std::string_view(buf + offset, rh->block_data_len).data();
+                offset += rh->block_data_len;
+            }
+        }
+
+        return 0;
+    }
+
+    /**
+     * Checks request for any read.
      * @param query Query passed from the outside.
+     * @param buf Data buffer to be returned.
+     * @param size Read size.
      * @return 0 if request succesfully was interpreted by index control. 1 if the request
      *         should be passed through to the virtual fs. <0 on error.
     */
-    int index_check_write(std::string_view query)
+    int index_check_read(std::string_view query, char *buf, size_t *size)
     {
-        // If logger index isn't initialized return no entry.
-        if (query == INDEX_UPDATE_QUERY)
-            return initialized ? update_log_index() : -ENOENT;
+        if (strncmp(query.data(), INDEX_UPDATE_QUERY_FULLSTOP, INDEX_UPDATE_QUERY_FULLSTOP_LEN) == 0 && query.length() > INDEX_UPDATE_QUERY_FULLSTOP_LEN)
+        {
+            // If logger index isn't initialized return no entry.
+            if (!initialized)
+                return -ENOENT;
+
+            // Split the query by '.'.
+            const std::vector<std::string> params = util::split_string(query, ".");
+            if (params.size() != 4)
+            {
+                LOG_ERROR << "Log read parameter error: Invalid parameters";
+                return -1;
+            }
+
+            uint64_t min_seq_no, max_seq_no;
+            if (util::stoull(params.at(2).data(), min_seq_no) == -1 || util::stoull(params.at(3).data(), max_seq_no) == -1)
+            {
+                LOG_ERROR << "Log read parameter error: Invalid parameters";
+                return -1;
+            }
+
+            // We send the requested size limit to collect the logs.
+            const int res = read_log_records(buf, min_seq_no, max_seq_no, *size);
+            if (res == -1)
+                return -1;
+
+            // Then we set the size to the actual buffer size to return back.
+            *size = res;
+            return 0;
+        }
 
         return 1;
     }
 
     /**
-     * Handles the log index control signals.
+     * Checks open request for any write.
+     * @param query Query passed from the outside.
+     * @return 0 if request succesfully was interpreted by index control. 1 if the request
+     *         should be passed through to the virtual fs. <0 on error.
+    */
+    int index_check_write(std::string_view query, const char *buf, const size_t size)
+    {
+        // If logger index isn't initialized return no entry.
+        if (query == INDEX_UPDATE_QUERY && query.length() == INDEX_UPDATE_QUERY_LEN)
+        {
+            if (!initialized)
+                return -ENOENT;
+
+            if (size <= 1)
+                return update_log_index();
+            else
+                return append_log_records(buf, size);
+        }
+
+        return 1;
+    }
+
+    /**
+     * Checks open request for any index.
      * @param query Query passed from the outside.
      * @return 0 if request succesfully was interpreted by index control. 1 if the request
      *         should be passed through to the virtual fs. <0 on error.
@@ -187,7 +460,7 @@ namespace hpfs::audit::logger_index
     int index_check_open(std::string_view query)
     {
         // If logger index isn't initialized return no entry.
-        if (query == INDEX_UPDATE_QUERY)
+        if (strncmp(query.data(), INDEX_UPDATE_QUERY, INDEX_UPDATE_QUERY_LEN) == 0)
             return initialized ? 0 : -ENOENT;
 
         return 1;
@@ -207,7 +480,6 @@ namespace hpfs::audit::logger_index
             // If logger index isn't initialized return no entry.
             if (!initialized)
                 return -ENOENT;
-
             if (fstat(fd, stbuf) == -1)
             {
                 LOG_ERROR << errno << ": Error in stat of index file.";
@@ -215,26 +487,27 @@ namespace hpfs::audit::logger_index
             }
             return 0;
         }
-        else if (strncmp(query.data(), INDEX_FILENAME_FULLSTOP, 14) == 0)
+        // Read or truncate calls will contains paramters.
+        else if (strncmp(query.data(), INDEX_UPDATE_QUERY_FULLSTOP, INDEX_UPDATE_QUERY_FULLSTOP_LEN) == 0)
         {
             // If logger index isn't initialized return no entry.
             if (!initialized)
                 return -ENOENT;
-
             // Given path should contain a sequnce number.
-            if (query.size() > 14)
+            if (query.size() > INDEX_UPDATE_QUERY_FULLSTOP_LEN)
             {
                 if (fstat(fd, stbuf) == -1)
                 {
                     LOG_ERROR << errno << ": Error in stat of index file.";
                     return -1;
                 }
+                // Send maximum read size as dummy file size.
+                stbuf->st_size = MAX_LOG_READ_SIZE;
                 return 0;
             }
             else
                 return 1;
         }
-
         return 1;
     }
 
@@ -246,13 +519,13 @@ namespace hpfs::audit::logger_index
     int index_check_truncate(const char *path)
     {
         std::string path_str(path);
-        if (strncmp(path_str.c_str(), INDEX_FILENAME_FULLSTOP, 14) == 0)
+        if (strncmp(path_str.c_str(), INDEX_UPDATE_QUERY_FULLSTOP, INDEX_UPDATE_QUERY_FULLSTOP_LEN) == 0)
         {
             // Given path should create a sequnce number.
             if (path_str.size() > 14)
             {
                 uint64_t seq_no;
-                if (util::stoull(path_str.substr(14), seq_no) == -1 ||
+                if (util::stoull(path_str.substr(INDEX_UPDATE_QUERY_FULLSTOP_LEN), seq_no) == -1 ||
                     truncate_log_and_index_file(seq_no) == -1)
                 {
                     LOG_ERROR << "Error truncating log file.";

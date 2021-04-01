@@ -370,6 +370,76 @@ namespace hpfs::audit
         return 0;
     }
 
+    /**
+     * Reads the log record indicated by the offset as a buffer if a record exists at that offset.
+     * @param offset Log record offset to be read. If 0 current first record will be read.
+     * @param next_offset Indicates the offset of next log record if read succesful or -1 if
+     *                    no record available at 'offset'. If the record is the last record then next_offset is 0.
+     * @param buf Contains the log record buffer if read successful.
+     * @return 0 on successful read or no record available. -1 on error.
+     */
+    int audit_logger::read_log_record_buf_at(const off_t offset, off_t &next_offset, std::string &buf)
+    {
+        if (header.first_record == 0 || offset > header.last_record)
+        {
+            next_offset = -1;
+            return 0;
+        }
+
+        const off_t read_offset = offset == 0 ? header.first_record : offset;
+
+        // Reading the log header.
+        log_record_header rh;
+        if (pread(fd, &rh, sizeof(log_record_header), read_offset) < sizeof(log_record_header))
+        {
+            LOG_ERROR << errno << ": Error reading log record header from log file.";
+            return -1;
+        }
+
+        buf.resize(sizeof(rh) + rh.vpath_len + rh.payload_len + rh.block_data_len);
+        memcpy(buf.data(), &rh, sizeof(rh));
+        size_t buf_offset = sizeof(rh);
+
+        // Reading the vpath.
+        if (pread(fd, buf.data() + buf_offset, rh.vpath_len, read_offset + buf_offset) < rh.vpath_len)
+        {
+            LOG_ERROR << errno << ": Error reading log record vpath from log file.";
+            return -1;
+        }
+        buf_offset += rh.vpath_len;
+
+        // Reading the payload.
+        if (rh.payload_len > 0)
+        {
+            if (pread(fd, buf.data() + buf_offset, rh.payload_len, read_offset + buf_offset) < rh.payload_len)
+            {
+                LOG_ERROR << errno << ": Error reading log record payload from log file.";
+                return -1;
+            }
+            buf_offset += rh.payload_len;
+        }
+
+        // Reading the block data.
+        // Calculate block offset including block alignment padding.
+        const off_t block_data_offset = read_offset + BLOCK_END(buf_offset);
+        if (rh.block_data_len > 0)
+        {
+            if (pread(fd, buf.data() + buf_offset, rh.block_data_len, block_data_offset) < rh.block_data_len)
+            {
+                LOG_ERROR << errno << ": Error reading log record block data from log file.";
+                return -1;
+            }
+            buf_offset += rh.block_data_len;
+        }
+
+        next_offset = block_data_offset + rh.block_data_len;
+        // If there's no more log records next offset is 0.
+        if (next_offset == eof)
+            next_offset = 0;
+
+        return 0;
+    }
+
     int audit_logger::read_payload(std::vector<uint8_t> &payload, const log_record &record)
     {
         if (record.payload_len > 0)
