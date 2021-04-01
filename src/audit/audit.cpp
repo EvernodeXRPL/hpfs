@@ -17,7 +17,6 @@
 namespace hpfs::audit
 {
     constexpr int FILE_PERMS = 0644;
-    constexpr uint16_t HPFS_VERSION = 1;
 
     int audit_logger::create(std::optional<audit_logger> &logger, const LOG_MODE mode, std::string_view log_file_path)
     {
