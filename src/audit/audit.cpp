@@ -12,6 +12,7 @@
 #include "../tracelog.hpp"
 #include "audit.hpp"
 #include "../hpfs.hpp"
+#include "../version.hpp"
 
 namespace hpfs::audit
 {
@@ -101,8 +102,13 @@ namespace hpfs::audit
 
         if (st.st_size == 0) // If file is empty, write the initial header.
         {
+            // Add the version header at the start of the file.
+            if (pwrite(fd, version::HP_VERSION_BYTES, version::VERSION_BYTES_LEN, 0) < version::VERSION_BYTES_LEN)
+            {
+                LOG_ERROR << "Error adding version header to the log file";
+                return -1;
+            }   
             memset(&header, 0, sizeof(header));
-            header.version = HPFS_VERSION;
             if (commit_header() == -1)
             {
                 release_lock(header_lock);
@@ -197,7 +203,7 @@ namespace hpfs::audit
 
     int audit_logger::read_header()
     {
-        if (pread(fd, &header, sizeof(header), 0) < sizeof(header))
+        if (pread(fd, &header, sizeof(header), version::VERSION_BYTES_LEN) < sizeof(header))
         {
             LOG_ERROR << errno << ": Error when reading header.";
             return -1;
@@ -208,7 +214,8 @@ namespace hpfs::audit
 
     int audit_logger::commit_header()
     {
-        if (pwrite(fd, &header, sizeof(header), 0) < sizeof(header))
+        // Log header is after the hpfs version header.
+        if (pwrite(fd, &header, sizeof(header), version::VERSION_BYTES_LEN) < sizeof(header))
         {
             LOG_ERROR << errno << ": Error when updating header.";
             return -1;

@@ -43,8 +43,6 @@ namespace hpfs::audit
 
     struct log_header
     {
-        uint16_t version;
-
         // Begin offset of the first log record. 0 indicates there are no records.
         off_t first_record;
 
