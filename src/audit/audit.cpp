@@ -375,7 +375,7 @@ namespace hpfs::audit
      * @param offset Log record offset to be read. If 0 current first record will be read.
      * @param next_offset Indicates the offset of next log record if read succesful or -1 if
      *                    no record available at 'offset'. If the record is the last record then next_offset is 0.
-     * @param record Contains the log record buffer if read successful.
+     * @param buf Contains the log record buffer if read successful.
      * @return 0 on successful read or no record available. -1 on error.
      */
     int audit_logger::read_log_record_buf_at(const off_t offset, off_t &next_offset, std::string &buf)
@@ -420,7 +420,7 @@ namespace hpfs::audit
         }
 
         // Reading the block data.
-        // Calculate total record length including block alignment padding.
+        // Calculate block offset including block alignment padding.
         const off_t block_data_offset = read_offset + BLOCK_END(buf_offset);
         if (rh.block_data_len > 0)
         {

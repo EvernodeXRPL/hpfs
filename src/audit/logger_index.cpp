@@ -172,7 +172,7 @@ namespace hpfs::audit::logger_index
      * @param pos Position of the log.
      * @return Returns -1 on error otherwise 0.
     */
-    int read_offset(off_t &offset, const uint64_t pos)
+    int read_offset(off_t &offset, const uint64_t seq_no)
     {
         // If logger isn't initialized show error.
         if (!initialized)
@@ -187,7 +187,7 @@ namespace hpfs::audit::logger_index
         }
 
         // Calculate offset position of the index.
-        const uint64_t index_offset = pos * (sizeof(uint64_t) + sizeof(hmap::hasher::h32));
+        const uint64_t index_offset = (seq_no - 1) * (sizeof(uint64_t) + sizeof(hmap::hasher::h32));
         // If the offset is end of file set offset 0.
         if (index_offset == eof)
         {
@@ -201,7 +201,7 @@ namespace hpfs::audit::logger_index
         uint8_t be_offset[8];
         if (pread(fd, &be_offset, sizeof(be_offset), index_offset) < sizeof(be_offset))
         {
-            LOG_ERROR << errno << ": Error reading log index file. " << pos;
+            LOG_ERROR << errno << ": Error reading log index file. " << seq_no;
             return -1;
         }
 
@@ -213,10 +213,10 @@ namespace hpfs::audit::logger_index
     /**
      * Read the hash of a given position.
      * @param hash Hash at the given position.
-     * @param pos Position of the log.
+     * @param seq_no Sequence number of the log.
      * @return Returns -1 on error otherwise 0.
     */
-    int read_hash(hmap::hasher::h32 &hash, const uint64_t pos)
+    int read_hash(hmap::hasher::h32 &hash, const uint64_t seq_no)
     {
         // If logger isn't initialized show error.
         if (!initialized)
@@ -231,14 +231,14 @@ namespace hpfs::audit::logger_index
         }
 
         // Calculate offset position of the index.
-        const uint64_t index_offset = pos * (sizeof(uint64_t) + sizeof(hmap::hasher::h32));
+        const uint64_t index_offset = (seq_no - 1) * (sizeof(uint64_t) + sizeof(hmap::hasher::h32));
         if (index_offset >= eof)
             return -1;
 
         // Reading the hash value.
         if (pread(fd, &hash, sizeof(hmap::hasher::h32), index_offset + sizeof(hmap::hasher::h32)) < sizeof(hmap::hasher::h32))
         {
-            LOG_ERROR << errno << ": Error reading log index file. " << pos;
+            LOG_ERROR << errno << ": Error reading log index file. " << seq_no;
             return -1;
         }
 
@@ -247,13 +247,13 @@ namespace hpfs::audit::logger_index
 
     /**
      * Reading the log records withing min and max seq_no range and populate them along with the seq_no.
-     * @param buf Buffer to populate logs.
-     * @param min_seq_no Minimum seq_no to start scanning if 0 start from the first record of the log.
-     * @param max_seq_no Maximum seq_no to stop scanning if 0 give the records until the end.
-     * @param max_size Max buffer size to read if 0 buffer size is unlimited.
-     * @return Returns 0 on success, -1 on error.
+     * @param buf Buffer to populate logs. Layout [00000000][log record][00000000][log record]....[seq_no1][log record][00000000][log record]....
+     * @param min_seq_no Minimum seq_no to start scanning. If 0 start from the first record of the log.
+     * @param max_seq_no Maximum seq_no to stop scanning. If 0 give the records until the end.
+     * @param max_size Max buffer size to read. If 0 buffer size is unlimited.
+     * @return Returns buffer length on success, -1 on error.
     */
-    int read_log_records(std::string &buf, const uint64_t min_seq_no, const uint64_t max_seq_no, const uint64_t max_size)
+    int read_log_records(char *buf, const uint64_t min_seq_no, const uint64_t max_seq_no, const uint64_t max_size)
     {
         // If logger isn't initialized show error.
         if (!initialized)
@@ -282,17 +282,17 @@ namespace hpfs::audit::logger_index
         if (max_seq_no == 0)
             max_offset = 0;
 
-        if (min_seq_no > 0 && read_offset(current_offset, min_seq_no - 1) == -1 ||
-            max_seq_no > 0 && read_offset(max_offset, max_seq_no - 1) == -1)
+        if (min_seq_no > 0 && read_offset(current_offset, min_seq_no) == -1 ||
+            max_seq_no > 0 && read_offset(max_offset, max_seq_no) == -1)
             return -1;
 
         uint64_t seq_no = min_seq_no;
         off_t next_seq_no_offset;
-        // Take the offset if the frontmost seq_no log record.
+        // Take the offset of the frontmost seq_no log record.
         // if current offset is 0 take the 1st seq_no log record's offset.
         if (current_offset == 0)
         {
-            if (read_offset(next_seq_no_offset, seq_no++) == -1)
+            if (read_offset(next_seq_no_offset, ++seq_no) == -1)
                 return -1;
         }
         else
@@ -301,6 +301,7 @@ namespace hpfs::audit::logger_index
         // Tempory buffer to keep the intermidiate records bitween seq_no log records.
         // To ensure endpoint of the main buf is a seq_no log record.
         std::string record_buf;
+        size_t buf_length = 0;
 
         // Loop until the max_offset
         while (max_offset == 0 || current_offset <= max_offset)
@@ -313,28 +314,30 @@ namespace hpfs::audit::logger_index
             if (is_seq_no_log)
             {
                 memcpy(record_buf.data() + record_buf.length() - sizeof(seq_no), &seq_no, sizeof(seq_no));
-                if (read_offset(next_seq_no_offset, seq_no++) == -1)
+                if (read_offset(next_seq_no_offset, ++seq_no) == -1)
                     return -1;
             }
             else
                 memset(record_buf.data() + record_buf.length() - sizeof(seq_no), 0, sizeof(seq_no));
 
-            // Read the log record buf at currect offset.
-            // After reading current_offset would be nect records offset.
+            // Read the log record buf at current offset.
+            // After reading current_offset would be next records offset.
             std::string log_record;
             if (logger->init_log_header() == -1 || logger->read_log_record_buf_at(current_offset, current_offset, log_record) == -1)
                 return -1;
             record_buf.append(log_record);
+            log_record.clear();
 
-            // If reached the max_size limit break from the loop befor adding the temp buffer to main and return the collected buffer.
-            if (max_size != 0 && (buf.length() + record_buf.length()) > max_size)
+            // If reached the max_size limit break from the loop before adding the temp buffer to main and return the collected buffer.
+            if (max_size != 0 && (buf_length + record_buf.length()) > max_size)
                 break;
 
             // If the current log record is a seq_no log record, Append collected to the main buffer and clean the temp buffer.
+            // Buffer layout - [00000000][log record][00000000][log record]....[seq_no1][log record][00000000][log record]...
             if (is_seq_no_log)
             {
-                buf.append(record_buf);
-                record_buf.clear();
+                memcpy(buf + buf_length, record_buf.c_str(), record_buf.length());
+                buf_length += record_buf.length();
                 record_buf.resize(0);
             }
 
@@ -343,7 +346,7 @@ namespace hpfs::audit::logger_index
                 break;
         }
 
-        return 0;
+        return buf_length;
     }
 
     // This is the test function to decode the hpfs log read buffer.
@@ -412,14 +415,13 @@ namespace hpfs::audit::logger_index
                 return -1;
             }
 
-            std::string records;
             // We send the requested size limit to collect the logs.
-            if (read_log_records(records, min_seq_no, max_seq_no, *size) == -1)
+            const int res = read_log_records(buf, min_seq_no, max_seq_no, *size);
+            if (res == -1)
                 return -1;
 
-            // Then we resize size to the actual buffer size to return back.
-            *size = records.length();
-            memcpy(buf, records.c_str(), records.length());
+            // Then we set the size to the actual buffer size to return back.
+            *size = res;
             return 0;
         }
 

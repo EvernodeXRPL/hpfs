@@ -172,10 +172,10 @@ namespace util
     }
 
     /**
-     * Splits the provided query by given delimeter.
+     * Splits the provided string by given delimeter.
      * @param s String value to be splited.
      * @param delimiter Splitting delimiter.
-     * @return returns the list of resuling strings.
+     * @return The list of resulting strings.
      */
     const std::vector<std::string> split_string(std::string_view s, std::string_view delimiter)
     {
