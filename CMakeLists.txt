@@ -25,6 +25,7 @@ add_executable(hpfs
     src/vfs/virtual_filesystem.cpp
     src/vfs/seed_path_tracker.cpp
     src/vfs/fuse_adapter.cpp
+    src/version.cpp
     src/fusefs.cpp
     src/merger.cpp
     src/session.cpp
