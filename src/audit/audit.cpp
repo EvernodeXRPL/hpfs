@@ -115,7 +115,7 @@ namespace hpfs::audit
                 return -1;
             }
 
-            eof = BLOCK_END(sizeof(header));
+            eof = BLOCK_END(version::VERSION_BYTES_LEN + sizeof(header));
             if (ftruncate(fd, eof) == -1)
             {
                 LOG_ERROR << errno << ": Error when truncating file with header.";

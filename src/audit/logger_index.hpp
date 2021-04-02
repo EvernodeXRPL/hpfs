@@ -27,6 +27,8 @@ namespace hpfs::audit::logger_index
     
     int append_log_records(const char *buf, const size_t size);
 
+    int persist_log_record(const uint64_t seq_no, const audit::FS_OPERATION op, const std::string &vpath, const std::vector<uint8_t> &payload, const std::vector<uint8_t> &block_data);
+
     int index_check_read(std::string_view query, char *buf, size_t *size);
 
     int index_check_write(std::string_view query, const char *buf, const size_t size);

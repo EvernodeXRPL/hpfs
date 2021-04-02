@@ -3,6 +3,8 @@
 #include "../tracelog.hpp"
 #include "../util.hpp"
 #include "../version.hpp"
+#include "../vfs/virtual_filesystem.hpp"
+#include "../hmap/tree.hpp"
 
 /**
  * Log index file keeps offset and the root_hash of log records.
@@ -25,6 +27,8 @@ namespace hpfs::audit::logger_index
     bool initialized = false; // Indicates that the index has been initialized properly.
     std::string index_file_path;
     std::optional<audit::audit_logger> logger;
+    std::optional<vfs::virtual_filesystem> virt_fs;
+    std::optional<hmap::tree::hmap_tree> htree;
 
     /**
      * Initialize the log index file.
@@ -39,9 +43,11 @@ namespace hpfs::audit::logger_index
             return 0;
 
         // First initialize the logger.
-        if (audit::audit_logger::create(logger, audit::LOG_MODE::LOG_SYNC, ctx.log_file_path) == -1)
+        if (audit::audit_logger::create(logger, audit::LOG_MODE::LOG_SYNC, ctx.log_file_path) == -1 ||
+            vfs::virtual_filesystem::create(virt_fs, false, ctx.seed_dir, logger.value()) == -1 ||
+            hmap::tree::hmap_tree::create(htree, virt_fs.value()) == -1)
         {
-            LOG_ERROR << errno << ": Error in opening log file.";
+            LOG_ERROR << errno << ": Error initializing log index.";
             logger.reset();
             return -1;
         }
@@ -377,28 +383,226 @@ namespace hpfs::audit::logger_index
     */
     int append_log_records(const char *buf, const size_t size)
     {
+        // If logger isn't initialized show error.
+        if (!initialized)
+        {
+            LOG_ERROR << errno << ": Index hasn't been initialized properly.";
+            return -1;
+        }
+
+        if (htree->init() == -1)
+        {
+            LOG_ERROR << errno << ": Error initializing htree.";
+        }
+
+        uint64_t last_seq_no = get_last_seq_no();
+        hmap::hasher::h32 last_root_hash;
+        if (read_last_root_hash(last_root_hash) == -1)
+            return -1;
+
         off_t offset = 0;
+        bool first_record = true;
         while (offset < size)
         {
-            const uint64_t *seq_no = (const uint64_t *)std::string_view(buf + offset, 8).data();
+            const uint64_t seq_no = *(const uint64_t *)std::string_view(buf + offset, 8).data();
             offset += 8;
-            LOG_ERROR << std::to_string(*seq_no);
-            const log_record_header *rh = (const log_record_header *)std::string_view(buf + offset, sizeof(log_record_header)).data();
+
+            const log_record_header rh = *(const log_record_header *)std::string_view(buf + offset, sizeof(log_record_header)).data();
             offset += sizeof(log_record_header);
-            LOG_ERROR << rh->operation << " " << rh->root_hash.to_hex() << " " << rh->vpath_len << " " << rh->payload_len << " " << rh->block_data_len;
-            const std::string vpath = std::string(buf + offset, rh->vpath_len).data();
-            offset += rh->vpath_len;
-            LOG_ERROR << vpath;
-            if (rh->payload_len > 0)
+
+            const std::string vpath = std::string(buf + offset, rh.vpath_len).data();
+            offset += rh.vpath_len;
+            const std::vector<uint8_t> payload(buf + offset, buf + offset + rh.payload_len);
+            offset += rh.payload_len;
+            const std::vector<uint8_t> block_data(buf + offset, buf + offset + rh.block_data_len);
+            offset += rh.block_data_len;
+
+            // If index file is empty don't check for joining point. Append all records.
+            if (eof != version::VERSION_BYTES_LEN && first_record)
             {
-                const char *payload = (const char *)std::string_view(buf + offset, rh->payload_len).data();
-                offset += rh->payload_len;
+                if (seq_no != last_seq_no || rh.root_hash != last_root_hash)
+                {
+                    LOG_ERROR << "Invalid joining point in the received log response. seq no " << seq_no << " " << last_seq_no;
+                    return -1;
+                }
+
+                first_record = false;
+                continue;
             }
-            if (rh->block_data_len > 0)
+            first_record = false;
+
+            if (persist_log_record(seq_no, rh.operation, vpath, payload, block_data) == -1)
             {
-                const char *block_data = (const char *)std::string_view(buf + offset, rh->block_data_len).data();
-                offset += rh->block_data_len;
+                LOG_ERROR << "Error persisting log record. seq no " << seq_no;
+                return -1;
             }
+        }
+
+        if (htree->store.persist_hash_maps() == -1)
+        {
+            LOG_ERROR << errno << ": Error persisting htree.";
+        }
+
+        return 0;
+    }
+
+    int persist_log_record(const uint64_t seq_no, const audit::FS_OPERATION op, const std::string &vpath, const std::vector<uint8_t> &payload, const std::vector<uint8_t> &block_data)
+    {
+        const iovec payload_vec{(void *)payload.data(), payload.size()};
+        std::vector<iovec> block_data_vec;
+        block_data_vec.push_back({(void *)block_data.data(), block_data.size()});
+
+        log_record_header rh;
+        off_t start_offset = logger->append_log(rh, vpath, op, &payload_vec,
+                                                block_data_vec.data(), block_data_vec.size());
+
+        if (start_offset == 0)
+        {
+            LOG_ERROR << "Error appending to the logs file.";
+            return -1;
+        }
+
+        if (virt_fs->build_vfs() == -1)
+        {
+            LOG_ERROR << "Error building the virtual file system.";
+            return -1;
+        }
+
+        switch (op)
+        {
+        case (audit::FS_OPERATION::MKDIR):
+        case (audit::FS_OPERATION::CREATE):
+        {
+            if (htree && htree->apply_vnode_create(vpath) == -1)
+            {
+                LOG_ERROR << "Create hash: Error generating hash for " << vpath << " " << errno;
+                return -1;
+            }
+            break;
+        }
+        case (audit::FS_OPERATION::WRITE):
+        {
+            vfs::vnode *vn = NULL;
+            if (virt_fs->get_vnode(vpath, &vn) == -1)
+            {
+                LOG_ERROR << "Write: Error fetching the vnode " << vpath;
+                return -1;
+            }
+            if (!vn)
+            {
+                LOG_ERROR << "Write: No entry " << vpath;
+                return -ENOENT;
+            }
+            op_write_payload_header wh = *(const op_write_payload_header *)payload.data();
+            if (htree && htree->apply_vnode_data_update(vpath, *vn, wh.offset, wh.size) == -1)
+            {
+                LOG_ERROR << "Update hash: Error generating hash for " << vpath;
+                return -1;
+            }
+            break;
+        }
+        case (audit::FS_OPERATION::TRUNCATE):
+        {
+            vfs::vnode *vn = NULL;
+            if (virt_fs->get_vnode(vpath, &vn) == -1)
+            {
+                LOG_ERROR << "Truncate: Error fetching the vnode " << vpath;
+                return -1;
+            }
+            if (!vn)
+            {
+                LOG_ERROR << "Truncate: No entry " << vpath;
+                return -ENOENT;
+            }
+            size_t current_size = vn->st.st_size;
+            hpfs::audit::op_truncate_payload_header th = *(const op_truncate_payload_header *)payload.data();
+            if (htree && htree->apply_vnode_data_update(vpath, *vn, MIN(th.size, current_size), MAX(0, th.size - current_size)) == -1)
+            {
+                LOG_ERROR << "Update hash: Error generating hash for " << vpath;
+                return -1;
+            }
+            break;
+        }
+        case (audit::FS_OPERATION::CHMOD):
+        {
+            vfs::vnode *vn = NULL;
+            if (virt_fs->get_vnode(vpath, &vn) == -1)
+            {
+                LOG_ERROR << "Chmod: Error fetching the vnode " << vpath;
+                return -1;
+            }
+            if (!vn)
+            {
+                LOG_ERROR << "Chmod: No entry " << vpath;
+                return -ENOENT;
+            }
+            if (htree && htree->apply_vnode_metadata_update(vpath, *vn) == -1)
+            {
+                LOG_ERROR << "Update hash: Error generating hash for " << vpath;
+                return -1;
+            }
+            break;
+        }
+        case (audit::FS_OPERATION::RMDIR):
+        case (audit::FS_OPERATION::UNLINK):
+        {
+            if (htree && htree->apply_vnode_delete(vpath) == -1)
+            {
+                LOG_ERROR << "Delete hash: Error generating hash for " << vpath;
+                return -1;
+            }
+            break;
+        }
+        case (audit::FS_OPERATION::RENAME):
+        {
+            vfs::vnode *vn = NULL;
+            if (virt_fs->get_vnode(vpath, &vn) == -1)
+            {
+                LOG_ERROR << "Rename: Error fetching the vnode " << vpath;
+                return -1;
+            }
+            if (!vn)
+            {
+                LOG_ERROR << "Rename: No entry " << vpath;
+                return -ENOENT;
+            }
+
+            const bool is_file = S_ISREG(vn->st.st_mode);
+
+            std::string to_vpath(std::string_view((char *)payload.data(), payload.size() - 1));
+            if (htree && htree->apply_vnode_rename(vpath, to_vpath, !is_file) == -1)
+            {
+                LOG_ERROR << "Rename hash: Error generating hash for " << vpath;
+                return -1;
+            }
+            break;
+        }
+        default:
+            return -1;
+        }
+
+        if (htree && logger->update_log_record(start_offset, htree->get_root_hash(), rh) == -1)
+            return -1;
+
+        if (seq_no != 0)
+        {
+            uint8_t offset[8];
+            util::uint64_to_bytes(offset, start_offset);
+
+            struct iovec iov_vec[2];
+            iov_vec[0].iov_base = offset;
+            iov_vec[0].iov_len = sizeof(offset);
+
+            iov_vec[1].iov_base = &(rh.root_hash);
+            iov_vec[1].iov_len = sizeof(rh.root_hash);
+
+            if (pwritev(fd, iov_vec, 2, eof) == -1)
+            {
+                LOG_ERROR << errno << ": Error writing to log index file.";
+                return -1;
+            }
+
+            eof += sizeof(offset) + sizeof(rh.root_hash);
         }
 
         return 0;
