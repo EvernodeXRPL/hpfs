@@ -1,7 +1,7 @@
+#include <iostream>
+#include <string.h>
 #include "version.hpp"
 #include "util.hpp"
-#include "tracelog.hpp"
-
 namespace version
 {
     // Binary representations of the version. (populated during version init)
@@ -33,7 +33,7 @@ namespace version
 
         if (end == std::string::npos)
         {
-            LOG_ERROR << "Invalid version " << version;
+            std::cerr << "Invalid version " << version << std::endl;
             return -1;
         }
 
@@ -44,7 +44,7 @@ namespace version
 
         if (end == std::string::npos)
         {
-            LOG_ERROR << "Invalid version " << version;
+            std::cerr << "Invalid version " << version << std::endl;
             return -1;
         }
 

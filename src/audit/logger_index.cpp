@@ -65,7 +65,7 @@ namespace hpfs::audit::logger_index
         else
         {
             // Open an already existing file.
-            fd = open(file_path.data(), O_RDWR, FILE_PERMS);
+            fd = open(file_path.data(), O_RDWR);
         }
         if (fd == -1)
         {
