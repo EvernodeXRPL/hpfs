@@ -38,6 +38,7 @@ namespace hpfs::hmap::store
         void insert_hash_map(const std::string &vpath, vnode_hmap &&node_hmap);
         int move_hash_map_cache(const std::string &from_vpath, const std::string &to_vpath, const bool is_dir);
         int persist_hash_maps();
+        int clear();
     };
 } // namespace hpfs::hmap::store
 

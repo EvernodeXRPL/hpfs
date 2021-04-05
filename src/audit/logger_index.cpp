@@ -5,6 +5,7 @@
 #include "../version.hpp"
 #include "../vfs/virtual_filesystem.hpp"
 #include "../hmap/tree.hpp"
+#include "../hmap/hasher.hpp"
 
 /**
  * Log index file keeps offset and the root_hash of log records.
@@ -393,6 +394,7 @@ namespace hpfs::audit::logger_index
         if (htree->init() == -1)
         {
             LOG_ERROR << errno << ": Error initializing htree.";
+            return -1;
         }
 
         uint64_t last_seq_no = get_last_seq_no();
@@ -441,6 +443,7 @@ namespace hpfs::audit::logger_index
         if (htree->store.persist_hash_maps() == -1)
         {
             LOG_ERROR << errno << ": Error persisting htree.";
+            return -1;
         }
 
         return 0;
@@ -808,6 +811,18 @@ namespace hpfs::audit::logger_index
         }
 
         eof = end_of_index;
+
+        // Reaching this point means truncation is successful. Delete existing hmap and re-calculate.
+
+        hmap::hasher::h32 root_hash;
+        if (htree->store.clear() == -1 ||                        // Clear the existing hash store.
+            htree->calculate_root_hash(root_hash, true) == -1 || // Calculate entire filesystem hash from scratch.
+            htree->store.persist_hash_maps() == -1)              // Persist calculated hashes to disk.
+        {
+            LOG_ERROR << "Error re-calculating root hash after truncation.";
+            return -1;
+        }
+        LOG_DEBUG << "New root hash after truncation: " << root_hash;
         return 0;
     }
 

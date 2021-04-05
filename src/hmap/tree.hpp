@@ -38,6 +38,7 @@ namespace hpfs::hmap::tree
         int apply_vnode_delete(const std::string &vpath);
         int apply_vnode_rename(const std::string &from_vpath, const std::string &to_vpath, const bool is_dir);
         hmap::hasher::h32 get_root_hash();
+        int calculate_root_hash(hasher::h32 &root_hash, const bool build_vfs);
         ~hmap_tree();
     };
 
