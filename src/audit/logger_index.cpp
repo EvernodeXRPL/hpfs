@@ -369,7 +369,14 @@ namespace hpfs::audit::logger_index
 
             // If we reached to the eof of the log file, break from the loop and return collected.
             if (current_offset == 0)
+            {
+                // If we reach this point, it means requested max is beyond our log (Ex: max_seq_no = 0).
+                // So we append collected all the records up until to the end of our log. 
+                memcpy(buf + buf_length, record_buf.c_str(), record_buf.length());
+                buf_length += record_buf.length();
+                record_buf.clear();
                 break;
+            }
         }
 
         return buf_length;
