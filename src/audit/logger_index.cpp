@@ -21,7 +21,7 @@ namespace hpfs::audit::logger_index
     constexpr const char *INDEX_UPDATE_QUERY = "/::hpfs.index";
     constexpr const char *INDEX_UPDATE_QUERY_FULLSTOP = "/::hpfs.index.";
 
-    constexpr uint64_t MAX_LOG_READ_SIZE = 1 * 1024 * 1024;
+    constexpr uint64_t MAX_LOG_READ_SIZE = 4 * 1024 * 1024; // 4MB
 
     int fd = -1;              // The index file fd used throughout the session.
     off_t eof = 0;            // End of file (End offset of index file).
@@ -370,7 +370,14 @@ namespace hpfs::audit::logger_index
 
             // If we reached to the eof of the log file, break from the loop and return collected.
             if (current_offset == 0)
+            {
+                // If we reach this point, it means requested max is beyond our log (Ex: max_seq_no = 0).
+                // So we append collected all the records up until to the end of our log.
+                memcpy(buf + buf_length, record_buf.c_str(), record_buf.length());
+                buf_length += record_buf.length();
+                record_buf.clear();
                 break;
+            }
         }
 
         return buf_length;
