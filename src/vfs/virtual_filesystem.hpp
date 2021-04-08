@@ -41,7 +41,7 @@ namespace hpfs::vfs
 
     public:
         static int create(std::optional<virtual_filesystem> &virt_fs, const bool readonly, std::string_view seed_dir,
-                                                        hpfs::audit::audit_logger &logger);
+                          hpfs::audit::audit_logger &logger);
         virtual_filesystem(const bool readonly, std::string_view seed_dir, hpfs::audit::audit_logger &logger);
         int get_vnode(const std::string &vpath, vnode **vn);
         int build_vfs();
@@ -50,6 +50,7 @@ namespace hpfs::vfs
                                      off_t &block_buf_start, off_t &block_buf_end,
                                      const char *buf, const size_t wr_size,
                                      const off_t wr_start, const size_t fsize, uint8_t *mmap_ptr);
+        int re_build_vfs();
         ~virtual_filesystem();
     };
 
