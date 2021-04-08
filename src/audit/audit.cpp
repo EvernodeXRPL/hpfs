@@ -105,6 +105,7 @@ namespace hpfs::audit
             if (pwrite(fd, version::HP_VERSION_BYTES, version::VERSION_BYTES_LEN, 0) < version::VERSION_BYTES_LEN)
             {
                 LOG_ERROR << "Error adding version header to the log file";
+                release_lock(header_lock);
                 return -1;
             }   
             memset(&header, 0, sizeof(header));
@@ -118,6 +119,7 @@ namespace hpfs::audit
             eof = BLOCK_END(version::VERSION_BYTES_LEN + sizeof(header));
             if (ftruncate(fd, eof) == -1)
             {
+                release_lock(header_lock);
                 LOG_ERROR << errno << ": Error when truncating file with header.";
                 return -1;
             }

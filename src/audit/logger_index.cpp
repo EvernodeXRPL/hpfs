@@ -899,9 +899,10 @@ namespace hpfs::audit::logger_index
         // Reaching this point means truncation is successful. Delete existing hmap and re-calculate.
 
         hmap::hasher::h32 root_hash;
-        if (index_ctx.htree->store.clear() == -1 ||                        // Clear the existing hash store.
-            index_ctx.htree->calculate_root_hash(root_hash, true) == -1 || // Calculate entire filesystem hash from scratch.
-            index_ctx.htree->store.persist_hash_maps() == -1)              // Persist calculated hashes to disk.
+        if (index_ctx.virt_fs->re_build_vfs() == -1 ||               // Clear and re-build vfs.
+            index_ctx.htree->store.clear() == -1 ||                  // Clear the existing hash store.
+            index_ctx.htree->calculate_root_hash(root_hash) == -1 || // Calculate entire filesystem hash from scratch.
+            index_ctx.htree->store.persist_hash_maps() == -1)        // Persist calculated hashes to disk.
         {
             LOG_ERROR << "Error re-calculating root hash after truncation.";
             return -1;

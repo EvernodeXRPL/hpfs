@@ -49,7 +49,7 @@ namespace hpfs::hmap::tree
         {
             hasher::h32 root_hash;
             // Calculate entire filesystem hash from scratch.
-            if (calculate_root_hash(root_hash, false) == -1)
+            if (calculate_root_hash(root_hash) == -1)
                 return -1;
             LOG_INFO << "Calculated root hash: " << root_hash;
         }
@@ -372,13 +372,10 @@ namespace hpfs::hmap::tree
     /**
      * Build the hash tree from scratch.
      * @param root_hash The calculated root hash.
-     * @param build_vfs The need to build the vfs before calculating hashes.
      * @return -1 on error and 0 on success.
     */
-    int hmap_tree::calculate_root_hash(hasher::h32 &root_hash, const bool build_vfs)
+    int hmap_tree::calculate_root_hash(hasher::h32 &root_hash)
     {
-        if (build_vfs)
-            virt_fs.build_vfs();
         // Calculate entire filesystem hash from scratch.
         if (calculate_dir_hash(root_hash, ROOT_VPATH) == -1)
             return -1;
