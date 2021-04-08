@@ -297,7 +297,7 @@ namespace hpfs::fusefs
         // 1 = Request should be handled by the virtual fs.
         // <0 = Error code needs to be returned.
         // Only is this is successfully interprited buf and size will be populated otherwise they will be kept as it is.
-        const int index_check_result = audit::logger_index::index_check_read(full_path, buf, &size);
+        const int index_check_result = audit::logger_index::index_check_read(full_path, buf, &size, offset);
         if (index_check_result < 1)
         {
             // If the read is success send the size as the response.
@@ -329,10 +329,10 @@ namespace hpfs::fusefs
         // 0 = Successfuly interpreted as a log index control request.
         // 1 = Request should be handled by the virtual fs.
         // <0 = Error code needs to be returned.
-        const int index_check_result = audit::logger_index::index_check_write(full_path, buf, size);
+        const int index_check_result = audit::logger_index::index_check_write(full_path, buf, &size, offset);
         if (index_check_result < 1)
         {
-            // If the write is success send the size as a dummy.
+            // If the write is success send the size as the response.
             if (index_check_result == 0)
                 return size;
             else
@@ -364,6 +364,13 @@ namespace hpfs::fusefs
 
     int fs_release(const char *full_path, struct fuse_file_info *fi)
     {
+        // Check whether this is a index file control request.
+        // 0 = Successfuly interpreted as a log index control request.
+        // 1 = Request should be handled by the virtual fs.
+        // <0 = Error code needs to be returned.
+        const int index_check_result = audit::logger_index::index_check_release(full_path);
+        // Even if this is handled by the index check we let the rest to proceed.
+
         if (fi->fh > 0)
             close(fi->fh);
         return 0;

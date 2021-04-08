@@ -3,9 +3,6 @@
 #include "../tracelog.hpp"
 #include "../util.hpp"
 #include "../version.hpp"
-#include "../vfs/virtual_filesystem.hpp"
-#include "../hmap/tree.hpp"
-#include "../hmap/hasher.hpp"
 
 /**
  * Log index file keeps offset and the root_hash of log records.
@@ -18,18 +15,16 @@ namespace hpfs::audit::logger_index
     constexpr int FILE_PERMS = 0644;
     constexpr int INDEX_UPDATE_QUERY_LEN = 13;
     constexpr int INDEX_UPDATE_QUERY_FULLSTOP_LEN = 14;
+    constexpr int INDEX_READ_QUERY_FULLSTOP_LEN = 19;
+    constexpr int INDEX_WRITE_QUERY_FULLSTOP_LEN = 20;
     constexpr const char *INDEX_UPDATE_QUERY = "/::hpfs.index";
     constexpr const char *INDEX_UPDATE_QUERY_FULLSTOP = "/::hpfs.index.";
+    constexpr const char *INDEX_READ_QUERY_FULLSTOP = "/::hpfs.index.read.";
+    constexpr const char *INDEX_WRITE_QUERY_FULLSTOP = "/::hpfs.index.write.";
 
     constexpr uint64_t MAX_LOG_READ_SIZE = 4 * 1024 * 1024; // 4MB
 
-    int fd = -1;              // The index file fd used throughout the session.
-    off_t eof = 0;            // End of file (End offset of index file).
-    bool initialized = false; // Indicates that the index has been initialized properly.
-    std::string index_file_path;
-    std::optional<audit::audit_logger> logger;
-    std::optional<vfs::virtual_filesystem> virt_fs;
-    std::optional<hmap::tree::hmap_tree> htree;
+    index_context index_ctx;
 
     /**
      * Initialize the log index file.
@@ -44,12 +39,12 @@ namespace hpfs::audit::logger_index
             return 0;
 
         // First initialize the logger.
-        if (audit::audit_logger::create(logger, audit::LOG_MODE::LOG_SYNC, ctx.log_file_path) == -1 ||
-            vfs::virtual_filesystem::create(virt_fs, false, ctx.seed_dir, logger.value()) == -1 ||
-            hmap::tree::hmap_tree::create(htree, virt_fs.value()) == -1)
+        if (audit::audit_logger::create(index_ctx.logger, audit::LOG_MODE::LOG_SYNC, ctx.log_file_path) == -1 ||
+            vfs::virtual_filesystem::create(index_ctx.virt_fs, false, ctx.seed_dir, index_ctx.logger.value()) == -1 ||
+            hmap::tree::hmap_tree::create(index_ctx.htree, index_ctx.virt_fs.value()) == -1)
         {
             LOG_ERROR << errno << ": Error initializing log index.";
-            logger.reset();
+            index_ctx.logger.reset();
             return -1;
         }
 
@@ -57,14 +52,14 @@ namespace hpfs::audit::logger_index
         if (!util::is_file_exists(file_path))
         {
             // Create new file and include version header.
-            fd = open(file_path.data(), O_CREAT | O_RDWR, FILE_PERMS);
-            if (fd != -1)
+            index_ctx.fd = open(file_path.data(), O_CREAT | O_RDWR, FILE_PERMS);
+            if (index_ctx.fd != -1)
             {
-                if (write(fd, version::HP_VERSION_BYTES, version::VERSION_BYTES_LEN) < version::VERSION_BYTES_LEN)
+                if (write(index_ctx.fd, version::HP_VERSION_BYTES, version::VERSION_BYTES_LEN) < version::VERSION_BYTES_LEN)
                 {
                     LOG_ERROR << errno << ": Error adding version header to the hpfs index file";
-                    close(fd);
-                    logger.reset();
+                    close(index_ctx.fd);
+                    index_ctx.logger.reset();
                     return -1;
                 }
             }
@@ -72,38 +67,38 @@ namespace hpfs::audit::logger_index
         else
         {
             // Open an already existing file.
-            fd = open(file_path.data(), O_RDWR);
+            index_ctx.fd = open(file_path.data(), O_RDWR);
         }
-        if (fd == -1)
+        if (index_ctx.fd == -1)
         {
             LOG_ERROR << errno << ": Error in opening index file.";
-            logger.reset();
+            index_ctx.logger.reset();
             return -1;
         }
 
         struct stat st;
-        if (fstat(fd, &st) == -1)
+        if (fstat(index_ctx.fd, &st) == -1)
         {
             LOG_ERROR << errno << ": Error in stat of index file.";
-            close(fd);
-            fd = -1;
-            logger.reset();
+            close(index_ctx.fd);
+            index_ctx.fd = -1;
+            index_ctx.logger.reset();
             return -1;
         }
-        eof = st.st_size;
-        initialized = true;
+        index_ctx.eof = st.st_size;
+        index_ctx.initialized = true;
         return 0;
     }
 
     void deinit()
     {
-        if (fd != -1)
+        if (index_ctx.fd != -1)
         {
-            close(fd);
-            fd = -1;
+            close(index_ctx.fd);
+            index_ctx.fd = -1;
         }
-        logger.reset();
-        initialized = false;
+        index_ctx.logger.reset();
+        index_ctx.initialized = false;
     }
 
     /**
@@ -113,26 +108,26 @@ namespace hpfs::audit::logger_index
     int update_log_index()
     {
         // If logger isn't initialized show error.
-        if (!initialized)
+        if (!index_ctx.initialized)
         {
             LOG_ERROR << errno << ": Index hasn't been initialized properly.";
             return -1;
         }
 
         // First read the header from the log file.
-        if (logger->read_header() == -1)
+        if (index_ctx.logger->read_header() == -1)
         {
             LOG_ERROR << errno << ": Error in reading the log header.";
             return -1;
         }
 
         // Read the log header to get the offset.
-        const hpfs::audit::log_header header = logger->get_header();
+        const hpfs::audit::log_header header = index_ctx.logger->get_header();
 
         // Read the last log record.
         off_t next_offset;
         hpfs::audit::log_record log_record;
-        if (logger->read_log_at(header.last_record, next_offset, log_record) == -1)
+        if (index_ctx.logger->read_log_at(header.last_record, next_offset, log_record) == -1)
         {
             LOG_ERROR << errno << ": Error in reading last log record.";
             return -1;
@@ -150,13 +145,13 @@ namespace hpfs::audit::logger_index
         iov_vec[1].iov_base = &(log_record.root_hash);
         iov_vec[1].iov_len = sizeof(log_record.root_hash);
 
-        if (pwritev(fd, iov_vec, 2, eof) == -1)
+        if (pwritev(index_ctx.fd, iov_vec, 2, index_ctx.eof) == -1)
         {
             LOG_ERROR << errno << ": Error writing to log index file.";
             return -1;
         }
 
-        eof += sizeof(offset) + sizeof(log_record.root_hash);
+        index_ctx.eof += sizeof(offset) + sizeof(log_record.root_hash);
         return 0;
     }
 
@@ -168,14 +163,14 @@ namespace hpfs::audit::logger_index
     int read_last_root_hash(hmap::hasher::h32 &root_hash)
     {
         // If index file is empty return empty hash.
-        if (eof == version::VERSION_BYTES_LEN)
+        if (index_ctx.eof == version::VERSION_BYTES_LEN)
         {
             root_hash = hmap::hasher::h32_empty;
             return 0;
         }
 
         // Read from the end of the file.
-        if (pread(fd, &root_hash, sizeof(root_hash), eof - sizeof(root_hash)) < sizeof(root_hash))
+        if (pread(index_ctx.fd, &root_hash, sizeof(root_hash), index_ctx.eof - sizeof(root_hash)) < sizeof(root_hash))
         {
             LOG_ERROR << errno << ": Error when reading index file.";
             return -1;
@@ -190,7 +185,7 @@ namespace hpfs::audit::logger_index
     */
     uint64_t get_last_seq_no()
     {
-        return (eof - version::VERSION_BYTES_LEN) / (sizeof(uint64_t) + sizeof(hmap::hasher::h32));
+        return (index_ctx.eof - version::VERSION_BYTES_LEN) / (sizeof(uint64_t) + sizeof(hmap::hasher::h32));
     }
 
     /**
@@ -202,12 +197,12 @@ namespace hpfs::audit::logger_index
     int read_offset(off_t &offset, const uint64_t seq_no)
     {
         // If logger isn't initialized show error.
-        if (!initialized)
+        if (!index_ctx.initialized)
         {
             LOG_ERROR << errno << ": Index hasn't been initialized properly.";
             return -1;
         }
-        else if (eof == version::VERSION_BYTES_LEN)
+        else if (index_ctx.eof == version::VERSION_BYTES_LEN)
         {
             LOG_ERROR << errno << ": Index hasn't been updated.";
             return -1;
@@ -216,17 +211,17 @@ namespace hpfs::audit::logger_index
         // Calculate offset position of the index.
         const uint64_t index_offset = get_data_offset_of_index_file(seq_no);
         // If the offset is end of file set offset 0.
-        if (index_offset == eof)
+        if (index_offset == index_ctx.eof)
         {
             offset = 0;
             return 0;
         }
-        else if (index_offset > eof)
+        else if (index_offset > index_ctx.eof)
             return -1;
 
         // Reading the offset value as big endian by calculating the offset position from the sequence number.
         uint8_t be_offset[8];
-        if (pread(fd, &be_offset, sizeof(be_offset), index_offset) < sizeof(be_offset))
+        if (pread(index_ctx.fd, &be_offset, sizeof(be_offset), index_offset) < sizeof(be_offset))
         {
             LOG_ERROR << errno << ": Error reading log index file. " << seq_no;
             return -1;
@@ -246,12 +241,12 @@ namespace hpfs::audit::logger_index
     int read_hash(hmap::hasher::h32 &hash, const uint64_t seq_no)
     {
         // If logger isn't initialized show error.
-        if (!initialized)
+        if (!index_ctx.initialized)
         {
             LOG_ERROR << errno << ": Index hasn't been initialized properly.";
             return -1;
         }
-        else if (eof == version::VERSION_BYTES_LEN)
+        else if (index_ctx.eof == version::VERSION_BYTES_LEN)
         {
             LOG_ERROR << errno << ": Index hasn't been updated.";
             return -1;
@@ -259,11 +254,11 @@ namespace hpfs::audit::logger_index
 
         // Calculate offset position of the index.
         const uint64_t index_offset = get_data_offset_of_index_file(seq_no);
-        if (index_offset >= eof)
+        if (index_offset >= index_ctx.eof)
             return -1;
 
         // Reading the hash value.
-        if (pread(fd, &hash, sizeof(hmap::hasher::h32), index_offset + sizeof(hmap::hasher::h32)) < sizeof(hmap::hasher::h32))
+        if (pread(index_ctx.fd, &hash, sizeof(hmap::hasher::h32), index_offset + sizeof(hmap::hasher::h32)) < sizeof(hmap::hasher::h32))
         {
             LOG_ERROR << errno << ": Error reading log index file. " << seq_no;
             return -1;
@@ -278,17 +273,17 @@ namespace hpfs::audit::logger_index
      * @param min_seq_no Minimum seq_no to start scanning. If 0 start from the first record of the log.
      * @param max_seq_no Maximum seq_no to stop scanning. If 0 give the records until the end.
      * @param max_size Max buffer size to read. If 0 buffer size is unlimited.
-     * @return Returns buffer length on success, -1 on error.
+     * @return Returns buffer 0 on success, -1 on error.
     */
-    int read_log_records(char *buf, const uint64_t min_seq_no, const uint64_t max_seq_no, const uint64_t max_size)
+    int read_log_records(std::string &buf, const uint64_t min_seq_no, const uint64_t max_seq_no, const uint64_t max_size)
     {
         // If logger isn't initialized show error.
-        if (!initialized)
+        if (!index_ctx.initialized)
         {
             LOG_ERROR << errno << ": Index hasn't been initialized properly.";
             return -1;
         }
-        else if (eof == version::VERSION_BYTES_LEN)
+        else if (index_ctx.eof == version::VERSION_BYTES_LEN)
         {
             LOG_ERROR << errno << ": Index hasn't been updated.";
             return -1;
@@ -328,7 +323,6 @@ namespace hpfs::audit::logger_index
         // Tempory buffer to keep the intermidiate records bitween seq_no log records.
         // To ensure endpoint of the main buf is a seq_no log record.
         std::string record_buf;
-        size_t buf_length = 0;
 
         // Loop until the max_offset
         while (max_offset == 0 || current_offset <= max_offset)
@@ -350,21 +344,20 @@ namespace hpfs::audit::logger_index
             // Read the log record buf at current offset.
             // After reading current_offset would be next records offset.
             std::string log_record;
-            if (logger->init_log_header() == -1 || logger->read_log_record_buf_at(current_offset, current_offset, log_record) == -1)
+            if (index_ctx.logger->init_log_header() == -1 || index_ctx.logger->read_log_record_buf_at(current_offset, current_offset, log_record) == -1)
                 return -1;
             record_buf.append(log_record);
             log_record.clear();
 
             // If reached the max_size limit break from the loop before adding the temp buffer to main and return the collected buffer.
-            if (max_size != 0 && (buf_length + record_buf.length()) > max_size)
+            if (max_size != 0 && (buf.length() + record_buf.length()) > max_size)
                 break;
 
             // If the current log record is a seq_no log record, Append collected to the main buffer and clean the temp buffer.
             // Buffer layout - [00000000][log record][00000000][log record]....[seq_no1][log record][00000000][log record]...
             if (is_seq_no_log)
             {
-                memcpy(buf + buf_length, record_buf.c_str(), record_buf.length());
-                buf_length += record_buf.length();
+                buf.append(record_buf);
                 record_buf.resize(0);
             }
 
@@ -373,32 +366,31 @@ namespace hpfs::audit::logger_index
             {
                 // If we reach this point, it means requested max is beyond our log (Ex: max_seq_no = 0).
                 // So we append collected all the records up until to the end of our log.
-                memcpy(buf + buf_length, record_buf.c_str(), record_buf.length());
-                buf_length += record_buf.length();
+                buf.append(record_buf);
                 record_buf.clear();
                 break;
             }
         }
 
-        return buf_length;
+        return 0;
     }
 
-    // This is the test function to decode the hpfs log read buffer.
     /**
      * Appending log records to hpfs log file.
      * @param buf Buffer to append.
+     * @param size Size of the buffer.
      * @return Returns 0 on success, -1 on error.
     */
     int append_log_records(const char *buf, const size_t size)
     {
         // If logger isn't initialized show error.
-        if (!initialized)
+        if (!index_ctx.initialized)
         {
             LOG_ERROR << errno << ": Index hasn't been initialized properly.";
             return -1;
         }
 
-        if (htree->init() == -1)
+        if (index_ctx.htree->init() == -1)
         {
             LOG_ERROR << errno << ": Error initializing htree.";
             return -1;
@@ -413,25 +405,25 @@ namespace hpfs::audit::logger_index
         bool first_record = true;
         while (offset < size)
         {
-            const uint64_t seq_no = *(const uint64_t *)std::string_view(buf + offset, 8).data();
+            const uint64_t *seq_no = (const uint64_t *)std::string_view(buf + offset, 8).data();
             offset += 8;
 
-            const log_record_header rh = *(const log_record_header *)std::string_view(buf + offset, sizeof(log_record_header)).data();
+            const log_record_header *rh = (const log_record_header *)std::string_view(buf + offset, sizeof(log_record_header)).data();
             offset += sizeof(log_record_header);
 
-            const std::string vpath = std::string(buf + offset, rh.vpath_len).data();
-            offset += rh.vpath_len;
-            const std::vector<uint8_t> payload(buf + offset, buf + offset + rh.payload_len);
-            offset += rh.payload_len;
-            const std::vector<uint8_t> block_data(buf + offset, buf + offset + rh.block_data_len);
-            offset += rh.block_data_len;
+            const std::string vpath(buf + offset, rh->vpath_len);
+            offset += rh->vpath_len;
+            std::string_view payload(buf + offset, rh->payload_len);
+            offset += rh->payload_len;
+            std::string_view block_data(buf + offset, rh->block_data_len);
+            offset += rh->block_data_len;
 
             // If index file is empty don't check for joining point. Append all records.
-            if (eof != version::VERSION_BYTES_LEN && first_record)
+            if (index_ctx.eof != version::VERSION_BYTES_LEN && first_record)
             {
-                if (seq_no != last_seq_no || rh.root_hash != last_root_hash)
+                if (*seq_no != last_seq_no || rh->root_hash != last_root_hash)
                 {
-                    LOG_ERROR << "Invalid joining point in the received log response. seq no " << seq_no << " " << last_seq_no;
+                    LOG_ERROR << "Invalid joining point in the received log response. seq no " << *seq_no << " " << last_seq_no;
                     return -1;
                 }
 
@@ -440,14 +432,14 @@ namespace hpfs::audit::logger_index
             }
             first_record = false;
 
-            if (persist_log_record(seq_no, rh.operation, vpath, payload, block_data) == -1)
+            if (persist_log_record(*seq_no, rh->operation, vpath, payload, block_data) == -1)
             {
-                LOG_ERROR << "Error persisting log record. seq no " << seq_no;
+                LOG_ERROR << "Error persisting log record. seq no " << *seq_no;
                 return -1;
             }
         }
 
-        if (htree->store.persist_hash_maps() == -1)
+        if (index_ctx.htree->store.persist_hash_maps() == -1)
         {
             LOG_ERROR << errno << ": Error persisting htree.";
             return -1;
@@ -456,15 +448,24 @@ namespace hpfs::audit::logger_index
         return 0;
     }
 
-    int persist_log_record(const uint64_t seq_no, const audit::FS_OPERATION op, const std::string &vpath, const std::vector<uint8_t> &payload, const std::vector<uint8_t> &block_data)
+    /**
+     * Persisting log records and updating the hashes.
+     * @param seq_no Seq no of the log record.
+     * @param op File operation.
+     * @param vpath Vpath in the log record.
+     * @param paylod Payload in the log record.
+     * @param block_data Block data in the log record.
+     * @return Returns 0 on success, -1 on error.
+    */
+    int persist_log_record(const uint64_t seq_no, const audit::FS_OPERATION op, const std::string &vpath, std::string_view payload, std::string_view block_data)
     {
         const iovec payload_vec{(void *)payload.data(), payload.size()};
         std::vector<iovec> block_data_vec;
         block_data_vec.push_back({(void *)block_data.data(), block_data.size()});
 
         log_record_header rh;
-        off_t start_offset = logger->append_log(rh, vpath, op, &payload_vec,
-                                                block_data_vec.data(), block_data_vec.size());
+        off_t start_offset = index_ctx.logger->append_log(rh, vpath, op, &payload_vec,
+                                                          block_data_vec.data(), block_data_vec.size());
 
         if (start_offset == 0)
         {
@@ -472,7 +473,7 @@ namespace hpfs::audit::logger_index
             return -1;
         }
 
-        if (virt_fs->build_vfs() == -1)
+        if (index_ctx.virt_fs->build_vfs() == -1)
         {
             LOG_ERROR << "Error building the virtual file system.";
             return -1;
@@ -483,7 +484,7 @@ namespace hpfs::audit::logger_index
         case (audit::FS_OPERATION::MKDIR):
         case (audit::FS_OPERATION::CREATE):
         {
-            if (htree && htree->apply_vnode_create(vpath) == -1)
+            if (index_ctx.htree && index_ctx.htree->apply_vnode_create(vpath) == -1)
             {
                 LOG_ERROR << "Create hash: Error generating hash for " << vpath << " " << errno;
                 return -1;
@@ -493,7 +494,7 @@ namespace hpfs::audit::logger_index
         case (audit::FS_OPERATION::WRITE):
         {
             vfs::vnode *vn = NULL;
-            if (virt_fs->get_vnode(vpath, &vn) == -1)
+            if (index_ctx.virt_fs->get_vnode(vpath, &vn) == -1)
             {
                 LOG_ERROR << "Write: Error fetching the vnode " << vpath;
                 return -1;
@@ -504,7 +505,7 @@ namespace hpfs::audit::logger_index
                 return -ENOENT;
             }
             op_write_payload_header wh = *(const op_write_payload_header *)payload.data();
-            if (htree && htree->apply_vnode_data_update(vpath, *vn, wh.offset, wh.size) == -1)
+            if (index_ctx.htree && index_ctx.htree->apply_vnode_data_update(vpath, *vn, wh.offset, wh.size) == -1)
             {
                 LOG_ERROR << "Update hash: Error generating hash for " << vpath;
                 return -1;
@@ -514,7 +515,7 @@ namespace hpfs::audit::logger_index
         case (audit::FS_OPERATION::TRUNCATE):
         {
             vfs::vnode *vn = NULL;
-            if (virt_fs->get_vnode(vpath, &vn) == -1)
+            if (index_ctx.virt_fs->get_vnode(vpath, &vn) == -1)
             {
                 LOG_ERROR << "Truncate: Error fetching the vnode " << vpath;
                 return -1;
@@ -526,7 +527,7 @@ namespace hpfs::audit::logger_index
             }
             size_t current_size = vn->st.st_size;
             hpfs::audit::op_truncate_payload_header th = *(const op_truncate_payload_header *)payload.data();
-            if (htree && htree->apply_vnode_data_update(vpath, *vn, MIN(th.size, current_size), MAX(0, th.size - current_size)) == -1)
+            if (index_ctx.htree && index_ctx.htree->apply_vnode_data_update(vpath, *vn, MIN(th.size, current_size), MAX(0, th.size - current_size)) == -1)
             {
                 LOG_ERROR << "Update hash: Error generating hash for " << vpath;
                 return -1;
@@ -536,7 +537,7 @@ namespace hpfs::audit::logger_index
         case (audit::FS_OPERATION::CHMOD):
         {
             vfs::vnode *vn = NULL;
-            if (virt_fs->get_vnode(vpath, &vn) == -1)
+            if (index_ctx.virt_fs->get_vnode(vpath, &vn) == -1)
             {
                 LOG_ERROR << "Chmod: Error fetching the vnode " << vpath;
                 return -1;
@@ -546,7 +547,7 @@ namespace hpfs::audit::logger_index
                 LOG_ERROR << "Chmod: No entry " << vpath;
                 return -ENOENT;
             }
-            if (htree && htree->apply_vnode_metadata_update(vpath, *vn) == -1)
+            if (index_ctx.htree && index_ctx.htree->apply_vnode_metadata_update(vpath, *vn) == -1)
             {
                 LOG_ERROR << "Update hash: Error generating hash for " << vpath;
                 return -1;
@@ -556,7 +557,7 @@ namespace hpfs::audit::logger_index
         case (audit::FS_OPERATION::RMDIR):
         case (audit::FS_OPERATION::UNLINK):
         {
-            if (htree && htree->apply_vnode_delete(vpath) == -1)
+            if (index_ctx.htree && index_ctx.htree->apply_vnode_delete(vpath) == -1)
             {
                 LOG_ERROR << "Delete hash: Error generating hash for " << vpath;
                 return -1;
@@ -566,7 +567,7 @@ namespace hpfs::audit::logger_index
         case (audit::FS_OPERATION::RENAME):
         {
             vfs::vnode *vn = NULL;
-            if (virt_fs->get_vnode(vpath, &vn) == -1)
+            if (index_ctx.virt_fs->get_vnode(vpath, &vn) == -1)
             {
                 LOG_ERROR << "Rename: Error fetching the vnode " << vpath;
                 return -1;
@@ -580,7 +581,7 @@ namespace hpfs::audit::logger_index
             const bool is_file = S_ISREG(vn->st.st_mode);
 
             std::string to_vpath(std::string_view((char *)payload.data(), payload.size() - 1));
-            if (htree && htree->apply_vnode_rename(vpath, to_vpath, !is_file) == -1)
+            if (index_ctx.htree && index_ctx.htree->apply_vnode_rename(vpath, to_vpath, !is_file) == -1)
             {
                 LOG_ERROR << "Rename hash: Error generating hash for " << vpath;
                 return -1;
@@ -591,7 +592,7 @@ namespace hpfs::audit::logger_index
             return -1;
         }
 
-        if (htree && logger->update_log_record(start_offset, htree->get_root_hash(), rh) == -1)
+        if (index_ctx.htree && index_ctx.logger->update_log_record(start_offset, index_ctx.htree->get_root_hash(), rh) == -1)
             return -1;
 
         if (seq_no != 0)
@@ -606,13 +607,13 @@ namespace hpfs::audit::logger_index
             iov_vec[1].iov_base = &(rh.root_hash);
             iov_vec[1].iov_len = sizeof(rh.root_hash);
 
-            if (pwritev(fd, iov_vec, 2, eof) == -1)
+            if (pwritev(index_ctx.fd, iov_vec, 2, index_ctx.eof) == -1)
             {
                 LOG_ERROR << errno << ": Error writing to log index file.";
                 return -1;
             }
 
-            eof += sizeof(offset) + sizeof(rh.root_hash);
+            index_ctx.eof += sizeof(offset) + sizeof(rh.root_hash);
         }
 
         return 0;
@@ -623,39 +624,27 @@ namespace hpfs::audit::logger_index
      * @param query Query passed from the outside.
      * @param buf Data buffer to be returned.
      * @param size Read size.
+     * @param offset Read offset.
      * @return 0 if request succesfully was interpreted by index control. 1 if the request
      *         should be passed through to the virtual fs. <0 on error.
     */
-    int index_check_read(std::string_view query, char *buf, size_t *size)
+    int index_check_read(std::string_view query, char *buf, size_t *size, const off_t offset)
     {
-        if (strncmp(query.data(), INDEX_UPDATE_QUERY_FULLSTOP, INDEX_UPDATE_QUERY_FULLSTOP_LEN) == 0 && query.length() > INDEX_UPDATE_QUERY_FULLSTOP_LEN)
+        if (strncmp(query.data(), INDEX_READ_QUERY_FULLSTOP, INDEX_READ_QUERY_FULLSTOP_LEN) == 0 && query.length() > INDEX_READ_QUERY_FULLSTOP_LEN)
         {
             // If logger index isn't initialized return no entry.
-            if (!initialized)
+            if (!index_ctx.initialized)
                 return -ENOENT;
 
-            // Split the query by '.'.
-            const std::vector<std::string> params = util::split_string(query, ".");
-            if (params.size() != 4)
+            if (offset >= index_ctx.read_buf.length()) // If the requested offset is beyond our buffer size.
+                *size = 0;
+            else if (index_ctx.read_buf.length() - offset <= *size) // If we are sending the last page.
             {
-                LOG_ERROR << "Log read parameter error: Invalid parameters";
-                return -1;
+                *size = index_ctx.read_buf.length() - offset;
+                memcpy(buf, index_ctx.read_buf.c_str() + offset, *size);
             }
-
-            uint64_t min_seq_no, max_seq_no;
-            if (util::stoull(params.at(2).data(), min_seq_no) == -1 || util::stoull(params.at(3).data(), max_seq_no) == -1)
-            {
-                LOG_ERROR << "Log read parameter error: Invalid parameters";
-                return -1;
-            }
-
-            // We send the requested size limit to collect the logs.
-            const int res = read_log_records(buf, min_seq_no, max_seq_no, *size);
-            if (res == -1)
-                return -1;
-
-            // Then we set the size to the actual buffer size to return back.
-            *size = res;
+            else
+                memcpy(buf, index_ctx.read_buf.c_str() + offset, *size);
             return 0;
         }
 
@@ -665,21 +654,39 @@ namespace hpfs::audit::logger_index
     /**
      * Checks open request for any write.
      * @param query Query passed from the outside.
+     * @param buf Buffer to be written.
+     * @param size Write size.
+     * @param offset Write offset.
      * @return 0 if request succesfully was interpreted by index control. 1 if the request
      *         should be passed through to the virtual fs. <0 on error.
     */
-    int index_check_write(std::string_view query, const char *buf, const size_t size)
+    int index_check_write(std::string_view query, const char *buf, size_t *size, const off_t offset)
     {
-        // If logger index isn't initialized return no entry.
-        if (query == INDEX_UPDATE_QUERY && query.length() == INDEX_UPDATE_QUERY_LEN)
+        if (strncmp(query.data(), INDEX_WRITE_QUERY_FULLSTOP, INDEX_WRITE_QUERY_FULLSTOP_LEN) == 0 && query.length() > INDEX_WRITE_QUERY_FULLSTOP_LEN)
         {
-            if (!initialized)
+            // If logger index isn't initialized return no entry.
+            if (!index_ctx.initialized)
                 return -ENOENT;
 
-            if (size <= 1)
-                return update_log_index();
+            if (offset >= index_ctx.write_buf.length()) // If the requested offset is beyond our buffer size.
+                *size = 0;
+            else if (index_ctx.write_buf.length() - offset <= *size) // If we are writing the last page.
+            {
+                *size = index_ctx.write_buf.length() - offset;
+                memcpy(index_ctx.write_buf.data() + offset, buf, *size);
+            }
             else
-                return append_log_records(buf, size);
+                memcpy(index_ctx.write_buf.data() + offset, buf, *size);
+
+            return 0;
+        }
+        else if (query == INDEX_UPDATE_QUERY && query.length() == INDEX_UPDATE_QUERY_LEN)
+        {
+            // If logger index isn't initialized return no entry.
+            if (!index_ctx.initialized)
+                return -ENOENT;
+
+            return update_log_index();
         }
 
         return 1;
@@ -693,9 +700,79 @@ namespace hpfs::audit::logger_index
     */
     int index_check_open(std::string_view query)
     {
-        // If logger index isn't initialized return no entry.
-        if (strncmp(query.data(), INDEX_UPDATE_QUERY, INDEX_UPDATE_QUERY_LEN) == 0)
-            return initialized ? 0 : -ENOENT;
+        if (strncmp(query.data(), INDEX_READ_QUERY_FULLSTOP, INDEX_READ_QUERY_FULLSTOP_LEN) == 0 && query.length() > INDEX_READ_QUERY_FULLSTOP_LEN)
+        {
+            // If logger index isn't initialized return no entry.
+            if (!index_ctx.initialized)
+                return -ENOENT;
+
+            // Split the query by '.'.
+            const std::vector<std::string> params = util::split_string(query, ".");
+            if (params.size() != 5)
+            {
+                LOG_ERROR << "Log read parameter error: Invalid parameters";
+                return -1;
+            }
+
+            uint64_t min_seq_no, max_seq_no;
+            if (util::stoull(params.at(3).data(), min_seq_no) == -1 || util::stoull(params.at(4).data(), max_seq_no) == -1)
+            {
+                LOG_ERROR << "Log read parameter error: Invalid parameters";
+                return -1;
+            }
+
+            if (read_log_records(index_ctx.read_buf, min_seq_no, max_seq_no, MAX_LOG_READ_SIZE) == -1)
+            {
+                LOG_ERROR << "Error reading logs: Seq no from " << min_seq_no << " to " << max_seq_no;
+                return -1;
+            }
+
+            return 0;
+        }
+        else if (strncmp(query.data(), INDEX_WRITE_QUERY_FULLSTOP, INDEX_WRITE_QUERY_FULLSTOP_LEN) == 0 && query.length() > INDEX_WRITE_QUERY_FULLSTOP_LEN)
+        {
+            // If logger index isn't initialized return no entry.
+            if (!index_ctx.initialized)
+                return -ENOENT;
+
+            // Split the query by '.'.
+            const std::vector<std::string> params = util::split_string(query, ".");
+            if (params.size() != 4)
+            {
+                LOG_ERROR << "Log write parameter error: Invalid parameters";
+                return -1;
+            }
+
+            size_t buf_len;
+            if (util::stoull(params.at(3).data(), buf_len) == -1)
+            {
+                LOG_ERROR << "Log write parameter error: Invalid parameters";
+                return -1;
+            }
+            index_ctx.write_buf.resize(buf_len);
+
+            return 0;
+        }
+        else if (strncmp(query.data(), INDEX_UPDATE_QUERY, INDEX_UPDATE_QUERY_LEN) == 0)
+            return index_ctx.initialized ? 0 : -ENOENT;
+
+        return 1;
+    }
+
+    int index_check_release(std::string_view query)
+    {
+        if (strncmp(query.data(), INDEX_READ_QUERY_FULLSTOP, INDEX_READ_QUERY_FULLSTOP_LEN) == 0 && query.length() > INDEX_READ_QUERY_FULLSTOP_LEN)
+        {
+            index_ctx.read_buf.resize(0);
+            return 0;
+        }
+        else if (strncmp(query.data(), INDEX_WRITE_QUERY_FULLSTOP, INDEX_WRITE_QUERY_FULLSTOP_LEN) == 0 && query.length() > INDEX_WRITE_QUERY_FULLSTOP_LEN)
+        {
+            if (append_log_records(index_ctx.write_buf.c_str(), index_ctx.write_buf.length()) == -1)
+                LOG_ERROR << "Error appending logs";
+            index_ctx.write_buf.resize(0);
+            return 0;
+        }
 
         return 1;
     }
@@ -712,9 +789,9 @@ namespace hpfs::audit::logger_index
         if (query == INDEX_UPDATE_QUERY)
         {
             // If logger index isn't initialized return no entry.
-            if (!initialized)
+            if (!index_ctx.initialized)
                 return -ENOENT;
-            if (fstat(fd, stbuf) == -1)
+            if (fstat(index_ctx.fd, stbuf) == -1)
             {
                 LOG_ERROR << errno << ": Error in stat of index file.";
                 return -1;
@@ -725,12 +802,12 @@ namespace hpfs::audit::logger_index
         else if (strncmp(query.data(), INDEX_UPDATE_QUERY_FULLSTOP, INDEX_UPDATE_QUERY_FULLSTOP_LEN) == 0)
         {
             // If logger index isn't initialized return no entry.
-            if (!initialized)
+            if (!index_ctx.initialized)
                 return -ENOENT;
             // Given path should contain a sequnce number.
             if (query.size() > INDEX_UPDATE_QUERY_FULLSTOP_LEN)
             {
-                if (fstat(fd, stbuf) == -1)
+                if (fstat(index_ctx.fd, stbuf) == -1)
                 {
                     LOG_ERROR << errno << ": Error in stat of index file.";
                     return -1;
@@ -756,7 +833,7 @@ namespace hpfs::audit::logger_index
         if (strncmp(path_str.c_str(), INDEX_UPDATE_QUERY_FULLSTOP, INDEX_UPDATE_QUERY_FULLSTOP_LEN) == 0)
         {
             // Given path should create a sequnce number.
-            if (path_str.size() > 14)
+            if (path_str.size() > INDEX_UPDATE_QUERY_FULLSTOP_LEN)
             {
                 uint64_t seq_no;
                 if (util::stoull(path_str.substr(INDEX_UPDATE_QUERY_FULLSTOP_LEN), seq_no) == -1 ||
@@ -782,7 +859,7 @@ namespace hpfs::audit::logger_index
     int truncate_log_and_index_file(const uint64_t seq_no)
     {
         // If logger isn't initialized, show an error.
-        if (!initialized)
+        if (!index_ctx.initialized)
         {
             LOG_ERROR << errno << ": Index hasn't been initialized properly.";
             return -1;
@@ -810,21 +887,21 @@ namespace hpfs::audit::logger_index
         }
 
         const off_t end_of_index = get_data_offset_of_index_file(seq_no);
-        if (logger->truncate_log_file(log_offset, prev_ledger_log_offset) == -1 ||
-            ftruncate(fd, end_of_index) == -1)
+        if (index_ctx.logger->truncate_log_file(log_offset, prev_ledger_log_offset) == -1 ||
+            ftruncate(index_ctx.fd, end_of_index) == -1)
         {
             LOG_ERROR << "Error truncating log and index file";
             return -1;
         }
 
-        eof = end_of_index;
+        index_ctx.eof = end_of_index;
 
         // Reaching this point means truncation is successful. Delete existing hmap and re-calculate.
 
         hmap::hasher::h32 root_hash;
-        if (htree->store.clear() == -1 ||                        // Clear the existing hash store.
-            htree->calculate_root_hash(root_hash, true) == -1 || // Calculate entire filesystem hash from scratch.
-            htree->store.persist_hash_maps() == -1)              // Persist calculated hashes to disk.
+        if (index_ctx.htree->store.clear() == -1 ||                        // Clear the existing hash store.
+            index_ctx.htree->calculate_root_hash(root_hash, true) == -1 || // Calculate entire filesystem hash from scratch.
+            index_ctx.htree->store.persist_hash_maps() == -1)              // Persist calculated hashes to disk.
         {
             LOG_ERROR << "Error re-calculating root hash after truncation.";
             return -1;
@@ -843,7 +920,7 @@ namespace hpfs::audit::logger_index
     {
         uint8_t offset_bytes[8];
         off_t data_offset = get_data_offset_of_index_file(seq_no);
-        if (pread(fd, offset_bytes, 8, data_offset) < 8)
+        if (pread(index_ctx.fd, offset_bytes, 8, data_offset) < 8)
         {
             LOG_ERROR << errno << ": Error getting log offset for seq_no: " << std::to_string(seq_no);
             return -1;
