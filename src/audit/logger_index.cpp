@@ -407,10 +407,8 @@ namespace hpfs::audit::logger_index
         {
             const uint64_t *seq_no = (const uint64_t *)std::string_view(buf + offset, 8).data();
             offset += 8;
-
             const log_record_header *rh = (const log_record_header *)std::string_view(buf + offset, sizeof(log_record_header)).data();
             offset += sizeof(log_record_header);
-
             const std::string vpath(buf + offset, rh->vpath_len);
             offset += rh->vpath_len;
             std::string_view payload(buf + offset, rh->payload_len);
@@ -418,12 +416,14 @@ namespace hpfs::audit::logger_index
             std::string_view block_data(buf + offset, rh->block_data_len);
             offset += rh->block_data_len;
 
+            // We might receive responses which are now outdated. So those will be skipped here.
+            // So if the first log reacord's seq no in the log buffer isn't match with our last seq no in the index, we skip the response.
             // If index file is empty don't check for joining point. Append all records.
             if (index_ctx.eof != version::VERSION_BYTES_LEN && first_record)
             {
                 if (*seq_no != last_seq_no || rh->root_hash != last_root_hash)
                 {
-                    LOG_ERROR << "Invalid joining point in the received log response. seq no " << *seq_no << " " << last_seq_no;
+                    LOG_ERROR << "Invalid joining point in the received log response. Received seq no " << *seq_no << " Last seq no " << last_seq_no;
                     return -1;
                 }
 
@@ -432,16 +432,18 @@ namespace hpfs::audit::logger_index
             }
             first_record = false;
 
-            if (persist_log_record(*seq_no, rh->operation, vpath, payload, block_data) == -1)
+            if ((rh->root_hash != hmap::hasher::h32_empty && rh->operation != 0) &&
+                persist_log_record(*seq_no, rh->operation, vpath, payload, block_data) == -1)
             {
                 LOG_ERROR << "Error persisting log record. seq no " << *seq_no;
                 return -1;
             }
         }
 
+        // After appending the log records and updating the hashes we persist the hash map to disk.
         if (index_ctx.htree->store.persist_hash_maps() == -1)
         {
-            LOG_ERROR << errno << ": Error persisting htree.";
+            LOG_ERROR << errno << ": Error persisting the htree.";
             return -1;
         }
 
@@ -463,6 +465,26 @@ namespace hpfs::audit::logger_index
         std::vector<iovec> block_data_vec;
         block_data_vec.push_back({(void *)block_data.data(), block_data.size()});
 
+        vfs::vnode *vn = NULL;
+        if (index_ctx.virt_fs->get_vnode(vpath, &vn) == -1)
+        {
+            LOG_ERROR << "Error fetching the vnode " << vpath << " " << op;
+            return -1;
+        }
+        if (op == audit::FS_OPERATION::MKDIR || op == audit::FS_OPERATION::CREATE)
+        {
+            if (vn)
+            {
+                LOG_ERROR << "Already exist " << vpath << " " << op;
+                return -EEXIST;
+            }
+        }
+        else if (!vn)
+        {
+            LOG_ERROR << "No entry " << vpath << " " << op;
+            return -ENOENT;
+        }
+
         log_record_header rh;
         off_t start_offset = index_ctx.logger->append_log(rh, vpath, op, &payload_vec,
                                                           block_data_vec.data(), block_data_vec.size());
@@ -473,6 +495,7 @@ namespace hpfs::audit::logger_index
             return -1;
         }
 
+        // After appending the log records and calculating the hash. Update the vfs.
         if (index_ctx.virt_fs->build_vfs() == -1)
         {
             LOG_ERROR << "Error building the virtual file system.";
@@ -493,17 +516,6 @@ namespace hpfs::audit::logger_index
         }
         case (audit::FS_OPERATION::WRITE):
         {
-            vfs::vnode *vn = NULL;
-            if (index_ctx.virt_fs->get_vnode(vpath, &vn) == -1)
-            {
-                LOG_ERROR << "Write: Error fetching the vnode " << vpath;
-                return -1;
-            }
-            if (!vn)
-            {
-                LOG_ERROR << "Write: No entry " << vpath;
-                return -ENOENT;
-            }
             op_write_payload_header wh = *(const op_write_payload_header *)payload.data();
             if (index_ctx.htree && index_ctx.htree->apply_vnode_data_update(vpath, *vn, wh.offset, wh.size) == -1)
             {
@@ -514,17 +526,6 @@ namespace hpfs::audit::logger_index
         }
         case (audit::FS_OPERATION::TRUNCATE):
         {
-            vfs::vnode *vn = NULL;
-            if (index_ctx.virt_fs->get_vnode(vpath, &vn) == -1)
-            {
-                LOG_ERROR << "Truncate: Error fetching the vnode " << vpath;
-                return -1;
-            }
-            if (!vn)
-            {
-                LOG_ERROR << "Truncate: No entry " << vpath;
-                return -ENOENT;
-            }
             size_t current_size = vn->st.st_size;
             hpfs::audit::op_truncate_payload_header th = *(const op_truncate_payload_header *)payload.data();
             if (index_ctx.htree && index_ctx.htree->apply_vnode_data_update(vpath, *vn, MIN(th.size, current_size), MAX(0, th.size - current_size)) == -1)
@@ -536,17 +537,6 @@ namespace hpfs::audit::logger_index
         }
         case (audit::FS_OPERATION::CHMOD):
         {
-            vfs::vnode *vn = NULL;
-            if (index_ctx.virt_fs->get_vnode(vpath, &vn) == -1)
-            {
-                LOG_ERROR << "Chmod: Error fetching the vnode " << vpath;
-                return -1;
-            }
-            if (!vn)
-            {
-                LOG_ERROR << "Chmod: No entry " << vpath;
-                return -ENOENT;
-            }
             if (index_ctx.htree && index_ctx.htree->apply_vnode_metadata_update(vpath, *vn) == -1)
             {
                 LOG_ERROR << "Update hash: Error generating hash for " << vpath;
@@ -566,18 +556,6 @@ namespace hpfs::audit::logger_index
         }
         case (audit::FS_OPERATION::RENAME):
         {
-            vfs::vnode *vn = NULL;
-            if (index_ctx.virt_fs->get_vnode(vpath, &vn) == -1)
-            {
-                LOG_ERROR << "Rename: Error fetching the vnode " << vpath;
-                return -1;
-            }
-            if (!vn)
-            {
-                LOG_ERROR << "Rename: No entry " << vpath;
-                return -ENOENT;
-            }
-
             const bool is_file = S_ISREG(vn->st.st_mode);
 
             std::string to_vpath(std::string_view((char *)payload.data(), payload.size() - 1));
@@ -592,9 +570,11 @@ namespace hpfs::audit::logger_index
             return -1;
         }
 
+        // Update the log record with root hash.
         if (index_ctx.htree && index_ctx.logger->update_log_record(start_offset, index_ctx.htree->get_root_hash(), rh) == -1)
             return -1;
 
+        // If this is a seq no log record, update the log index file.
         if (seq_no != 0)
         {
             uint8_t offset[8];
@@ -636,6 +616,7 @@ namespace hpfs::audit::logger_index
             if (!index_ctx.initialized)
                 return -ENOENT;
 
+            // Serve the read requests with the read buffer which is populated in the file open.
             if (offset >= index_ctx.read_buf.length()) // If the requested offset is beyond our buffer size.
                 *size = 0;
             else if (index_ctx.read_buf.length() - offset <= *size) // If we are sending the last page.
@@ -668,6 +649,7 @@ namespace hpfs::audit::logger_index
             if (!index_ctx.initialized)
                 return -ENOENT;
 
+            // Populated the write buffer with receiving data until we reach the end of the buffer.
             if (offset >= index_ctx.write_buf.length()) // If the requested offset is beyond our buffer size.
                 *size = 0;
             else if (index_ctx.write_buf.length() - offset <= *size) // If we are writing the last page.
@@ -700,6 +682,7 @@ namespace hpfs::audit::logger_index
     */
     int index_check_open(std::string_view query)
     {
+        // We are populating read buffer at the open operation of the ::hpfs.index.read file.
         if (strncmp(query.data(), INDEX_READ_QUERY_FULLSTOP, INDEX_READ_QUERY_FULLSTOP_LEN) == 0 && query.length() > INDEX_READ_QUERY_FULLSTOP_LEN)
         {
             // If logger index isn't initialized return no entry.
@@ -729,6 +712,7 @@ namespace hpfs::audit::logger_index
 
             return 0;
         }
+        // We are allocating the write buffer at the open operation of the ::hpfs.index.write file.
         else if (strncmp(query.data(), INDEX_WRITE_QUERY_FULLSTOP, INDEX_WRITE_QUERY_FULLSTOP_LEN) == 0 && query.length() > INDEX_WRITE_QUERY_FULLSTOP_LEN)
         {
             // If logger index isn't initialized return no entry.
@@ -749,6 +733,8 @@ namespace hpfs::audit::logger_index
                 LOG_ERROR << "Log write parameter error: Invalid parameters";
                 return -1;
             }
+
+            // Resize the write buffer to the buffer length.
             index_ctx.write_buf.resize(buf_len);
 
             return 0;
@@ -759,13 +745,15 @@ namespace hpfs::audit::logger_index
         return 1;
     }
 
-    int index_check_release(std::string_view query)
+    int index_check_flush(std::string_view query)
     {
+        // Resize the read buffer to 0 when releasing the ::hpfs.index.read file.
         if (strncmp(query.data(), INDEX_READ_QUERY_FULLSTOP, INDEX_READ_QUERY_FULLSTOP_LEN) == 0 && query.length() > INDEX_READ_QUERY_FULLSTOP_LEN)
         {
             index_ctx.read_buf.resize(0);
             return 0;
         }
+        // Append the collected write buffer and resize the write buffer to 0 when releasing the ::hpfs.index.write file.
         else if (strncmp(query.data(), INDEX_WRITE_QUERY_FULLSTOP, INDEX_WRITE_QUERY_FULLSTOP_LEN) == 0 && query.length() > INDEX_WRITE_QUERY_FULLSTOP_LEN)
         {
             if (append_log_records(index_ctx.write_buf.c_str(), index_ctx.write_buf.length()) == -1)
@@ -830,25 +818,20 @@ namespace hpfs::audit::logger_index
     int index_check_truncate(const char *path)
     {
         std::string path_str(path);
-        if (strncmp(path_str.c_str(), INDEX_UPDATE_QUERY_FULLSTOP, INDEX_UPDATE_QUERY_FULLSTOP_LEN) == 0)
+        // Given path should create a sequnce number.
+        if (strncmp(path_str.c_str(), INDEX_UPDATE_QUERY_FULLSTOP, INDEX_UPDATE_QUERY_FULLSTOP_LEN) == 0 && path_str.size() > INDEX_UPDATE_QUERY_FULLSTOP_LEN)
         {
-            // Given path should create a sequnce number.
-            if (path_str.size() > INDEX_UPDATE_QUERY_FULLSTOP_LEN)
+            uint64_t seq_no;
+            if (util::stoull(path_str.substr(INDEX_UPDATE_QUERY_FULLSTOP_LEN), seq_no) == -1 ||
+                truncate_log_and_index_file(seq_no) == -1)
             {
-                uint64_t seq_no;
-                if (util::stoull(path_str.substr(INDEX_UPDATE_QUERY_FULLSTOP_LEN), seq_no) == -1 ||
-                    truncate_log_and_index_file(seq_no) == -1)
-                {
-                    LOG_ERROR << "Error truncating log file.";
-                    return -1;
-                };
-                return 0;
-            }
-            else
-                return 1;
+                LOG_ERROR << "Error truncating log file.";
+                return -1;
+            };
+            return 0;
         }
-        else
-            return 1;
+
+        return 1;
     }
 
     /**
@@ -865,29 +848,19 @@ namespace hpfs::audit::logger_index
             return -1;
         }
 
-        if (seq_no == 0)
-        {
-            LOG_ERROR << "Sequence number should be greater than zero for log truncation. Given: " << std::to_string(seq_no);
-            return -1;
-        }
-
         off_t log_offset;
-        off_t prev_ledger_log_offset = 0;
-        if (get_log_offset_from_index_file(log_offset, seq_no) == -1 ||
-            (seq_no > 1 && get_log_offset_from_index_file(prev_ledger_log_offset, seq_no - 1) == -1)) // Get log record offset of previous record only if seq number is greater than 1.
+        if (seq_no == 0)
+            log_offset = 0;
+        else if (get_log_offset_from_index_file(log_offset, seq_no) == -1)
         {
             LOG_ERROR << "Error getting log offset from index file";
             return -1;
         }
 
-        if (log_offset < 1)
-        {
-            LOG_ERROR << "Offset must be greater than zero to truncate the log file.";
-            return -1;
-        }
+        // If the seq no to truncate is 0 we set the index truncating offset to version header length;
+        const off_t end_of_index = seq_no > 0 ? get_data_offset_of_index_file(seq_no + 1) : version::VERSION_BYTES_LEN;
 
-        const off_t end_of_index = get_data_offset_of_index_file(seq_no);
-        if (index_ctx.logger->truncate_log_file(log_offset, prev_ledger_log_offset) == -1 ||
+        if (index_ctx.logger->truncate_log_file(log_offset) == -1 ||
             ftruncate(index_ctx.fd, end_of_index) == -1)
         {
             LOG_ERROR << "Error truncating log and index file";

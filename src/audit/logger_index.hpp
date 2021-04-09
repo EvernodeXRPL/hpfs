@@ -8,7 +8,6 @@
 #include "../hmap/hasher.hpp"
 #include "../vfs/virtual_filesystem.hpp"
 #include "../hmap/tree.hpp"
-#include "../hmap/hasher.hpp"
 
 namespace hpfs::audit::logger_index
 {
@@ -21,8 +20,11 @@ namespace hpfs::audit::logger_index
         std::optional<audit::audit_logger> logger;
         std::optional<vfs::virtual_filesystem> virt_fs;
         std::optional<hmap::tree::hmap_tree> htree;
+        /* Because fuse is multithreaded and reading and writing processed by mulitple threads for several page blocks,
+        We use two local buffers to collect read and write logs and serve the reading logas and appending logs from these buffers.
+        This log read cannot be done from multiple threads by hpcore */
         std::string read_buf;  // Tempory buffer to keep reading result.
-        std::string write_buf; // Tempory buffer to collect writting logs.
+        std::string write_buf; // Tempory buffer to collect writing logs.
     };
 
     extern index_context index_ctx;
@@ -53,7 +55,7 @@ namespace hpfs::audit::logger_index
 
     int index_check_open(std::string_view query);
 
-    int index_check_release(std::string_view query);
+    int index_check_flush(std::string_view query);
 
     int index_check_getattr(std::string_view query, struct stat *stbuf);
 

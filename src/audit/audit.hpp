@@ -130,7 +130,7 @@ namespace hpfs::audit
         int read_payload(std::vector<uint8_t> &payload, const log_record &record);
         int purge_log(const log_record &record);
         int update_log_record(const off_t log_rec_start_offset, const hmap::hasher::h32 root_hash, log_record_header &rh);
-        int truncate_log_file(const off_t log_record_offset, const off_t prev_ledger_log_record_offset);
+        int truncate_log_file(const off_t log_record_offset);
         ~audit_logger();
     };
 

@@ -352,10 +352,18 @@ namespace hpfs::fusefs
     static int fs_flush(const char *full_path, struct fuse_file_info *fi)
     {
         /* This is called from every close on an open file, so call the
-	   close on the underlying filesystem.	But since flush may be
-	   called multiple times for an open file, this must not really
-	   close the file.  This is important if used on a network
-	   filesystem like NFS which flush the data/metadata on close() */
+        close on the underlying filesystem.	But since flush may be
+        called multiple times for an open file, this must not really
+        close the file.  This is important if used on a network
+        filesystem like NFS which flush the data/metadata on close() */
+
+        // Check whether this is a index file control request.
+        // 0 = Successfuly interpreted as a log index control request.
+        // 1 = Request should be handled by the virtual fs.
+        // <0 = Error code needs to be returned.
+        const int index_check_result = audit::logger_index::index_check_flush(full_path);
+        // Even if this is handled by the index check we let the rest to proceed.
+
         if (fi->fh > 0)
             close(dup(fi->fh));
 
@@ -364,13 +372,6 @@ namespace hpfs::fusefs
 
     int fs_release(const char *full_path, struct fuse_file_info *fi)
     {
-        // Check whether this is a index file control request.
-        // 0 = Successfuly interpreted as a log index control request.
-        // 1 = Request should be handled by the virtual fs.
-        // <0 = Error code needs to be returned.
-        const int index_check_result = audit::logger_index::index_check_release(full_path);
-        // Even if this is handled by the index check we let the rest to proceed.
-
         if (fi->fh > 0)
             close(fi->fh);
         return 0;
