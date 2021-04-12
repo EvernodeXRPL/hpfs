@@ -22,7 +22,7 @@ namespace hpfs::audit::logger_index
     constexpr const char *INDEX_READ_QUERY_FULLSTOP = "/::hpfs.index.read.";
     constexpr const char *INDEX_WRITE_QUERY_FULLSTOP = "/::hpfs.index.write.";
 
-    constexpr uint64_t MAX_LOG_READ_SIZE = 4 * 1024 * 1024; // 4MB
+    constexpr uint64_t MAX_LOG_READ_SIZE = 1 * 1024 * 1024; // 4MB
 
     index_context index_ctx;
 
@@ -105,7 +105,7 @@ namespace hpfs::audit::logger_index
      * Updates the log index file with the offset of last log record and it's root hash.
      * @return Return 0 on success, -1 on error.
     */
-    int update_log_index()
+    int update_log_index(const uint64_t seq_no)
     {
         // If logger isn't initialized show error.
         if (!index_ctx.initialized)
@@ -124,34 +124,71 @@ namespace hpfs::audit::logger_index
         // Read the log header to get the offset.
         const hpfs::audit::log_header header = index_ctx.logger->get_header();
 
-        // Read the last log record.
+        // Check whether previous index data are populated.
+        // If not populate them with last updated data.
+        std::uint64_t last_seq_no = get_last_seq_no();
+        const size_t missing_count = seq_no - last_seq_no - 1;
+        struct iovec iov_vec[(missing_count + 1) * 2];
+        uint8_t offset_be[8];
+
         off_t next_offset;
-        hpfs::audit::log_record log_record;
+        log_record log_record;
+
+        if (missing_count > 0)
+        {
+            off_t prev_offset;
+            hmap::hasher::h32 prev_root_hash;
+            if (last_seq_no == 0)
+            {
+                // If index is empty populate the first log record's root hash and offset.
+                prev_offset = header.first_record;
+                if (index_ctx.logger->read_log_at(prev_offset, next_offset, log_record) == -1)
+                {
+                    LOG_ERROR << errno << ": Error in reading the first log at offset " << prev_offset;
+                    return -1;
+                }
+                prev_root_hash = log_record.root_hash;
+            }
+            else if (get_last_index_data(prev_offset, prev_root_hash) == -1)
+                return -1;
+
+            util::uint64_to_bytes(offset_be, prev_offset);
+
+            // Populate missing data
+            for (int i = 0; i < missing_count; i++)
+            {
+                iov_vec[i * 2].iov_base = offset_be;
+                iov_vec[i * 2].iov_len = sizeof(offset_be);
+
+                iov_vec[(i * 2) + 1].iov_base = &(prev_root_hash);
+                iov_vec[(i * 2) + 1].iov_len = sizeof(prev_root_hash);
+            }
+        }
+
+        // Read the last log record.
         if (index_ctx.logger->read_log_at(header.last_record, next_offset, log_record) == -1)
         {
-            LOG_ERROR << errno << ": Error in reading last log record.";
+            LOG_ERROR << errno << ": Error in reading the last log at offset " << header.last_record;
             return -1;
         }
 
         // Offset of current log is the last log records offset. So it is taken from the log header.
         // Convert offset to big endian before persisting to the disk.
-        uint8_t offset[8];
-        util::uint64_to_bytes(offset, header.last_record);
+        util::uint64_to_bytes(offset_be, header.last_record);
 
-        struct iovec iov_vec[2];
-        iov_vec[0].iov_base = offset;
-        iov_vec[0].iov_len = sizeof(offset);
+        iov_vec[missing_count * 2].iov_base = offset_be;
+        iov_vec[missing_count * 2].iov_len = sizeof(offset_be);
 
-        iov_vec[1].iov_base = &(log_record.root_hash);
-        iov_vec[1].iov_len = sizeof(log_record.root_hash);
+        iov_vec[(missing_count * 2) + 1].iov_base = &(log_record.root_hash);
+        iov_vec[(missing_count * 2) + 1].iov_len = sizeof(log_record.root_hash);
 
-        if (pwritev(index_ctx.fd, iov_vec, 2, index_ctx.eof) == -1)
+        if (pwritev(index_ctx.fd, iov_vec, (missing_count + 1) * 2, index_ctx.eof) == -1)
         {
             LOG_ERROR << errno << ": Error writing to log index file.";
             return -1;
         }
 
-        index_ctx.eof += sizeof(offset) + sizeof(log_record.root_hash);
+        index_ctx.eof += (sizeof(offset_be) + sizeof(log_record.root_hash)) * (missing_count + 1);
         return 0;
     }
 
@@ -188,6 +225,18 @@ namespace hpfs::audit::logger_index
         return (index_ctx.eof - version::VERSION_BYTES_LEN) / (sizeof(uint64_t) + sizeof(hmap::hasher::h32));
     }
 
+    int get_last_index_data(off_t &offset, hmap::hasher::h32 &root_hash)
+    {
+        const uint64_t seq_no = get_last_seq_no();
+        if (get_log_offset_from_index_file(offset, seq_no) == -1 || read_last_root_hash(root_hash) == -1)
+        {
+            LOG_ERROR << "Error reading last offset and root hash from the index file.";
+            return -1;
+        }
+
+        return 0;
+    }
+
     /**
      * Read the log offset of a given position.
      * @param offset Log offset if requested position is equal to the eof offset will be 0.
@@ -196,6 +245,7 @@ namespace hpfs::audit::logger_index
     */
     int read_offset(off_t &offset, const uint64_t seq_no)
     {
+        LOG_ERROR << "Reading index " << offset << " " << seq_no;
         // If logger isn't initialized show error.
         if (!index_ctx.initialized)
         {
@@ -210,6 +260,7 @@ namespace hpfs::audit::logger_index
 
         // Calculate offset position of the index.
         const uint64_t index_offset = get_data_offset_of_index_file(seq_no);
+        LOG_ERROR << "Index offset " << index_offset;
         // If the offset is end of file set offset 0.
         if (index_offset == index_ctx.eof)
         {
@@ -330,13 +381,19 @@ namespace hpfs::audit::logger_index
             record_buf.resize(record_buf.length() + sizeof(seq_no));
             // If we reached to a seq_no log record
             const bool is_seq_no_log = (next_seq_no_offset == current_offset);
+            LOG_ERROR << "Next " << next_seq_no_offset << "Current " << current_offset;
             // If this is a seq_no log append seq_no to the buf and read the next seq_no record's offset.
             // otherwise it's 0.
             if (is_seq_no_log)
             {
                 memcpy(record_buf.data() + record_buf.length() - sizeof(seq_no), &seq_no, sizeof(seq_no));
-                if (read_offset(next_seq_no_offset, ++seq_no) == -1)
-                    return -1;
+                off_t temp_seq_no_offset = next_seq_no_offset;
+                while (temp_seq_no_offset != 0 && temp_seq_no_offset == next_seq_no_offset)
+                {
+                    if (read_offset(temp_seq_no_offset, ++seq_no) == -1)
+                        return -1;
+                }
+                next_seq_no_offset = temp_seq_no_offset;
             }
             else
                 memset(record_buf.data() + record_buf.length() - sizeof(seq_no), 0, sizeof(seq_no));
@@ -403,6 +460,10 @@ namespace hpfs::audit::logger_index
 
         off_t offset = 0;
         bool first_record = true;
+        off_t prev_offset;
+        hmap::hasher::h32 prev_root_hash;
+        uint64_t prev_seq_no;
+
         while (offset < size)
         {
             const uint64_t *seq_no = (const uint64_t *)std::string_view(buf + offset, 8).data();
@@ -427,16 +488,99 @@ namespace hpfs::audit::logger_index
                     return -1;
                 }
 
+                prev_seq_no = *seq_no;
+                if (get_log_offset_from_index_file(prev_offset, *seq_no) == -1)
+                {
+                    LOG_ERROR << "Error getting offset from index file seq no " << *seq_no;
+                    return -1;
+                }
+                prev_root_hash = rh->root_hash;
+
                 first_record = false;
                 continue;
             }
+            else if (index_ctx.eof == version::VERSION_BYTES_LEN && first_record)
+            {
+                prev_seq_no = 0;
+                off_t next_offset;
+                log_record log_record;
+
+                // First read the header from the log file.
+                if (index_ctx.logger->read_header() == -1)
+                {
+                    LOG_ERROR << errno << ": Error in reading the log header.";
+                    return -1;
+                }
+
+                // Read the log header to get the offset.
+                const hpfs::audit::log_header header = index_ctx.logger->get_header();
+
+                prev_offset = header.first_record;
+                if (index_ctx.logger->read_log_at(prev_offset, next_offset, log_record) == -1)
+                {
+                    LOG_ERROR << "Error reading log at offset " << prev_offset;
+                    return -1;
+                }
+                prev_root_hash = log_record.root_hash;
+            }
+
             first_record = false;
 
+            off_t log_offset;
+            hmap::hasher::h32 log_root_hash;
             if ((rh->root_hash != hmap::hasher::h32_empty && rh->operation != 0) &&
-                persist_log_record(*seq_no, rh->operation, vpath, payload, block_data) == -1)
+                persist_log_record(*seq_no, rh->operation, vpath, payload, block_data, log_offset, log_root_hash) == -1)
             {
                 LOG_ERROR << "Error persisting log record. seq no " << *seq_no;
                 return -1;
+            }
+
+            // If this is a seq no log record, update the log index file.
+            if (*seq_no != 0)
+            {
+
+                LOG_ERROR << "Appending log " << *seq_no;
+                uint8_t offset_be[8];
+
+                const size_t missing_count = *seq_no - prev_seq_no - 1;
+                struct iovec iov_vec[(missing_count + 1) * 2];
+
+                util::uint64_to_bytes(offset_be, prev_offset);
+
+                for (int i = 0; i < missing_count; i++)
+                {
+                    LOG_ERROR << "Seq no " << *seq_no << " Prev " << prev_seq_no + i + 1;
+
+                    iov_vec[i * 2].iov_base = offset_be;
+                    iov_vec[i * 2].iov_len = sizeof(offset_be);
+
+                    iov_vec[(i * 2) + 1].iov_base = &(prev_root_hash);
+                    iov_vec[(i * 2) + 1].iov_len = sizeof(prev_root_hash);
+                }
+
+                util::uint64_to_bytes(offset_be, log_offset);
+
+                iov_vec[missing_count * 2].iov_base = offset_be;
+                iov_vec[missing_count * 2].iov_len = sizeof(offset_be);
+
+                iov_vec[(missing_count * 2) + 1].iov_base = &(log_root_hash);
+                iov_vec[(missing_count * 2) + 1].iov_len = sizeof(log_root_hash);
+
+                LOG_ERROR << "Offset " << log_offset << " Hash " << log_root_hash;
+
+                if (pwritev(index_ctx.fd, iov_vec, (missing_count + 1) * 2, index_ctx.eof) == -1)
+                {
+                    LOG_ERROR << errno << ": Error writing to log index file.";
+                    return -1;
+                }
+
+                index_ctx.eof += (sizeof(offset_be) + sizeof(log_root_hash)) * (missing_count + 1);
+
+                LOG_ERROR << "Appended last sno " << get_last_seq_no();
+
+                prev_seq_no = *seq_no;
+                prev_offset = log_offset;
+                prev_root_hash = log_root_hash;
             }
         }
 
@@ -459,7 +603,7 @@ namespace hpfs::audit::logger_index
      * @param block_data Block data in the log record.
      * @return Returns 0 on success, -1 on error.
     */
-    int persist_log_record(const uint64_t seq_no, const audit::FS_OPERATION op, const std::string &vpath, std::string_view payload, std::string_view block_data)
+    int persist_log_record(const uint64_t seq_no, const audit::FS_OPERATION op, const std::string &vpath, std::string_view payload, std::string_view block_data, off_t &log_offset, hmap::hasher::h32 &root_hash)
     {
         const iovec payload_vec{(void *)payload.data(), payload.size()};
         std::vector<iovec> block_data_vec;
@@ -475,7 +619,7 @@ namespace hpfs::audit::logger_index
         {
             if (vn)
             {
-                LOG_ERROR << "Already exist " << vpath << " " << op;
+                LOG_ERROR << "Already exist " << vpath << " " << op << " Seq no " << seq_no;
                 return -EEXIST;
             }
         }
@@ -486,10 +630,10 @@ namespace hpfs::audit::logger_index
         }
 
         log_record_header rh;
-        off_t start_offset = index_ctx.logger->append_log(rh, vpath, op, &payload_vec,
-                                                          block_data_vec.data(), block_data_vec.size());
+        log_offset = index_ctx.logger->append_log(rh, vpath, op, &payload_vec,
+                                                  block_data_vec.data(), block_data_vec.size());
 
-        if (start_offset == 0)
+        if (log_offset == 0)
         {
             LOG_ERROR << "Error appending to the logs file.";
             return -1;
@@ -501,6 +645,8 @@ namespace hpfs::audit::logger_index
             LOG_ERROR << "Error building the virtual file system.";
             return -1;
         }
+
+        LOG_ERROR << "Persisting";
 
         switch (op)
         {
@@ -570,31 +716,13 @@ namespace hpfs::audit::logger_index
             return -1;
         }
 
+        LOG_ERROR << "Persisted 1";
+
+        root_hash = index_ctx.htree->get_root_hash();
+
         // Update the log record with root hash.
-        if (index_ctx.htree && index_ctx.logger->update_log_record(start_offset, index_ctx.htree->get_root_hash(), rh) == -1)
+        if (index_ctx.htree && index_ctx.logger->update_log_record(log_offset, root_hash, rh) == -1)
             return -1;
-
-        // If this is a seq no log record, update the log index file.
-        if (seq_no != 0)
-        {
-            uint8_t offset[8];
-            util::uint64_to_bytes(offset, start_offset);
-
-            struct iovec iov_vec[2];
-            iov_vec[0].iov_base = offset;
-            iov_vec[0].iov_len = sizeof(offset);
-
-            iov_vec[1].iov_base = &(rh.root_hash);
-            iov_vec[1].iov_len = sizeof(rh.root_hash);
-
-            if (pwritev(index_ctx.fd, iov_vec, 2, index_ctx.eof) == -1)
-            {
-                LOG_ERROR << errno << ": Error writing to log index file.";
-                return -1;
-            }
-
-            index_ctx.eof += sizeof(offset) + sizeof(rh.root_hash);
-        }
 
         return 0;
     }
@@ -662,13 +790,34 @@ namespace hpfs::audit::logger_index
 
             return 0;
         }
-        else if (query == INDEX_UPDATE_QUERY && query.length() == INDEX_UPDATE_QUERY_LEN)
+        else if (strncmp(query.data(), INDEX_UPDATE_QUERY_FULLSTOP, INDEX_UPDATE_QUERY_FULLSTOP_LEN) == 0 && query.length() > INDEX_UPDATE_QUERY_FULLSTOP_LEN)
         {
             // If logger index isn't initialized return no entry.
             if (!index_ctx.initialized)
                 return -ENOENT;
 
-            return update_log_index();
+            // Split the query by '.'.
+            const std::vector<std::string> params = util::split_string(query, ".");
+            if (params.size() != 3)
+            {
+                LOG_ERROR << "Index update parameter error: Invalid parameters";
+                return -1;
+            }
+
+            uint64_t seq_no;
+            if (util::stoull(params.at(2).data(), seq_no) == -1)
+            {
+                LOG_ERROR << "Index update parameter error: Invalid parameters";
+                return -1;
+            }
+
+            if (update_log_index(seq_no) == -1)
+            {
+                LOG_ERROR << "Error updating log index: Seq no " << seq_no;
+                return -1;
+            }
+
+            return 0;
         }
 
         return 1;

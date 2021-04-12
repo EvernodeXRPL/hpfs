@@ -33,9 +33,11 @@ namespace hpfs::audit::logger_index
 
     void deinit();
 
-    int update_log_index();
+    int update_log_index(const uint64_t seq_no);
 
     int read_last_root_hash(hmap::hasher::h32 &root_hash);
+
+    int get_last_index_data(off_t &offset, hmap::hasher::h32 &root_hash);
 
     uint64_t get_last_seq_no();
 
@@ -47,7 +49,7 @@ namespace hpfs::audit::logger_index
 
     int append_log_records(const char *buf, const size_t size);
 
-    int persist_log_record(const uint64_t seq_no, const audit::FS_OPERATION op, const std::string &vpath, std::string_view payload, std::string_view block_data);
+    int persist_log_record(const uint64_t seq_no, const audit::FS_OPERATION op, const std::string &vpath, std::string_view payload, std::string_view block_data, off_t &log_offset, hmap::hasher::h32 &root_hash);
 
     int index_check_read(std::string_view query, char *buf, size_t *size, const off_t offset);
 
