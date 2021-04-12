@@ -375,6 +375,10 @@ namespace hpfs::audit::logger_index
         // To ensure endpoint of the main buf is a seq_no log record.
         std::string record_buf;
 
+        // Reserving space for response header [resonding_max_seq_no].
+        const size_t header_size = sizeof(uint64_t);
+        buf.resize(header_size);
+
         // Loop until the max_offset
         while (max_offset == 0 || current_offset <= max_offset)
         {
@@ -407,7 +411,7 @@ namespace hpfs::audit::logger_index
             log_record.clear();
 
             // If reached the max_size limit break from the loop before adding the temp buffer to main and return the collected buffer.
-            if (max_size != 0 && (buf.length() + record_buf.length()) > max_size)
+            if (max_size != 0 && (buf.length() + record_buf.length()) > (max_size - header_size))
                 break;
 
             // If the current log record is a seq_no log record, Append collected to the main buffer and clean the temp buffer.
@@ -428,6 +432,9 @@ namespace hpfs::audit::logger_index
                 break;
             }
         }
+
+        // Setting the max seq number header of the response.
+        memcpy(buf.data(), &(--seq_no), sizeof(seq_no));
 
         return 0;
     }
@@ -463,6 +470,10 @@ namespace hpfs::audit::logger_index
         off_t prev_offset;
         hmap::hasher::h32 prev_root_hash;
         uint64_t prev_seq_no;
+
+        // Reading the max seq number header value.
+        const uint64_t *received_max_seq_no = (const uint64_t *)std::string_view(buf + offset, 8).data();
+        offset += 8;
 
         while (offset < size)
         {
@@ -582,6 +593,39 @@ namespace hpfs::audit::logger_index
                 prev_offset = log_offset;
                 prev_root_hash = log_root_hash;
             }
+        }
+
+        last_seq_no = get_last_seq_no();
+        if (*received_max_seq_no > last_seq_no)
+        {
+            off_t prev_offset;
+            hmap::hasher::h32 prev_root_hash;
+            if (get_last_index_data(prev_offset, prev_root_hash) == -1)
+                return -1;
+
+            uint8_t offset_be[8];
+            util::uint64_to_bytes(offset_be, prev_offset);
+
+            const size_t missing_count = *received_max_seq_no - last_seq_no;
+            struct iovec iov_vec[missing_count * 2];
+
+            // Populate missing data
+            for (int i = 0; i < missing_count; i++)
+            {
+                iov_vec[i * 2].iov_base = offset_be;
+                iov_vec[i * 2].iov_len = sizeof(offset_be);
+
+                iov_vec[(i * 2) + 1].iov_base = &(prev_root_hash);
+                iov_vec[(i * 2) + 1].iov_len = sizeof(prev_root_hash);
+            }
+
+            if (pwritev(index_ctx.fd, iov_vec, missing_count * 2, index_ctx.eof) == -1)
+            {
+                LOG_ERROR << errno << ": Error writing to log index file.";
+                return -1;
+            }
+
+            index_ctx.eof += (sizeof(offset_be) + sizeof(prev_root_hash)) * missing_count;
         }
 
         // After appending the log records and updating the hashes we persist the hash map to disk.
