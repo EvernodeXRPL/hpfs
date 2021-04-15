@@ -22,7 +22,7 @@ namespace hpfs::audit::logger_index
     constexpr const char *INDEX_READ_QUERY_FULLSTOP = "/::hpfs.index.read.";
     constexpr const char *INDEX_WRITE_QUERY_FULLSTOP = "/::hpfs.index.write.";
 
-    constexpr uint64_t MAX_LOG_READ_SIZE = 1 * 1024 * 1024; // 4MB
+    constexpr uint64_t MAX_LOG_READ_SIZE = 4 * 1024 * 1024; // 4MB
 
     index_context index_ctx;
 
@@ -103,6 +103,7 @@ namespace hpfs::audit::logger_index
 
     /**
      * Updates the log index file with the offset of last log record and it's root hash.
+     * @param seq_no Seq number to update the index.
      * @return Return 0 on success, -1 on error.
     */
     int update_log_index(const uint64_t seq_no)
@@ -126,7 +127,7 @@ namespace hpfs::audit::logger_index
 
         // Check whether previous index data are populated.
         // If not populate them with last updated data.
-        std::uint64_t last_seq_no = get_last_seq_no();
+        const std::uint64_t last_seq_no = get_last_seq_no();
         const size_t missing_count = seq_no - last_seq_no - 1;
         struct iovec iov_vec[(missing_count + 1) * 2];
         uint8_t offset_be[8];
@@ -225,6 +226,12 @@ namespace hpfs::audit::logger_index
         return (index_ctx.eof - version::VERSION_BYTES_LEN) / (sizeof(uint64_t) + sizeof(hmap::hasher::h32));
     }
 
+    /**
+     * Get the last log offset and root hash from the index.
+     * @param offset Offset of the last log record.
+     * @param root_hash Root hash of the last log record.
+     * @return Returns -1 on error otherwise 0.
+    */
     int get_last_index_data(off_t &offset, hmap::hasher::h32 &root_hash)
     {
         const uint64_t seq_no = get_last_seq_no();
@@ -245,7 +252,6 @@ namespace hpfs::audit::logger_index
     */
     int read_offset(off_t &offset, const uint64_t seq_no)
     {
-        LOG_ERROR << "Reading index " << offset << " " << seq_no;
         // If logger isn't initialized show error.
         if (!index_ctx.initialized)
         {
@@ -260,7 +266,6 @@ namespace hpfs::audit::logger_index
 
         // Calculate offset position of the index.
         const uint64_t index_offset = get_data_offset_of_index_file(seq_no);
-        LOG_ERROR << "Index offset " << index_offset;
         // If the offset is end of file set offset 0.
         if (index_offset == index_ctx.eof)
         {
@@ -324,7 +329,7 @@ namespace hpfs::audit::logger_index
      * @param min_seq_no Minimum seq_no to start scanning. If 0 start from the first record of the log.
      * @param max_seq_no Maximum seq_no to stop scanning. If 0 give the records until the end.
      * @param max_size Max buffer size to read. If 0 buffer size is unlimited.
-     * @return Returns buffer 0 on success, -1 on error.
+     * @return Returns 0 on success, -1 on error.
     */
     int read_log_records(std::string &buf, const uint64_t min_seq_no, const uint64_t max_seq_no, const uint64_t max_size)
     {
@@ -376,8 +381,7 @@ namespace hpfs::audit::logger_index
         std::string record_buf;
 
         // Reserving space for response header [resonding_max_seq_no].
-        const size_t header_size = sizeof(uint64_t);
-        buf.resize(header_size);
+        buf.resize(sizeof(uint64_t));
 
         // Loop until the max_offset
         while (max_offset == 0 || current_offset <= max_offset)
@@ -385,19 +389,18 @@ namespace hpfs::audit::logger_index
             record_buf.resize(record_buf.length() + sizeof(seq_no));
             // If we reached to a seq_no log record
             const bool is_seq_no_log = (next_seq_no_offset == current_offset);
-            LOG_ERROR << "Next " << next_seq_no_offset << "Current " << current_offset;
             // If this is a seq_no log append seq_no to the buf and read the next seq_no record's offset.
             // otherwise it's 0.
             if (is_seq_no_log)
             {
                 memcpy(record_buf.data() + record_buf.length() - sizeof(seq_no), &seq_no, sizeof(seq_no));
-                off_t temp_seq_no_offset = next_seq_no_offset;
-                while (temp_seq_no_offset != 0 && temp_seq_no_offset == next_seq_no_offset)
+                // Loop seq_no and get log offset from index until we receive a different log offset.
+                // So, while loop will end with seq_no of the next log record.
+                while (next_seq_no_offset != 0 && next_seq_no_offset == current_offset)
                 {
-                    if (read_offset(temp_seq_no_offset, ++seq_no) == -1)
+                    if (read_offset(next_seq_no_offset, ++seq_no) == -1)
                         return -1;
                 }
-                next_seq_no_offset = temp_seq_no_offset;
             }
             else
                 memset(record_buf.data() + record_buf.length() - sizeof(seq_no), 0, sizeof(seq_no));
@@ -411,7 +414,7 @@ namespace hpfs::audit::logger_index
             log_record.clear();
 
             // If reached the max_size limit break from the loop before adding the temp buffer to main and return the collected buffer.
-            if (max_size != 0 && (buf.length() + record_buf.length()) > (max_size - header_size))
+            if (max_size != 0 && (buf.length() + record_buf.length()) > (max_size - sizeof(uint64_t)))
                 break;
 
             // If the current log record is a seq_no log record, Append collected to the main buffer and clean the temp buffer.
@@ -433,7 +436,7 @@ namespace hpfs::audit::logger_index
             }
         }
 
-        // Setting the max seq number header of the response.
+        // Setting the last scanned seq number as the max seq number header of the response.
         memcpy(buf.data(), &(--seq_no), sizeof(seq_no));
 
         return 0;
@@ -489,50 +492,52 @@ namespace hpfs::audit::logger_index
             offset += rh->block_data_len;
 
             // We might receive responses which are now outdated. So those will be skipped here.
-            // So if the first log reacord's seq no in the log buffer isn't match with our last seq no in the index, we skip the response.
+            // So if the first log record's seq no in the log buffer isn't match with our last seq no in the index, we skip the response.
             // If index file is empty don't check for joining point. Append all records.
-            if (index_ctx.eof != version::VERSION_BYTES_LEN && first_record)
+            if (first_record)
             {
-                if (*seq_no != last_seq_no || rh->root_hash != last_root_hash)
+                if (index_ctx.eof == version::VERSION_BYTES_LEN)
                 {
-                    LOG_ERROR << "Invalid joining point in the received log response. Received seq no " << *seq_no << " Last seq no " << last_seq_no;
-                    return -1;
-                }
+                    // First read the header from the log file.
+                    if (index_ctx.logger->read_header() == -1)
+                    {
+                        LOG_ERROR << errno << ": Error in reading the log header.";
+                        return -1;
+                    }
 
-                prev_seq_no = *seq_no;
-                if (get_log_offset_from_index_file(prev_offset, *seq_no) == -1)
+                    // Read the log header to get the offset.
+                    const hpfs::audit::log_header header = index_ctx.logger->get_header();
+
+                    prev_seq_no = 0;
+                    prev_offset = header.first_record;
+                    off_t next_offset;
+                    log_record log_record;
+                    if (index_ctx.logger->read_log_at(prev_offset, next_offset, log_record) == -1)
+                    {
+                        LOG_ERROR << "Error reading log at offset " << prev_offset;
+                        return -1;
+                    }
+                    prev_root_hash = log_record.root_hash;
+                }
+                else
                 {
-                    LOG_ERROR << "Error getting offset from index file seq no " << *seq_no;
-                    return -1;
+                    if (*seq_no != last_seq_no || rh->root_hash != last_root_hash)
+                    {
+                        LOG_ERROR << "Invalid joining point in the received log response. Received seq no " << *seq_no << " Last seq no " << last_seq_no;
+                        return -1;
+                    }
+
+                    prev_seq_no = *seq_no;
+                    prev_root_hash = rh->root_hash;
+                    if (get_log_offset_from_index_file(prev_offset, *seq_no) == -1)
+                    {
+                        LOG_ERROR << "Error getting offset from index file seq no " << *seq_no;
+                        return -1;
+                    }
+
+                    first_record = false;
+                    continue;
                 }
-                prev_root_hash = rh->root_hash;
-
-                first_record = false;
-                continue;
-            }
-            else if (index_ctx.eof == version::VERSION_BYTES_LEN && first_record)
-            {
-                prev_seq_no = 0;
-                off_t next_offset;
-                log_record log_record;
-
-                // First read the header from the log file.
-                if (index_ctx.logger->read_header() == -1)
-                {
-                    LOG_ERROR << errno << ": Error in reading the log header.";
-                    return -1;
-                }
-
-                // Read the log header to get the offset.
-                const hpfs::audit::log_header header = index_ctx.logger->get_header();
-
-                prev_offset = header.first_record;
-                if (index_ctx.logger->read_log_at(prev_offset, next_offset, log_record) == -1)
-                {
-                    LOG_ERROR << "Error reading log at offset " << prev_offset;
-                    return -1;
-                }
-                prev_root_hash = log_record.root_hash;
             }
 
             first_record = false;
@@ -573,8 +578,6 @@ namespace hpfs::audit::logger_index
 
                 iov_vec[(missing_count * 2) + 1].iov_base = &(log_root_hash);
                 iov_vec[(missing_count * 2) + 1].iov_len = sizeof(log_root_hash);
-
-                LOG_ERROR << "Offset " << log_offset << " Hash " << log_root_hash;
 
                 if (pwritev(index_ctx.fd, iov_vec, (missing_count + 1) * 2, index_ctx.eof) == -1)
                 {
@@ -678,7 +681,6 @@ namespace hpfs::audit::logger_index
             LOG_ERROR << "Error building the virtual file system.";
             return -1;
         }
-
 
         switch (op)
         {

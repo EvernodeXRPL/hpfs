@@ -554,10 +554,12 @@ namespace hpfs::audit
         }
         else
         {
+            // We keep the log record positioned in log_record_offset and truncate the rest.
             log_record log_record;
             if (read_log_at(log_record_offset, truncate_offset, log_record) == -1)
             {
                 LOG_ERROR << errno << "Error reading log file at offset: " << log_record_offset;
+                release_lock(truncate_lock);
                 return -1;
             }
             // Update new last record offset.
@@ -567,13 +569,17 @@ namespace hpfs::audit
                 header.last_checkpoint = header.last_record;
         }
 
-        if (truncate_offset > eof)
+        if (truncate_offset <= 0 || truncate_offset > eof)
         {
             LOG_ERROR << "Invalid log record offset for truncation";
+            release_lock(truncate_lock);
             return -1;
         }
-        else if (truncate_offset <= 0 || truncate_offset == eof)
+        else if (truncate_offset == eof) // If truncate offset is eof, No need of truncation.
+        {
+            release_lock(truncate_lock);
             return 0;
+        }
 
         if (ftruncate(fd, truncate_offset) == -1) // Truncate the file.
         {
