@@ -550,7 +550,6 @@ namespace hpfs::audit::logger_index
             if (*seq_no != 0)
             {
 
-                LOG_ERROR << "Appending log " << *seq_no;
                 uint8_t offset_be[8];
 
                 const size_t missing_count = *seq_no - prev_seq_no - 1;
@@ -560,8 +559,6 @@ namespace hpfs::audit::logger_index
 
                 for (int i = 0; i < missing_count; i++)
                 {
-                    LOG_ERROR << "Seq no " << *seq_no << " Prev " << prev_seq_no + i + 1;
-
                     iov_vec[i * 2].iov_base = offset_be;
                     iov_vec[i * 2].iov_len = sizeof(offset_be);
 
@@ -586,8 +583,6 @@ namespace hpfs::audit::logger_index
                 }
 
                 index_ctx.eof += (sizeof(offset_be) + sizeof(log_root_hash)) * (missing_count + 1);
-
-                LOG_ERROR << "Appended last sno " << get_last_seq_no();
 
                 prev_seq_no = *seq_no;
                 prev_offset = log_offset;
@@ -662,16 +657,10 @@ namespace hpfs::audit::logger_index
         if (op == audit::FS_OPERATION::MKDIR || op == audit::FS_OPERATION::CREATE)
         {
             if (vn)
-            {
-                LOG_ERROR << "Already exist " << vpath << " " << op << " Seq no " << seq_no;
                 return -EEXIST;
-            }
         }
         else if (!vn)
-        {
-            LOG_ERROR << "No entry " << vpath << " " << op;
             return -ENOENT;
-        }
 
         log_record_header rh;
         log_offset = index_ctx.logger->append_log(rh, vpath, op, &payload_vec,
@@ -679,7 +668,7 @@ namespace hpfs::audit::logger_index
 
         if (log_offset == 0)
         {
-            LOG_ERROR << "Error appending to the logs file.";
+            LOG_ERROR << "Error appending logs.";
             return -1;
         }
 
@@ -690,7 +679,6 @@ namespace hpfs::audit::logger_index
             return -1;
         }
 
-        LOG_ERROR << "Persisting";
 
         switch (op)
         {
@@ -698,20 +686,14 @@ namespace hpfs::audit::logger_index
         case (audit::FS_OPERATION::CREATE):
         {
             if (index_ctx.htree && index_ctx.htree->apply_vnode_create(vpath) == -1)
-            {
-                LOG_ERROR << "Create hash: Error generating hash for " << vpath << " " << errno;
                 return -1;
-            }
             break;
         }
         case (audit::FS_OPERATION::WRITE):
         {
             op_write_payload_header wh = *(const op_write_payload_header *)payload.data();
             if (index_ctx.htree && index_ctx.htree->apply_vnode_data_update(vpath, *vn, wh.offset, wh.size) == -1)
-            {
-                LOG_ERROR << "Update hash: Error generating hash for " << vpath;
                 return -1;
-            }
             break;
         }
         case (audit::FS_OPERATION::TRUNCATE):
@@ -719,29 +701,20 @@ namespace hpfs::audit::logger_index
             size_t current_size = vn->st.st_size;
             hpfs::audit::op_truncate_payload_header th = *(const op_truncate_payload_header *)payload.data();
             if (index_ctx.htree && index_ctx.htree->apply_vnode_data_update(vpath, *vn, MIN(th.size, current_size), MAX(0, th.size - current_size)) == -1)
-            {
-                LOG_ERROR << "Update hash: Error generating hash for " << vpath;
                 return -1;
-            }
             break;
         }
         case (audit::FS_OPERATION::CHMOD):
         {
             if (index_ctx.htree && index_ctx.htree->apply_vnode_metadata_update(vpath, *vn) == -1)
-            {
-                LOG_ERROR << "Update hash: Error generating hash for " << vpath;
                 return -1;
-            }
             break;
         }
         case (audit::FS_OPERATION::RMDIR):
         case (audit::FS_OPERATION::UNLINK):
         {
             if (index_ctx.htree && index_ctx.htree->apply_vnode_delete(vpath) == -1)
-            {
-                LOG_ERROR << "Delete hash: Error generating hash for " << vpath;
                 return -1;
-            }
             break;
         }
         case (audit::FS_OPERATION::RENAME):
@@ -750,17 +723,12 @@ namespace hpfs::audit::logger_index
 
             std::string to_vpath(std::string_view((char *)payload.data(), payload.size() - 1));
             if (index_ctx.htree && index_ctx.htree->apply_vnode_rename(vpath, to_vpath, !is_file) == -1)
-            {
-                LOG_ERROR << "Rename hash: Error generating hash for " << vpath;
                 return -1;
-            }
             break;
         }
         default:
             return -1;
         }
-
-        LOG_ERROR << "Persisted 1";
 
         root_hash = index_ctx.htree->get_root_hash();
 
