@@ -16,12 +16,12 @@ namespace hpfs::hmap::tree
     private:
         bool moved = false;
         bool initialized = false; // Indicates that the instance has been initialized properly.
+        store::hmap_store store;
         hpfs::vfs::virtual_filesystem &virt_fs;
         void generate_name_hash(store::vnode_hmap &vn_hmap, std::string_view vpath);
         void generate_meta_hash(store::vnode_hmap &vn_hmap, const vfs::vnode &vn);
 
     public:
-        store::hmap_store store;
         int init();
         static int create(std::optional<hmap_tree> &tree, hpfs::vfs::virtual_filesystem &virt_fs);
         hmap_tree(hpfs::vfs::virtual_filesystem &virt_fs);
@@ -38,7 +38,8 @@ namespace hpfs::hmap::tree
         int apply_vnode_delete(const std::string &vpath);
         int apply_vnode_rename(const std::string &from_vpath, const std::string &to_vpath, const bool is_dir);
         hmap::hasher::h32 get_root_hash();
-        int calculate_root_hash(hasher::h32 &root_hash);
+        int re_build_hash_maps(hasher::h32 &root_hash);
+        int persist_hash_maps();
         ~hmap_tree();
     };
 

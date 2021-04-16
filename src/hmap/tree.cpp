@@ -47,9 +47,9 @@ namespace hpfs::hmap::tree
         const store::vnode_hmap *root_hmap = store.find_hash_map(ROOT_VPATH);
         if (root_hmap == NULL)
         {
-            hasher::h32 root_hash;
             // Calculate entire filesystem hash from scratch.
-            if (calculate_root_hash(root_hash) == -1)
+            hasher::h32 root_hash;
+            if (calculate_dir_hash(root_hash, ROOT_VPATH) == -1)
                 return -1;
             LOG_INFO << "Calculated root hash: " << root_hash;
         }
@@ -370,17 +370,29 @@ namespace hpfs::hmap::tree
     }
 
     /**
-     * Build the hash tree from scratch.
-     * @param root_hash The calculated root hash.
+     * Clear the hash map calculate the entire root hash and persist into the file.
+     * @param root_hash Recalculated root hash.
      * @return -1 on error and 0 on success.
     */
-    int hmap_tree::calculate_root_hash(hasher::h32 &root_hash)
+    int hmap_tree::re_build_hash_maps(hasher::h32 &root_hash)
     {
-        // Calculate entire filesystem hash from scratch.
-        if (calculate_dir_hash(root_hash, ROOT_VPATH) == -1)
+        if (store.clear() == -1 ||                             // Clear the existing hash store.
+            calculate_dir_hash(root_hash, ROOT_VPATH) == -1 || // Calculate entire filesystem hash from scratch.
+            store.persist_hash_maps() == -1)                   // Persist calculated hashes to disk.
+        {
+            LOG_ERROR << "Error re building the hash map.";
             return -1;
-
+        }
         return 0;
+    }
+
+    /**
+     * Persist hash map to the disk.
+     * @return -1 on error and 0 on success.
+    */
+    int hmap_tree::persist_hash_maps()
+    {
+        return store.persist_hash_maps();
     }
 
     hmap_tree::~hmap_tree()

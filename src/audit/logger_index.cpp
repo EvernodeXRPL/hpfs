@@ -539,7 +539,6 @@ namespace hpfs::audit::logger_index
                     continue;
                 }
             }
-
             first_record = false;
 
             off_t log_offset;
@@ -554,14 +553,13 @@ namespace hpfs::audit::logger_index
             // If this is a seq no log record, update the log index file.
             if (*seq_no != 0)
             {
-
                 uint8_t offset_be[8];
 
                 const size_t missing_count = *seq_no - prev_seq_no - 1;
                 struct iovec iov_vec[(missing_count + 1) * 2];
 
+                // Update index with last log records offset and root hash.
                 util::uint64_to_bytes(offset_be, prev_offset);
-
                 for (int i = 0; i < missing_count; i++)
                 {
                     iov_vec[i * 2].iov_base = offset_be;
@@ -571,8 +569,8 @@ namespace hpfs::audit::logger_index
                     iov_vec[(i * 2) + 1].iov_len = sizeof(prev_root_hash);
                 }
 
+                // Update index for the current log record.
                 util::uint64_to_bytes(offset_be, log_offset);
-
                 iov_vec[missing_count * 2].iov_base = offset_be;
                 iov_vec[missing_count * 2].iov_len = sizeof(offset_be);
 
@@ -593,6 +591,8 @@ namespace hpfs::audit::logger_index
             }
         }
 
+        // If there're no log records for the seq numbers < max_seq_no.
+        // Update the index for them with the offset and root hash value of last log record.
         last_seq_no = get_last_seq_no();
         if (*received_max_seq_no > last_seq_no)
         {
@@ -607,7 +607,7 @@ namespace hpfs::audit::logger_index
             const size_t missing_count = *received_max_seq_no - last_seq_no;
             struct iovec iov_vec[missing_count * 2];
 
-            // Populate missing data
+            // Populate missing data with last log record's offset and root hash.
             for (int i = 0; i < missing_count; i++)
             {
                 iov_vec[i * 2].iov_base = offset_be;
@@ -627,7 +627,7 @@ namespace hpfs::audit::logger_index
         }
 
         // After appending the log records and updating the hashes we persist the hash map to disk.
-        if (index_ctx.htree->store.persist_hash_maps() == -1)
+        if (index_ctx.htree->persist_hash_maps() == -1)
         {
             LOG_ERROR << errno << ": Error persisting the htree.";
             return -1;
@@ -643,6 +643,8 @@ namespace hpfs::audit::logger_index
      * @param vpath Vpath in the log record.
      * @param paylod Payload in the log record.
      * @param block_data Block data in the log record.
+     * @param log_offset Offset of the newly added log record.
+     * @param root_hash Updated root hash after persisting the log record.
      * @return Returns 0 on success, -1 on error.
     */
     int persist_log_record(const uint64_t seq_no, const audit::FS_OPERATION op, const std::string &vpath, std::string_view payload, std::string_view block_data, off_t &log_offset, hmap::hasher::h32 &root_hash)
@@ -693,16 +695,15 @@ namespace hpfs::audit::logger_index
         }
         case (audit::FS_OPERATION::WRITE):
         {
-            op_write_payload_header wh = *(const op_write_payload_header *)payload.data();
-            if (index_ctx.htree && index_ctx.htree->apply_vnode_data_update(vpath, *vn, wh.offset, wh.size) == -1)
+            const op_write_payload_header *wh = (const op_write_payload_header *)payload.data();
+            if (index_ctx.htree && index_ctx.htree->apply_vnode_data_update(vpath, *vn, wh->offset, wh->size) == -1)
                 return -1;
             break;
         }
         case (audit::FS_OPERATION::TRUNCATE):
         {
-            size_t current_size = vn->st.st_size;
-            hpfs::audit::op_truncate_payload_header th = *(const op_truncate_payload_header *)payload.data();
-            if (index_ctx.htree && index_ctx.htree->apply_vnode_data_update(vpath, *vn, MIN(th.size, current_size), MAX(0, th.size - current_size)) == -1)
+            const hpfs::audit::op_truncate_payload_header *th = (const op_truncate_payload_header *)payload.data();
+            if (index_ctx.htree && index_ctx.htree->apply_vnode_data_update(vpath, *vn, MIN(th->size, vn->st.st_size), MAX(0, th->size - vn->st.st_size)) == -1)
                 return -1;
             break;
         }
@@ -721,10 +722,8 @@ namespace hpfs::audit::logger_index
         }
         case (audit::FS_OPERATION::RENAME):
         {
-            const bool is_file = S_ISREG(vn->st.st_mode);
-
-            std::string to_vpath(std::string_view((char *)payload.data(), payload.size() - 1));
-            if (index_ctx.htree && index_ctx.htree->apply_vnode_rename(vpath, to_vpath, !is_file) == -1)
+            const std::string to_vpath(std::string_view((char *)payload.data(), payload.size() - 1));
+            if (index_ctx.htree && index_ctx.htree->apply_vnode_rename(vpath, to_vpath, !S_ISREG(vn->st.st_mode)) == -1)
                 return -1;
             break;
         }
@@ -775,7 +774,7 @@ namespace hpfs::audit::logger_index
     }
 
     /**
-     * Checks open request for any write.
+     * Checks request for any write.
      * @param query Query passed from the outside.
      * @param buf Buffer to be written.
      * @param size Write size.
@@ -838,7 +837,7 @@ namespace hpfs::audit::logger_index
     }
 
     /**
-     * Checks open request for any index.
+     * Checks open request for the index.
      * @param query Query passed from the outside.
      * @return 0 if request succesfully was interpreted by index control. 1 if the request
      *         should be passed through to the virtual fs. <0 on error.
@@ -920,7 +919,11 @@ namespace hpfs::audit::logger_index
         else if (strncmp(query.data(), INDEX_WRITE_QUERY_FULLSTOP, INDEX_WRITE_QUERY_FULLSTOP_LEN) == 0 && query.length() > INDEX_WRITE_QUERY_FULLSTOP_LEN)
         {
             if (append_log_records(index_ctx.write_buf.c_str(), index_ctx.write_buf.length()) == -1)
+            {
                 LOG_ERROR << "Error appending logs";
+                index_ctx.write_buf.resize(0);
+                return -1;
+            }
             index_ctx.write_buf.resize(0);
             return 0;
         }
@@ -1035,10 +1038,8 @@ namespace hpfs::audit::logger_index
         // Reaching this point means truncation is successful. Delete existing hmap and re-calculate.
 
         hmap::hasher::h32 root_hash;
-        if (index_ctx.virt_fs->re_build_vfs() == -1 ||               // Clear and re-build vfs.
-            index_ctx.htree->store.clear() == -1 ||                  // Clear the existing hash store.
-            index_ctx.htree->calculate_root_hash(root_hash) == -1 || // Calculate entire filesystem hash from scratch.
-            index_ctx.htree->store.persist_hash_maps() == -1)        // Persist calculated hashes to disk.
+        if (index_ctx.virt_fs->re_build_vfs() == -1 ||           // Clear and re-build vfs.
+            index_ctx.htree->re_build_hash_maps(root_hash) == -1) // Clear and re-build hash map.
         {
             LOG_ERROR << "Error re-calculating root hash after truncation.";
             return -1;
