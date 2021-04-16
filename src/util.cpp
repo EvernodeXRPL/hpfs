@@ -4,6 +4,7 @@
 #include <chrono>
 #include <signal.h>
 #include <libgen.h>
+#include <ftw.h>
 #include "util.hpp"
 #include "tracelog.hpp"
 
@@ -212,6 +213,19 @@ namespace util
         list.push_back(value);
 
         return list;
+    }
+
+    /**
+     * Remove a directory recursively with it's content. FTW_DEPTH is provided so all of the files and subdirectories within
+     * The path will be processed. FTW_PHYS is provided so symbolic links won't be followed.
+     */
+    int remove_directory_recursively(std::string_view dir_path)
+    {
+        return nftw(
+            dir_path.data(), [](const char *fpath, const struct stat *sb, int typeflag, struct FTW *ftwbuf) {
+                return remove(fpath);
+            },
+            1, FTW_DEPTH | FTW_PHYS);
     }
 
 } // namespace util

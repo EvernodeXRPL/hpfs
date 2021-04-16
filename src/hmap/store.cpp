@@ -190,4 +190,20 @@ namespace hpfs::hmap::store
         return hpfs::ctx.hmap_dir + vpath;
     }
 
+    /**
+     * Clear existing hash store.
+     * @return -1 on error and 0 on success.
+    */
+    int hmap_store::clear()
+    {
+        if (util::remove_directory_recursively(hpfs::ctx.hmap_dir) == -1)
+        {
+            LOG_ERROR << "Error cleaning persisted hmap files after truncation";
+            return -1;
+        }
+        hash_map.clear();
+        dirty_vpaths.clear();
+        return 0;
+    }
+
 } // namespace hpfs::hmap::store

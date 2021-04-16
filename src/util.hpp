@@ -32,6 +32,7 @@ namespace util
     uint64_t uint64_from_bytes(const uint8_t *data);
     int stoull(const std::string &str, uint64_t &result);
     const std::vector<std::string> split_string(std::string_view s, std::string_view delimiter);
+    int remove_directory_recursively(std::string_view dir_path);
 
 } // namespace util
 

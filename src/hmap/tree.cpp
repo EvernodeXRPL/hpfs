@@ -51,7 +51,6 @@ namespace hpfs::hmap::tree
             hasher::h32 root_hash;
             if (calculate_dir_hash(root_hash, ROOT_VPATH) == -1)
                 return -1;
-
             LOG_INFO << "Calculated root hash: " << root_hash;
         }
         else
@@ -368,6 +367,32 @@ namespace hpfs::hmap::tree
         uint8_t buf[4];
         util::uint32_to_bytes(buf, vn.st.st_mode);
         hasher::hash_buf(vn_hmap.meta_hash, std::string_view((const char *)buf, sizeof(buf)));
+    }
+
+    /**
+     * Clear the hash map calculate the entire root hash and persist into the file.
+     * @param root_hash Recalculated root hash.
+     * @return -1 on error and 0 on success.
+    */
+    int hmap_tree::re_build_hash_maps(hasher::h32 &root_hash)
+    {
+        if (store.clear() == -1 ||                             // Clear the existing hash store.
+            calculate_dir_hash(root_hash, ROOT_VPATH) == -1 || // Calculate entire filesystem hash from scratch.
+            store.persist_hash_maps() == -1)                   // Persist calculated hashes to disk.
+        {
+            LOG_ERROR << "Error re building the hash map.";
+            return -1;
+        }
+        return 0;
+    }
+
+    /**
+     * Persist hash map to the disk.
+     * @return -1 on error and 0 on success.
+    */
+    int hmap_tree::persist_hash_maps()
+    {
+        return store.persist_hash_maps();
     }
 
     hmap_tree::~hmap_tree()

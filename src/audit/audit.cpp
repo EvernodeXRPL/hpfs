@@ -105,8 +105,9 @@ namespace hpfs::audit
             if (pwrite(fd, version::HP_VERSION_BYTES, version::VERSION_BYTES_LEN, 0) < version::VERSION_BYTES_LEN)
             {
                 LOG_ERROR << "Error adding version header to the log file";
+                release_lock(header_lock);
                 return -1;
-            }   
+            }
             memset(&header, 0, sizeof(header));
             if (commit_header() == -1)
             {
@@ -115,9 +116,10 @@ namespace hpfs::audit
                 return -1;
             }
 
-            eof = BLOCK_END(sizeof(header));
+            eof = BLOCK_END(version::VERSION_BYTES_LEN + sizeof(header));
             if (ftruncate(fd, eof) == -1)
             {
+                release_lock(header_lock);
                 LOG_ERROR << errno << ": Error when truncating file with header.";
                 return -1;
             }
@@ -519,18 +521,17 @@ namespace hpfs::audit
 
     /**
      * Truncate log file upto the given log file offset value.
-     * @param log_record_offset The offset where the log file is truncated.
-     * @param prev_ledger_log_record_offset The offset of the previous ledger log record. Search for previous record is perform from top if this is zero.
+     * @param log_record_offset The offset where the log file is truncated. This log record will be kept and rest well be truncated.
      * @return Returns 0 on success and -1 on error.
     */
-    int audit_logger::truncate_log_file(const off_t log_record_offset, const off_t prev_ledger_log_record_offset)
+    int audit_logger::truncate_log_file(const off_t log_record_offset)
     {
         if (mode != LOG_MODE::LOG_SYNC)
             return -1;
 
-        if (header.first_record == 0 || log_record_offset > header.last_record)
+        if (header.first_record == 0)
         {
-            // Empty log file or offset is beyond the last record's offset.
+            LOG_ERROR << "Invalid log record offset for truncation";
             return -1;
         }
 
@@ -542,53 +543,52 @@ namespace hpfs::audit
             return -1;
         }
 
+        off_t truncate_offset;
         // We are removing all the log records.
-        if (header.first_record == log_record_offset)
+        if (log_record_offset == 0)
         {
+            truncate_offset = header.first_record;
             header.first_record = 0;
             header.last_checkpoint = 0;
             header.last_record = 0;
         }
         else
         {
-            // Start searching for the last record that will remain after the truncation happens.
-            // The search is done before the real file truncation.
-            off_t cur_log_offset;
-            // If the given previous log record offset is zero means that the search should start from top.
-            if (prev_ledger_log_record_offset == 0)
-                cur_log_offset = header.first_record;
-            else
-                cur_log_offset = prev_ledger_log_record_offset;
-
-            off_t next_log_offset;
-            log_record rh;
-            do
+            // We keep the log record positioned in log_record_offset and truncate the rest.
+            log_record log_record;
+            if (read_log_at(log_record_offset, truncate_offset, log_record) == -1)
             {
-                if (read_log_at(cur_log_offset, next_log_offset, rh) == -1)
-                {
-                    LOG_ERROR << "Error reading log record for last log update at offset: " << prev_ledger_log_record_offset;
-                    release_lock(truncate_lock);
-                    return -1;
-                }
-                cur_log_offset = next_log_offset;
-            } while (next_log_offset == log_record_offset);
-
+                LOG_ERROR << "Error reading log file at offset: " << log_record_offset;
+                release_lock(truncate_lock);
+                return -1;
+            }
             // Update new last record offset.
-            header.last_record = log_record_offset - rh.size;
-
+            header.last_record = log_record_offset;
             // Update last checkpoint if the check point was in a truncated offset.
             if (header.last_checkpoint > header.last_record)
                 header.last_checkpoint = header.last_record;
         }
 
-        if (ftruncate(fd, log_record_offset) == -1) // Truncate the file.
+        if (truncate_offset <= 0 || truncate_offset > eof)
         {
-            LOG_ERROR << "Error truncating log file at offset: " << std::to_string(log_record_offset);
+            LOG_ERROR << "Invalid log record offset for truncation";
+            release_lock(truncate_lock);
+            return -1;
+        }
+        else if (truncate_offset == eof) // If truncate offset is eof, No need of truncation.
+        {
+            release_lock(truncate_lock);
+            return 0;
+        }
+
+        if (ftruncate(fd, truncate_offset) == -1) // Truncate the file.
+        {
+            LOG_ERROR << errno << ": Error truncating log file at offset: " << truncate_offset;
             release_lock(truncate_lock);
             return -1;
         }
 
-        eof = log_record_offset;
+        eof = truncate_offset;
 
         if (commit_header() == -1)
         {

@@ -499,6 +499,34 @@ namespace hpfs::vfs
                 block_buf_segs.push_back({NULL, (size_t)(block_buf_end - null_data_start)});
         }
     }
+    /**
+     * Cleanup the existing vfs and re-build the vfs again.
+     * @return -1 on error and 0 on success.
+    */
+    int virtual_filesystem::re_build_vfs()
+    {
+        log_scanned_upto = 0;
+        if (initialized && !moved)
+        {
+            for (const auto &[vpath, vnode] : vnodes)
+            {
+                if (vnode.seed_fd > 0)
+                    close(vnode.seed_fd);
+
+                if (vnode.mmap.ptr)
+                    munmap(vnode.mmap.ptr, vnode.mmap.size);
+            }
+            vnodes.clear();
+
+            vnode_map::iterator iter;
+            if (add_vnode_from_seed("/", iter) == -1 || build_vfs() == -1)
+            {
+                LOG_ERROR << "Error in vfs init.";
+                return -1;
+            }
+        }
+        return 0;
+    }
 
     virtual_filesystem::~virtual_filesystem()
     {
