@@ -558,7 +558,7 @@ namespace hpfs::audit
             log_record log_record;
             if (read_log_at(log_record_offset, truncate_offset, log_record) == -1)
             {
-                LOG_ERROR << errno << "Error reading log file at offset: " << log_record_offset;
+                LOG_ERROR << "Error reading log file at offset: " << log_record_offset;
                 release_lock(truncate_lock);
                 return -1;
             }

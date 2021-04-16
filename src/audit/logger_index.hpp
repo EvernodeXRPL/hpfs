@@ -25,6 +25,14 @@ namespace hpfs::audit::logger_index
         This log read cannot be done from multiple threads by hpcore */
         std::string read_buf;  // Tempory buffer to keep reading result.
         std::string write_buf; // Tempory buffer to collect writing logs.
+
+        void reset()
+        {
+            logger.reset();
+            virt_fs.reset();
+            htree.reset();
+            initialized = false;
+        }
     };
 
     extern index_context index_ctx;
