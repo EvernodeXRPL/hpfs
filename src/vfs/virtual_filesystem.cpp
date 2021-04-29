@@ -146,9 +146,14 @@ namespace hpfs::vfs
 
     /**
      * Playback any unread logs and build up the latest view of the virtual fs.
+     * @param build_from_offset If specified, force building vfs from specified offset.
+     * @return 0 on success. -1 on failure;
      */
-    int virtual_filesystem::build_vfs()
+    int virtual_filesystem::build_vfs(const off_t build_from_offset)
     {
+        if (build_from_offset > 0)
+            log_scanned_upto = build_from_offset;
+
         // Return immediately if we have already reached last checkpoint in ReadOnly mode.
         if (readonly && log_scanned_upto >= last_checkpoint)
             return 0;

@@ -111,21 +111,14 @@ namespace hpfs::audit
     // Holds information about an already appended fs operation.
     struct fs_operation_summary
     {
-        std::string vpath;                            // The vpath the operation applied to.
-        FS_OPERATION operation = FS_OPERATION::MKDIR; // The performed operation type.
-        std::vector<uint8_t> payload;                 // The operation payload.
-        off_t payload_offset = 0;                     // Payload content offset relative to log record begin offset;
-        off_t block_data_offset = 0;                  // Block data offset relative to log record begin offset if this was a write operation.
-        size_t block_data_len = 0;                    // Length of block data if this was a write operation.
+        std::string vpath;            // The vpath the operation applied to.
+        log_record_header rh;         // The log record header that got written to the log file.
+        std::vector<uint8_t> payload; // The operation payload.
 
-        void update(std::string_view vpath, const FS_OPERATION operation, const iovec *payload,
-                    const off_t payload_offset, const off_t block_data_offset, const size_t block_data_len)
+        void update(std::string_view vpath, const log_record_header &rh, const iovec *payload)
         {
             this->vpath = vpath;
-            this->operation = operation;
-            this->payload_offset = payload_offset;
-            this->block_data_offset = block_data_offset;
-            this->block_data_len = block_data_len;
+            this->rh = rh;
 
             if (payload)
             {
@@ -150,10 +143,9 @@ namespace hpfs::audit
         off_t eof = 0;                               // End of file (End offset of log file).
         struct log_header header = {};               // The log file header loaded into memory.
         struct flock session_lock = {};              // Session lock placed on the log file.
-        std::optional<fs_operation_summary> last_op; // Keeps track of the last-performed operation to aid optimizations.
+        std::optional<fs_operation_summary> last_op; // Keeps track of the last-performed operation during this session to aid optimizations.
 
         int init();
-        static const log_record_metrics get_metrics(const log_record_header &rh);
 
     public:
         int init_log_header();
@@ -175,9 +167,10 @@ namespace hpfs::audit
         int update_log_record_hash(const off_t log_rec_start_offset, const hmap::hasher::h32 root_hash, log_record_header &rh);
         int overwrite_last_log_record_bytes(const off_t payload_write_offset, const off_t data_write_offset,
                                             const iovec *payload_buf, const iovec *data_bufs, const int data_buf_count,
-                                            const size_t new_block_data_len);
+                                            const size_t new_block_data_len, log_record_header &rh);
         int truncate_log_file(const off_t log_record_offset);
-        const std::optional<fs_operation_summary> &get_last_operation();
+        std::optional<fs_operation_summary> &get_last_operation();
+        static const log_record_metrics get_metrics(const log_record_header &rh);
         ~audit_logger();
     };
 
