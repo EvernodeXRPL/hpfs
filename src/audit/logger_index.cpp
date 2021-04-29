@@ -734,7 +734,7 @@ namespace hpfs::audit::logger_index
         root_hash = index_ctx.htree->get_root_hash();
 
         // Update the log record with root hash.
-        if (index_ctx.htree && index_ctx.logger->update_log_record(log_offset, root_hash, rh) == -1)
+        if (index_ctx.htree && index_ctx.logger->update_log_record_hash(log_offset, root_hash, rh) == -1)
             return -1;
 
         return 0;

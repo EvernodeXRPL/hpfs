@@ -2,6 +2,7 @@
 #define _HPFS_AUDIT_LOGGER_
 
 #include <string>
+#include <string.h>
 #include <sys/uio.h>
 #include <fcntl.h>
 #include <vector>
@@ -44,38 +45,47 @@ namespace hpfs::audit
     struct log_header
     {
         // Begin offset of the first log record. 0 indicates there are no records.
-        off_t first_record;
+        off_t first_record = 0;
 
         // Begin offset of the last log record. 0 indicates there are no records.
-        off_t last_record;
+        off_t last_record = 0;
 
         // Last checkpoint offset (inclusive of the checkpointed log record).
-        off_t last_checkpoint;
+        off_t last_checkpoint = 0;
     } __attribute__((packed));
 
     struct log_record_header
     {
-        int64_t timestamp;
-        FS_OPERATION operation;
-        size_t vpath_len;
-        size_t payload_len;
-        size_t block_data_len;
-        hmap::hasher::h32 root_hash;
+        int64_t timestamp = 0;
+        FS_OPERATION operation = FS_OPERATION::MKDIR;
+        size_t vpath_len = 0;
+        size_t payload_len = 0;
+        size_t block_data_len = 0;
+        hmap::hasher::h32 root_hash = hmap::hasher::h32_empty;
     } __attribute__((packed));
 
     struct log_record
     {
-        off_t offset; // Position of this log record within the log file.
-        size_t size;  // Total length of this log record.
+        off_t offset = 0; // Position of this log record within the log file.
+        size_t size = 0;  // Total length of this log record.
 
-        int64_t timestamp;
+        int64_t timestamp = 0;
         std::string vpath;
-        FS_OPERATION operation;
-        off_t payload_offset;
-        size_t payload_len;
-        off_t block_data_offset;
-        size_t block_data_len;
-        hmap::hasher::h32 root_hash;
+        FS_OPERATION operation = FS_OPERATION::MKDIR;
+        off_t payload_offset = 0;
+        size_t payload_len = 0;
+        off_t block_data_offset = 0;
+        size_t block_data_len = 0;
+        hmap::hasher::h32 root_hash = hmap::hasher::h32_empty;
+    };
+
+    struct log_record_metrics
+    {
+        off_t vpath_offset;          // Offset of the stored vpath relative to log record begin offset.
+        off_t payload_offset = 0;    // Payload offset relative to log record begin offset.
+        off_t block_data_offset = 0; // Block data offset relative to log record begin offset.
+        size_t total_size = 0;       // Total size of the record including block alignment padding bytes.
+        size_t unpadded_size = 0;    // Total unpadded size of the record exluding block alignment padding bytes.
     };
 
     struct op_write_payload_header
@@ -98,6 +108,39 @@ namespace hpfs::audit
         off_t mmap_block_offset = 0; // Memory map placement offset for the block data.
     };
 
+    // Holds information about an already appended fs operation.
+    struct fs_operation_summary
+    {
+        off_t log_record_offset = 0;                  // The log record offset of the operation.
+        std::string vpath;                            // The vpath the operation applied to.
+        FS_OPERATION operation = FS_OPERATION::MKDIR; // The performed operation type.
+        std::vector<uint8_t> payload;                 // The operation payload.
+        off_t payload_offset = 0;                     // Payload content offset relative to log record begin offset;
+        off_t block_data_offset = 0;                  // Block data offset relative to log record begin offset if this was a write operation.
+        size_t block_data_len = 0;                    // Length of block data if this was a write operation.
+
+        void update(const off_t log_record_offset, std::string_view vpath, const FS_OPERATION operation, const iovec *payload,
+                    const off_t payload_offset, const off_t block_data_offset, const size_t block_data_len)
+        {
+            this->log_record_offset = log_record_offset;
+            this->vpath = vpath;
+            this->operation = operation;
+            this->payload_offset = payload_offset;
+            this->block_data_offset = block_data_offset;
+            this->block_data_len = block_data_len;
+
+            if (payload)
+            {
+                this->payload.resize(payload->iov_len);
+                memcpy(this->payload.data(), payload->iov_base, payload->iov_len);
+            }
+            else
+            {
+                this->payload.clear();
+            }
+        }
+    };
+
     class audit_logger
     {
     private:
@@ -105,12 +148,14 @@ namespace hpfs::audit
         bool initialized = false; // Indicates that the instance has been initialized properly.
         const LOG_MODE mode = LOG_MODE::RO;
         std::string_view log_file_path;
-        int fd = 0;                     // The log file fd used throughout the session.
-        off_t eof = 0;                  // End of file (End offset of log file).
-        struct log_header header = {};  // The log file header loaded into memory.
-        struct flock session_lock = {}; // Session lock placed on the log file.
+        int fd = 0;                                  // The log file fd used throughout the session.
+        off_t eof = 0;                               // End of file (End offset of log file).
+        struct log_header header = {};               // The log file header loaded into memory.
+        struct flock session_lock = {};              // Session lock placed on the log file.
+        std::optional<fs_operation_summary> last_op; // Keeps track of the last-performed operation to aid optimizations.
 
         int init();
+        static const log_record_metrics get_metrics(const log_record_header &rh);
 
     public:
         int init_log_header();
@@ -129,8 +174,11 @@ namespace hpfs::audit
         int read_log_record_buf_at(const off_t offset, off_t &next_offset, std::string &buf);
         int read_payload(std::vector<uint8_t> &payload, const log_record &record);
         int purge_log(const log_record &record);
-        int update_log_record(const off_t log_rec_start_offset, const hmap::hasher::h32 root_hash, log_record_header &rh);
+        int update_log_record_hash(const off_t log_rec_start_offset, const hmap::hasher::h32 root_hash, log_record_header &rh);
+        int overwrite_log_record_bytes(const off_t payload_write_offset, const off_t data_write_offset,
+                              const iovec *payload_buf = NULL, const iovec *data_bufs = NULL, const int data_buf_count = 0);
         int truncate_log_file(const off_t log_record_offset);
+        const std::optional<fs_operation_summary> &get_last_operation();
         ~audit_logger();
     };
 
