@@ -342,28 +342,38 @@ namespace hpfs::audit
         // If specified, we need to overwrite the block data len stored in the log record.
         if (new_block_data_len > 0 && new_block_data_len > rh.block_data_len)
         {
-            rh.block_data_len = new_block_data_len;
+            // Update the eof because the log file is going to expand (new block data is bigger than the existing).
+            eof += (new_block_data_len - rh.block_data_len);
 
+            rh.block_data_len = new_block_data_len;
             if (pwrite(fd, &rh, sizeof(rh), header.last_record) == -1)
             {
                 LOG_ERROR << errno << ": Error during overwriting log record when writing header at " << header.last_record;
                 return -1;
             }
-
-            // Update the eof because the log file is going to expand (new block data is bigger than the existing).
-            eof += (new_block_data_len - rh.block_data_len);
         }
 
         if (pwrite(fd, payload_buf->iov_base, payload_buf->iov_len, (header.last_record + payload_write_offset)) == -1)
         {
-            LOG_ERROR << errno << ": Error when overwriting payload buffer.";
+            LOG_ERROR << errno << ": Error when overwriting payload buffer at " << (header.last_record + payload_write_offset);
             return -1;
         }
 
-        if (pwritev(fd, data_bufs, data_buf_count, (header.last_record + data_write_offset)) == -1)
+        if (data_bufs != NULL && data_buf_count > 0)
         {
-            LOG_ERROR << errno << ": Error when overwriting data buffers (" << data_buf_count << ").";
-            return -1;
+            off_t write_offset = (header.last_record + data_write_offset);
+
+            for (int i = 0; i < data_buf_count; i++)
+            {
+                iovec block_buf = data_bufs[i];
+                if (block_buf.iov_base && pwrite(fd, block_buf.iov_base, block_buf.iov_len, write_offset) == -1)
+                {
+                    LOG_ERROR << errno << ": Error when overwriting data buffers (" << data_buf_count << ") at " << write_offset;
+                    return -1;
+                }
+
+                write_offset += block_buf.iov_len;
+            }
         }
 
         return 0;
