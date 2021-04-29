@@ -316,14 +316,65 @@ namespace hpfs::audit
 
         if (!last_op)
             last_op = fs_operation_summary{};
-        last_op->update(log_rec_start_offset, vpath, operation, payload_buf, lm.payload_offset, lm.block_data_offset, rh.block_data_len);
+        last_op->update(vpath, operation, payload_buf, lm.payload_offset, lm.block_data_offset, rh.block_data_len);
 
         return log_rec_start_offset;
     }
 
-    int audit_logger::overwrite_log_record_bytes(const off_t payload_write_offset, const off_t data_write_offset,
-                                   const iovec *payload_buf, const iovec *data_bufs, const int data_buf_count)
+    /**
+     * Overwrite the provided buffers for operation payload and data buffers of the last log record
+     * @param payload_write_offset Offset to write payload buffer relative to log record offset.
+     * @param data_write_offset Offset to write data buffers relative to log record offset.
+     * @param payload_buf Operation payload buffer to be written. New payload size is assumed to be same as existing one.
+     * @param data_bufs Data buffer collection to be written.
+     * @param data_buf_count No. of data buffers.
+     * @param new_block_data_len The new block data length to be written into log record header. Ignored if 0.
+     * @return 0 on success. -1 on error.
+     */
+    int audit_logger::overwrite_last_log_record_bytes(const off_t payload_write_offset, const off_t data_write_offset,
+                                                      const iovec *payload_buf, const iovec *data_bufs, const int data_buf_count,
+                                                      const size_t new_block_data_len)
     {
+        if (header.last_record == 0)
+            return -1;
+
+        // If specified, we need to overwrite the block data len stored in the log record.
+        if (new_block_data_len > 0)
+        {
+            log_record_header rh;
+            if (pread(fd, &rh, sizeof(rh), header.last_record) == -1)
+            {
+                LOG_ERROR << errno << ": Error during overwriting log record when reading header at " << header.last_record;
+                return -1;
+            }
+
+            if (new_block_data_len > rh.block_data_len)
+            {
+                rh.block_data_len = new_block_data_len;
+
+                if (pwrite(fd, &rh, sizeof(rh), header.last_record) == -1)
+                {
+                    LOG_ERROR << errno << ": Error during overwriting log record when writing header at " << header.last_record;
+                    return -1;
+                }
+
+                // Update the eof because the log file is going to expand (new block data is bigger than the existing).
+                eof += (new_block_data_len - rh.block_data_len);
+            }
+        }
+
+        if (pwrite(fd, payload_buf->iov_base, payload_buf->iov_len, (header.last_record + payload_write_offset)) == -1)
+        {
+            LOG_ERROR << errno << ": Error when overwriting payload buffer.";
+            return -1;
+        }
+
+        if (pwritev(fd, data_bufs, data_buf_count, (header.last_record + data_write_offset)) == -1)
+        {
+            LOG_ERROR << errno << ": Error when overwriting data buffers (" << data_buf_count << ").";
+            return -1;
+        }
+
         return 0;
     }
 
@@ -563,7 +614,7 @@ namespace hpfs::audit
             log_record log_record;
             if (read_log_at(log_record_offset, truncate_offset, log_record) == -1)
             {
-                LOG_ERROR << "Error reading log file at offset: " << log_record_offset;
+                LOG_ERROR << "Error reading log record at offset: " << log_record_offset;
                 release_lock(truncate_lock);
                 return -1;
             }

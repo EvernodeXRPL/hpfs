@@ -111,7 +111,6 @@ namespace hpfs::audit
     // Holds information about an already appended fs operation.
     struct fs_operation_summary
     {
-        off_t log_record_offset = 0;                  // The log record offset of the operation.
         std::string vpath;                            // The vpath the operation applied to.
         FS_OPERATION operation = FS_OPERATION::MKDIR; // The performed operation type.
         std::vector<uint8_t> payload;                 // The operation payload.
@@ -119,10 +118,9 @@ namespace hpfs::audit
         off_t block_data_offset = 0;                  // Block data offset relative to log record begin offset if this was a write operation.
         size_t block_data_len = 0;                    // Length of block data if this was a write operation.
 
-        void update(const off_t log_record_offset, std::string_view vpath, const FS_OPERATION operation, const iovec *payload,
+        void update(std::string_view vpath, const FS_OPERATION operation, const iovec *payload,
                     const off_t payload_offset, const off_t block_data_offset, const size_t block_data_len)
         {
-            this->log_record_offset = log_record_offset;
             this->vpath = vpath;
             this->operation = operation;
             this->payload_offset = payload_offset;
@@ -175,8 +173,9 @@ namespace hpfs::audit
         int read_payload(std::vector<uint8_t> &payload, const log_record &record);
         int purge_log(const log_record &record);
         int update_log_record_hash(const off_t log_rec_start_offset, const hmap::hasher::h32 root_hash, log_record_header &rh);
-        int overwrite_log_record_bytes(const off_t payload_write_offset, const off_t data_write_offset,
-                              const iovec *payload_buf = NULL, const iovec *data_bufs = NULL, const int data_buf_count = 0);
+        int overwrite_last_log_record_bytes(const off_t payload_write_offset, const off_t data_write_offset,
+                                            const iovec *payload_buf, const iovec *data_bufs, const int data_buf_count,
+                                            const size_t new_block_data_len);
         int truncate_log_file(const off_t log_record_offset);
         const std::optional<fs_operation_summary> &get_last_operation();
         ~audit_logger();

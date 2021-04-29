@@ -280,15 +280,14 @@ namespace hpfs::vfs
             if (prev_block_start <= new_block_start && new_block_start <= prev_block_end)
             {
                 // Adjust the new write payload to simulate a union of previous and new write.
-                const size_t union_wr_start = MIN(prev.offset, wr_start);
+                const off_t union_wr_start = MIN(prev.offset, wr_start);
                 const size_t union_wr_size = MAX(prev_end, new_end) - union_wr_start;
-                const size_t union_block_buf_start = MIN(prev_block_start, new_block_start);
+                const off_t union_block_buf_start = MIN(prev_block_start, new_block_start);
                 const size_t union_block_buf_size = MAX(prev_block_end, new_block_end) - union_block_buf_start;
 
                 hpfs::audit::op_write_payload_header union_wh{union_wr_size, union_wr_start, union_block_buf_size,
                                                               union_block_buf_start, (union_wr_start - union_block_buf_start)};
                 iovec payload{&union_wh, sizeof(union_wh)};
-                const off_t payload_write_offset = (last_op->log_record_offset + last_op->payload_offset);
 
                 // If the new write buf is completely contained within the same block as previous write, we simply write the
                 // raw buf into the log file.
@@ -296,8 +295,9 @@ namespace hpfs::vfs
                 {
                     iovec block_bufs[1] = {{(void *)buf, wr_size}};
                     const size_t write_buf_padding = wr_start - new_block_start; // No. of padding bytes between actual write buf and the aligned block start.
-                    const off_t data_write_offset = last_op->log_record_offset + last_op->block_data_offset + write_buf_padding;
-                    if (logger.overwrite_log_record_bytes(payload_write_offset, data_write_offset, &payload, block_bufs, 1) == -1)
+                    const off_t data_write_offset = last_op->block_data_offset + write_buf_padding;
+                    if (logger.overwrite_last_log_record_bytes(last_op->payload_offset, data_write_offset,
+                                                               &payload, block_bufs, 1, 0) == -1)
                         return -1;
                 }
                 else
@@ -309,8 +309,9 @@ namespace hpfs::vfs
                                                     buf, wr_size, wr_start, vn->st.st_size, (uint8_t *)vn->mmap.ptr);
 
                     // We need to place the new write block offset relative to the previous write block.
-                    const off_t block_data_write_offset = last_op->log_record_offset + last_op->block_data_offset + (new_block_start - prev_block_start);
-                    if (logger.overwrite_log_record_bytes(payload_write_offset, block_data_write_offset, &payload, block_buf_segs.data(), block_buf_segs.size()) == -1)
+                    const off_t block_data_write_offset = last_op->block_data_offset + (new_block_start - prev_block_start);
+                    if (logger.overwrite_last_log_record_bytes(last_op->payload_offset, block_data_write_offset,
+                                                               &payload, block_buf_segs.data(), block_buf_segs.size(), union_block_buf_size) == -1)
                         return -1;
                 }
 
