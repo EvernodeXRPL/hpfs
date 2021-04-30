@@ -252,9 +252,7 @@ namespace hpfs::audit
             }
         }
 
-        // Calculate total record length including block alignment padding.
-        const size_t record_len_upto_payload = sizeof(rh) + rh.vpath_len + rh.payload_len;
-        const size_t record_len = BLOCK_END(record_len_upto_payload) + rh.block_data_len;
+        const log_record_metrics lm = get_metrics(rh);
 
         // Log record buffer collection that will be written to the file.
         std::vector<iovec> record_bufs;
@@ -265,7 +263,7 @@ namespace hpfs::audit
             record_bufs.push_back(*payload_buf);
 
         // Append log record at current end of file.
-        if (ftruncate(fd, eof + record_len) == -1 || // Extend the file size to fit entire record.
+        if (ftruncate(fd, eof + lm.total_size) == -1 || // Extend the file size to fit entire record.
             pwritev(fd, record_bufs.data(), record_bufs.size(), eof) == -1)
         {
             LOG_ERROR << errno << ": Error appending log record.";
@@ -276,7 +274,7 @@ namespace hpfs::audit
         // Block data must start at the next clean block after log header data and payload.
         if (block_bufs != NULL && block_buf_count > 0)
         {
-            off_t write_offset = eof + record_len - rh.block_data_len;
+            off_t write_offset = eof + lm.block_data_offset;
             for (int i = 0; i < block_buf_count; i++)
             {
                 iovec block_buf = block_bufs[i];
@@ -307,7 +305,7 @@ namespace hpfs::audit
         // Saving the starting offset of the log record.
         const off_t log_rec_start_offset = eof;
         // Calculate new end of file.
-        eof += record_len;
+        eof += lm.total_size;
 
         LOG_DEBUG << "Appended log record."
                   << " ts:" << std::to_string(rh.timestamp)
@@ -315,7 +313,70 @@ namespace hpfs::audit
                   << ", " << vpath
                   << ", payload_len: " << std::to_string(rh.payload_len)
                   << ", blkdata_len: " << std::to_string(rh.block_data_len);
+
+        if (!last_op)
+            last_op = fs_operation_summary{};
+        last_op->update(vpath, rh, payload_buf);
+
         return log_rec_start_offset;
+    }
+
+    /**
+     * Overwrite the provided buffers for operation payload and data buffers of the last log record
+     * @param payload_write_offset Offset to write payload buffer relative to log record offset.
+     * @param data_write_offset Offset to write data buffers relative to log record offset.
+     * @param payload_buf Operation payload buffer to be written. New payload size is assumed to be same as existing one.
+     * @param data_bufs Data buffer collection to be written.
+     * @param data_buf_count No. of data buffers.
+     * @param new_block_data_len The new block data length to be written into log record header. Ignored if 0.
+     * @param rh The log record header of the log record being modified.
+     * @return 0 on success. -1 on error.
+     */
+    int audit_logger::overwrite_last_log_record_bytes(const off_t payload_write_offset, const off_t data_write_offset,
+                                                      const iovec *payload_buf, const iovec *data_bufs, const int data_buf_count,
+                                                      const size_t new_block_data_len, log_record_header &rh)
+    {
+        if (header.last_record == 0)
+            return -1;
+
+        // If specified, we need to overwrite the block data len stored in the log record.
+        if (new_block_data_len > 0 && new_block_data_len > rh.block_data_len)
+        {
+            // Update the eof because the log file is going to expand (new block data is bigger than the existing).
+            eof += (new_block_data_len - rh.block_data_len);
+
+            rh.block_data_len = new_block_data_len;
+            if (pwrite(fd, &rh, sizeof(rh), header.last_record) == -1)
+            {
+                LOG_ERROR << errno << ": Error during overwriting log record when writing header at " << header.last_record;
+                return -1;
+            }
+        }
+
+        if (pwrite(fd, payload_buf->iov_base, payload_buf->iov_len, (header.last_record + payload_write_offset)) == -1)
+        {
+            LOG_ERROR << errno << ": Error when overwriting payload buffer at " << (header.last_record + payload_write_offset);
+            return -1;
+        }
+
+        if (data_bufs != NULL && data_buf_count > 0)
+        {
+            off_t write_offset = (header.last_record + data_write_offset);
+
+            for (int i = 0; i < data_buf_count; i++)
+            {
+                iovec block_buf = data_bufs[i];
+                if (block_buf.iov_base && pwrite(fd, block_buf.iov_base, block_buf.iov_len, write_offset) == -1)
+                {
+                    LOG_ERROR << errno << ": Error when overwriting data buffers (" << data_buf_count << ") at " << write_offset;
+                    return -1;
+                }
+
+                write_offset += block_buf.iov_len;
+            }
+        }
+
+        return 0;
     }
 
     /**
@@ -344,20 +405,16 @@ namespace hpfs::audit
             return -1;
         }
 
+        const log_record_metrics lm = get_metrics(rh);
+
         record.offset = read_offset;
-
-        // Calculate total record length including block alignment padding.
-        const size_t record_len_upto_payload = sizeof(rh) + rh.vpath_len + rh.payload_len;
-        record.size = BLOCK_END(record_len_upto_payload) + rh.block_data_len;
-
+        record.size = lm.total_size;
         record.timestamp = rh.timestamp;
         record.operation = rh.operation;
         record.payload_len = rh.payload_len;
-        record.payload_offset = record.offset + sizeof(rh) + rh.vpath_len;
+        record.payload_offset = record.offset + lm.payload_offset;
         record.block_data_len = rh.block_data_len;
-        record.block_data_offset = rh.block_data_len == 0
-                                       ? 0
-                                       : record.offset + record.size - record.block_data_len;
+        record.block_data_offset = rh.block_data_len == 0 ? 0 : (record.offset + lm.block_data_offset);
         record.root_hash = rh.root_hash;
 
         std::string vpath;
@@ -404,12 +461,14 @@ namespace hpfs::audit
             return -1;
         }
 
-        buf.resize(sizeof(rh) + rh.vpath_len + rh.payload_len + rh.block_data_len);
+        const log_record_metrics lm = get_metrics(rh);
+
+        buf.resize(lm.unpadded_size);
         memcpy(buf.data(), &rh, sizeof(rh));
         size_t buf_offset = sizeof(rh);
 
         // Reading the vpath.
-        if (pread(fd, buf.data() + buf_offset, rh.vpath_len, read_offset + buf_offset) < rh.vpath_len)
+        if (pread(fd, buf.data() + buf_offset, rh.vpath_len, read_offset + lm.vpath_offset) < rh.vpath_len)
         {
             LOG_ERROR << errno << ": Error reading log record vpath from log file.";
             return -1;
@@ -419,7 +478,7 @@ namespace hpfs::audit
         // Reading the payload.
         if (rh.payload_len > 0)
         {
-            if (pread(fd, buf.data() + buf_offset, rh.payload_len, read_offset + buf_offset) < rh.payload_len)
+            if (pread(fd, buf.data() + buf_offset, rh.payload_len, read_offset + lm.payload_offset) < rh.payload_len)
             {
                 LOG_ERROR << errno << ": Error reading log record payload from log file.";
                 return -1;
@@ -428,11 +487,9 @@ namespace hpfs::audit
         }
 
         // Reading the block data.
-        // Calculate block offset including block alignment padding.
-        const off_t block_data_offset = read_offset + BLOCK_END(buf_offset);
         if (rh.block_data_len > 0)
         {
-            if (pread(fd, buf.data() + buf_offset, rh.block_data_len, block_data_offset) < rh.block_data_len)
+            if (pread(fd, buf.data() + buf_offset, rh.block_data_len, read_offset + lm.block_data_offset) < rh.block_data_len)
             {
                 LOG_ERROR << errno << ": Error reading log record block data from log file.";
                 return -1;
@@ -440,7 +497,7 @@ namespace hpfs::audit
             buf_offset += rh.block_data_len;
         }
 
-        next_offset = block_data_offset + rh.block_data_len;
+        next_offset = read_offset + lm.total_size;
         // If there's no more log records next offset is 0.
         if (next_offset == eof)
             next_offset = 0;
@@ -497,7 +554,7 @@ namespace hpfs::audit
         return 0;
     }
 
-    int audit_logger::update_log_record(const off_t log_rec_start_offset, const hmap::hasher::h32 root_hash, log_record_header &rh)
+    int audit_logger::update_log_record_hash(const off_t log_rec_start_offset, const hmap::hasher::h32 root_hash, log_record_header &rh)
     {
         if (header.first_record == 0 || log_rec_start_offset > header.last_record)
         {
@@ -558,7 +615,7 @@ namespace hpfs::audit
             log_record log_record;
             if (read_log_at(log_record_offset, truncate_offset, log_record) == -1)
             {
-                LOG_ERROR << "Error reading log file at offset: " << log_record_offset;
+                LOG_ERROR << "Error reading log record at offset: " << log_record_offset;
                 release_lock(truncate_lock);
                 return -1;
             }
@@ -600,6 +657,32 @@ namespace hpfs::audit
         // Release aquired lock after truncate operation finishes.
         release_lock(truncate_lock);
         return 0;
+    }
+
+    std::optional<fs_operation_summary> &audit_logger::get_last_operation()
+    {
+        return last_op;
+    }
+
+    /**
+     * Returns usefull offsets relative to the begning of the log record.
+     */
+    const log_record_metrics audit_logger::get_metrics(const log_record_header &rh)
+    {
+        // Log record stored structure.
+        // [header][vpath][operation payload][padding bytes][block data]
+
+        log_record_metrics lm;
+        lm.vpath_offset = sizeof(rh);
+        lm.payload_offset = lm.vpath_offset + rh.vpath_len;
+
+        const off_t payload_end_offset = lm.payload_offset + rh.payload_len;
+        const off_t payload_end_padded_offset = BLOCK_END(payload_end_offset);
+
+        lm.block_data_offset = rh.block_data_len == 0 ? 0 : payload_end_padded_offset;
+        lm.unpadded_size = payload_end_offset + rh.block_data_len;
+        lm.total_size = payload_end_padded_offset + rh.block_data_len;
+        return lm;
     }
 
     audit_logger::~audit_logger()
