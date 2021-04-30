@@ -7,8 +7,8 @@
 // Write() data block size. We choose this to be the page size for mmap() page alignment.
 constexpr size_t BLOCK_SIZE = 4096;
 
-#define MAX(a, b) ((a > b) ? a : b)
-#define MIN(a, b) ((a < b) ? a : b)
+#define MAX(a, b) ((a) > (b) ? (a) : (b))
+#define MIN(a, b) ((a) < (b) ? (a) : (b))
 #define BLOCK_START(x) (((x) / BLOCK_SIZE) * BLOCK_SIZE)
 #define BLOCK_END(x) ((x + ((__typeof__(x))(BLOCK_SIZE)-1)) & ~((__typeof__(x))(BLOCK_SIZE)-1))
 
