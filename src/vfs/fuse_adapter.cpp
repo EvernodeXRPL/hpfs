@@ -5,6 +5,7 @@
 #include "virtual_filesystem.hpp"
 #include "../hmap/tree.hpp"
 #include "../util.hpp"
+#include "../tracelog.hpp"
 
 /**
  * Bridge between fuse interface and the hpfs virtual filesystem interface.
@@ -272,17 +273,23 @@ namespace hpfs::vfs
         const int optimze_res = optimized_write(vpath, buf, size, offset, vn, rh);
         if (optimze_res == -1)
         {
+            LOG_ERROR << "Optimized write failed. size:" << size << " offset:" << offset << " vpath:" << vpath;
             return -1;
         }
         else if (optimze_res == 1) // Optimized write successful.
         {
+            LOG_DEBUG << "Optimized write performed. size:" << size << " offset:" << offset << " vpath:" << vpath;
             const hpfs::audit::log_header &h = logger.get_header();
             log_record_offset = vfs_build_from = h.last_record;
         }
         else // Optimized write criteria not met. So we need to perform a normal write.
         {
             if ((log_record_offset = normal_write(vpath, buf, size, offset, vn, rh)) == 0)
+            {
+                LOG_ERROR << "Normal write failed. size:" << size << " offset:" << offset << " vpath:" << vpath;
                 return -1;
+            }
+            LOG_DEBUG << "Normal write performed. size:" << size << " offset:" << offset << " vpath:" << vpath;
         }
 
         if (log_record_offset == 0 ||
@@ -372,7 +379,7 @@ namespace hpfs::vfs
      * @return Appended log record offset on success. 0 on error.
      */
     off_t fuse_adapter::normal_write(const std::string &vpath, const char *buf, const size_t wr_size, const off_t wr_start,
-                                   vfs::vnode *vn, audit::log_record_header &rh)
+                                     vfs::vnode *vn, audit::log_record_header &rh)
     {
         // We prepare list of block buf segments based on where the write buf lies within the block buf.
         off_t block_buf_start = 0, block_buf_end = 0;
