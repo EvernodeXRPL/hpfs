@@ -18,7 +18,7 @@ namespace hpfs::vfs
         std::shared_mutex fs_mutex;
 
     private:
-        int normal_write(const std::string &vpath, const char *buf, const size_t wr_size, const off_t wr_start,
+        off_t normal_write(const std::string &vpath, const char *buf, const size_t wr_size, const off_t wr_start,
                          vfs::vnode *vn, audit::log_record_header &rh);
         int optimized_write(const std::string &vpath, const char *buf, const size_t wr_size, const off_t wr_start,
                             vfs::vnode *vn, audit::log_record_header &rh);

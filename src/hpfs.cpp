@@ -37,8 +37,8 @@ namespace hpfs
         {
             std::cerr << "Invalid arguments.\n";
             std::cout << "Usage:\n"
-                      << "hpfs rdlog [fsdir] trace=[debug|info|warn|error]\n"
-                      << "hpfs fs [fsdir] [mountdir] merge=[true|false] trace=[debug|info|warn|error]\n";
+                      << "hpfs rdlog [fsdir] trace=[dbg|inf|wrn|err]\n"
+                      << "hpfs fs [fsdir] [mountdir] merge=[true|false] trace=[dbg|inf|wrn|err]\n";
             return -1;
         }
         if (version::init() == -1 || vaidate_context() == -1 || tracelog::init() == -1)
@@ -174,15 +174,15 @@ namespace hpfs
             ctx.fs_dir = buf;
 
             const char *trace_arg = argv[argc - 1];
-            if (strcmp(trace_arg, "trace=debug") == 0)
+            if (strcmp(trace_arg, "trace=dbg") == 0)
                 ctx.trace_level = TRACE_LEVEL::DEBUG;
             else if (strcmp(trace_arg, "trace=none") == 0)
                 ctx.trace_level = TRACE_LEVEL::NONE;
-            else if (strcmp(trace_arg, "trace=info") == 0)
+            else if (strcmp(trace_arg, "trace=inf") == 0)
                 ctx.trace_level = TRACE_LEVEL::INFO;
-            else if (strcmp(trace_arg, "trace=warn") == 0)
+            else if (strcmp(trace_arg, "trace=wrn") == 0)
                 ctx.trace_level = TRACE_LEVEL::WARN;
-            else if (strcmp(trace_arg, "trace=error") == 0)
+            else if (strcmp(trace_arg, "trace=err") == 0)
                 ctx.trace_level = TRACE_LEVEL::ERROR;
             else
                 return -1;

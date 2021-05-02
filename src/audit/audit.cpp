@@ -569,7 +569,7 @@ namespace hpfs::audit
 
         if (pwrite(fd, &rh, sizeof(rh), log_rec_start_offset) == -1)
         {
-            LOG_ERROR << errno << ": Error updating log record.";
+            LOG_ERROR << errno << ": Error updating hash of log record at:" << log_rec_start_offset;
             return -1;
         }
 
