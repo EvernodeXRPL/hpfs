@@ -371,7 +371,7 @@ namespace hpfs::vfs
      * Non-optimized, normal write which simply appends a log record with the written data.
      * @return Appended log record offset on success. 0 on error.
      */
-    int fuse_adapter::normal_write(const std::string &vpath, const char *buf, const size_t wr_size, const off_t wr_start,
+    off_t fuse_adapter::normal_write(const std::string &vpath, const char *buf, const size_t wr_size, const off_t wr_start,
                                    vfs::vnode *vn, audit::log_record_header &rh)
     {
         // We prepare list of block buf segments based on where the write buf lies within the block buf.
