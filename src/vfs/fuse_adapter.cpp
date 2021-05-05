@@ -265,10 +265,6 @@ namespace hpfs::vfs
         // Log record header that was appended/modified.
         hpfs::audit::log_record_header rh;
 
-        // The log record offset to build the vfs from. 0 indicates current offset vfs
-        // is already is tracking will be used.
-        off_t vfs_build_from = 0;
-
         // First, attempt an optimized write.
         const int optimze_res = optimized_write(vpath, buf, size, offset, vn, rh);
         if (optimze_res == -1)
@@ -280,7 +276,7 @@ namespace hpfs::vfs
         {
             LOG_DEBUG << "Optimized write performed. size:" << size << " offset:" << offset << " vpath:" << vpath;
             const hpfs::audit::log_header &h = logger.get_header();
-            log_record_offset = vfs_build_from = h.last_record;
+            log_record_offset = h.last_record;
         }
         else // Optimized write criteria not met. So we need to perform a normal write.
         {
@@ -293,7 +289,7 @@ namespace hpfs::vfs
         }
 
         if (log_record_offset == 0 ||
-            virt_fs.build_vfs(vfs_build_from) == -1 ||
+            virt_fs.build_vfs() == -1 ||
             (htree && htree->apply_vnode_data_update(vpath, *vn, offset, size) == -1) ||
             (htree && logger.update_log_record_hash(log_record_offset, htree->get_root_hash(), rh) == -1))
             return -1;
@@ -417,9 +413,9 @@ namespace hpfs::vfs
 
         const hpfs::audit::op_write_payload_header &prev = *(hpfs::audit::op_write_payload_header *)last_op->payload.data();
 
-        const off_t prev_block_start = BLOCK_START(prev.offset); // Block aligned start offset of previous write.
-        const size_t prev_end = prev.offset + prev.size;         // End offset of previous write.
-        const off_t prev_block_end = BLOCK_END(prev_end);        // Block aligned end offset of previous write.
+        const off_t prev_block_start = prev.mmap_block_offset;                      // Block aligned start offset of previous write.
+        const size_t prev_end = prev.offset + prev.size;                            // End offset of previous write.
+        const off_t prev_block_end = prev.mmap_block_offset + prev.mmap_block_size; // Block aligned end offset of previous write.
 
         const off_t new_block_start = BLOCK_START(wr_start); // Block aligned start offset of new write.
         const size_t new_end = wr_start + wr_size;           // End offset of new write.
@@ -433,11 +429,11 @@ namespace hpfs::vfs
         // Adjust the new write payload to simulate a union of previous and new write.
         const off_t union_wr_start = MIN(prev.offset, wr_start);
         const size_t union_wr_size = MAX(prev_end, new_end) - union_wr_start;
-        const off_t union_block_buf_start = MIN(prev_block_start, new_block_start);
-        const size_t union_block_buf_size = MAX(prev_block_end, new_block_end) - union_block_buf_start;
+        const off_t union_block_start = MIN(prev_block_start, new_block_start);
+        const size_t union_block_size = MAX(prev_block_end, new_block_end) - union_block_start;
 
-        hpfs::audit::op_write_payload_header union_wh{union_wr_size, union_wr_start, union_block_buf_size,
-                                                      union_block_buf_start, (union_wr_start - union_block_buf_start)};
+        hpfs::audit::op_write_payload_header union_wh{union_wr_size, union_wr_start, union_block_size,
+                                                      union_block_start, (union_wr_start - union_block_start)};
         iovec payload{&union_wh, sizeof(union_wh)};
 
         rh = last_op->rh;
@@ -465,12 +461,16 @@ namespace hpfs::vfs
             // We need to place the new write block offset relative to the previous write block.
             const off_t block_data_write_offset = lm.block_data_offset + (new_block_start - prev_block_start);
             if (logger.overwrite_last_log_record_bytes(lm.payload_offset, block_data_write_offset,
-                                                       &payload, block_buf_segs.data(), block_buf_segs.size(), union_block_buf_size, rh) == -1)
+                                                       &payload, block_buf_segs.data(), block_buf_segs.size(), union_block_size, rh) == -1)
                 return -1;
         }
 
         // Update the tracked last operation.
         last_op->update(vpath, rh, &payload);
+
+        // Remap the last vdata seg to reflect the updated last log record.
+        if (virt_fs.remap_last_data_seg(vpath, wr_start, wr_size, (union_wh.mmap_block_size - prev.mmap_block_size)) == -1)
+            return -1;
 
         return 1; // Write optmization successfuly performed.
     }

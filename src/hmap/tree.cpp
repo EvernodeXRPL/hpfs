@@ -18,7 +18,7 @@
 
 namespace hpfs::hmap::tree
 {
-#define PRINT_ROOT_HASH LOG_DEBUG << " Root hash: " << store.find_hash_map(ROOT_VPATH)->node_hash;
+#define PRINT_ROOT_HASH LOG_DEBUG << "Root hash: " << store.find_hash_map(ROOT_VPATH)->node_hash;
 
     constexpr size_t BLOCK_SIZE = 4194304; // 4MB
     constexpr const char *ROOT_VPATH = "/";
