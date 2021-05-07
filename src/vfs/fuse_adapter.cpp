@@ -465,8 +465,9 @@ namespace hpfs::vfs
                 return -1;
         }
 
-        // Remap the last vdata seg to reflect the updated last log record.
-        if (virt_fs.remap_last_data_seg(vn, wr_start, wr_size, (union_wh.mmap_block_size - prev.mmap_block_size)) == -1)
+        // Apply the modified log record adjustments to the vfs.
+        const size_t block_size_increase = (union_wh.mmap_block_size - prev.mmap_block_size);
+        if (virt_fs.apply_last_write_log_adjustment(vn, wr_size, wr_start, block_size_increase) == -1)
             return -1;
 
         // Update the tracked last operation.

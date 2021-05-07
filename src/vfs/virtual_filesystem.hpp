@@ -50,8 +50,8 @@ namespace hpfs::vfs
                                      off_t &block_buf_start, off_t &block_buf_end,
                                      const char *buf, const size_t wr_size,
                                      const off_t wr_start, const size_t fsize, uint8_t *mmap_ptr);
-        int remap_last_data_seg(vfs::vnode &vn, const off_t wr_offset, const size_t wr_size,
-                                const size_t block_size_increase);
+        int apply_last_write_log_adjustment(vfs::vnode &vn, const off_t wr_offset, const size_t wr_size,
+                                            const size_t block_size_increase);
         int re_build_vfs();
         ~virtual_filesystem();
     };
