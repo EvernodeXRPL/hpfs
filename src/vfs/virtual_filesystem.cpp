@@ -334,8 +334,7 @@ namespace hpfs::vfs
     int virtual_filesystem::remap_last_data_seg(vfs::vnode &vn, const off_t wr_offset, const size_t wr_size,
                                                 const size_t block_size_increase)
     {
-        // Increased the log scanned marker to include the increased block bytes.
-        log_scanned_upto += block_size_increase;
+        log_scanned_upto += block_size_increase; // Increase the log scanned marker to include the increased block bytes.
 
         if (vn.data_segs.empty())
         {
@@ -358,16 +357,14 @@ namespace hpfs::vfs
             return -1;
         }
         vn.mapped_data_segs--;
+        seg.size += block_size_increase; // Increase the last segment block size;
 
         // Update stats, if the new data boundry is larger than the previous file size.
         if (vn.st.st_size < (wr_offset + wr_size))
         {
             vn.st.st_size = wr_offset + wr_size;
             if (vn.st.st_size > vn.max_size)
-            {
                 vn.max_size = vn.st.st_size;
-                seg.size += block_size_increase; // Update to the new block size.
-            }
         }
 
         // Trigger a mmap update with the new information.
