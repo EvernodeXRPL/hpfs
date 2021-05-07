@@ -196,7 +196,7 @@ namespace hpfs::vfs
             {
                 if (add_vnode_from_seed(record.vpath, iter) == -1 || iter == vnodes.end())
                 {
-                    LOG_ERROR << "Error in vfs adding vnode from seed in apply log record.";
+                    LOG_ERROR << "Error in vfs adding vnode from seed in apply log record. " << record.vpath;
                     return -1;
                 }
             }
@@ -334,6 +334,9 @@ namespace hpfs::vfs
     int virtual_filesystem::remap_last_data_seg(vfs::vnode &vn, const off_t wr_offset, const size_t wr_size,
                                                 const size_t block_size_increase)
     {
+        // Increased the log scanned marker to include the increased block bytes.
+        log_scanned_upto += block_size_increase;
+
         if (vn.data_segs.empty())
         {
             LOG_ERROR << "No vnode data seg to extend.";
@@ -348,23 +351,6 @@ namespace hpfs::vfs
 
         vdata_segment &seg = vn.data_segs.back();
 
-        // Update stats, if the new data boundry is larger than the previous file size.
-        if (vn.st.st_size < (wr_offset + wr_size))
-        {
-            vn.st.st_size = wr_offset + wr_size;
-            if (vn.st.st_size > vn.max_size)
-            {
-                vn.max_size = vn.st.st_size;
-
-                // Max size increased, so we can trigger the automatic remap procedure which will remap the entire file.
-
-                seg.size += block_size_increase; // Update to the new block size.
-                return update_vnode_mmap(vn);
-            }
-        }
-
-        // Reaching here means there was no total map size increase, so we can just remap the changed segment only.
-
         // Unmap the last data segment.
         if (munmap((uint8_t *)vn.mmap.ptr + seg.logical_offset, seg.size) == -1)
         {
@@ -373,23 +359,19 @@ namespace hpfs::vfs
         }
         vn.mapped_data_segs--;
 
-        // Map again with new data segmant.
-        seg.size += block_size_increase; // Update to the new block size.
-        void *ptr = mmap(((uint8_t *)vn.mmap.ptr + seg.logical_offset),
-                         seg.size, PROT_READ, MAP_PRIVATE | MAP_FIXED,
-                         seg.physical_fd, seg.physical_offset);
-
-        if (ptr == MAP_FAILED)
+        // Update stats, if the new data boundry is larger than the previous file size.
+        if (vn.st.st_size < (wr_offset + wr_size))
         {
-            LOG_ERROR << errno << ": Error in vnode re-mmap when extending last data seg.";
-            return -1;
+            vn.st.st_size = wr_offset + wr_size;
+            if (vn.st.st_size > vn.max_size)
+            {
+                vn.max_size = vn.st.st_size;
+                seg.size += block_size_increase; // Update to the new block size.
+            }
         }
-        vn.mapped_data_segs++;
 
-        // Increased the log scanned marker to include the increased block bytes.
-        log_scanned_upto += block_size_increase;
-
-        return 0;
+        // Trigger a mmap update with the new information.
+        return update_vnode_mmap(vn);
     }
 
     int virtual_filesystem::update_vnode_mmap(vnode &vn)

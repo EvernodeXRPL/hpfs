@@ -411,7 +411,7 @@ namespace hpfs::vfs
         if (!last_op || last_op->vpath != vpath || last_op->rh.operation != hpfs::audit::FS_OPERATION::WRITE)
             return 0; // Operation criteria not met.
 
-        const hpfs::audit::op_write_payload_header &prev = *(hpfs::audit::op_write_payload_header *)last_op->payload.data();
+        const hpfs::audit::op_write_payload_header prev = *(hpfs::audit::op_write_payload_header *)last_op->payload.data();
 
         const off_t prev_block_start = prev.mmap_block_offset;                      // Block aligned start offset of previous write.
         const size_t prev_end = prev.offset + prev.size;                            // End offset of previous write.
