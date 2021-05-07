@@ -21,7 +21,7 @@ namespace hpfs::vfs
         off_t normal_write(const std::string &vpath, const char *buf, const size_t wr_size, const off_t wr_start,
                          vfs::vnode *vn, audit::log_record_header &rh);
         int optimized_write(const std::string &vpath, const char *buf, const size_t wr_size, const off_t wr_start,
-                            vfs::vnode *vn, audit::log_record_header &rh);
+                            vfs::vnode &vn, audit::log_record_header &rh);
         int delete_entry(const std::string &to_vpath, const bool is_dir);
         int rename_entry(const std::string &vpath, const std::string &new_vpath, const bool is_dir);
 

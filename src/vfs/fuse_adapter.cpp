@@ -266,7 +266,7 @@ namespace hpfs::vfs
         hpfs::audit::log_record_header rh;
 
         // First, attempt an optimized write.
-        const int optimze_res = optimized_write(vpath, buf, size, offset, vn, rh);
+        const int optimze_res = optimized_write(vpath, buf, size, offset, *vn, rh);
         if (optimze_res == -1)
         {
             LOG_ERROR << "Optimized write failed. size:" << size << " offset:" << offset << " vpath:" << vpath;
@@ -400,7 +400,7 @@ namespace hpfs::vfs
      * @return 0 if optimal criteria not met. 1 if optimized write successfully performed. -1 on error.
      */
     int fuse_adapter::optimized_write(const std::string &vpath, const char *buf, const size_t wr_size, const off_t wr_start,
-                                      vfs::vnode *vn, audit::log_record_header &rh)
+                                      vfs::vnode &vn, audit::log_record_header &rh)
     {
         // Write-oprimization
         // ------------------
@@ -456,7 +456,7 @@ namespace hpfs::vfs
             off_t block_buf_start = 0, block_buf_end = 0;
             std::vector<iovec> block_buf_segs;
             virt_fs.populate_block_buf_segs(block_buf_segs, block_buf_start, block_buf_end,
-                                            buf, wr_size, wr_start, vn->st.st_size, (uint8_t *)vn->mmap.ptr);
+                                            buf, wr_size, wr_start, vn.st.st_size, (uint8_t *)vn.mmap.ptr);
 
             // We need to place the new write block offset relative to the previous write block.
             const off_t block_data_write_offset = lm.block_data_offset + (new_block_start - prev_block_start);
@@ -469,7 +469,7 @@ namespace hpfs::vfs
         last_op->update(vpath, rh, &payload);
 
         // Remap the last vdata seg to reflect the updated last log record.
-        if (virt_fs.remap_last_data_seg(vpath, wr_start, wr_size, (union_wh.mmap_block_size - prev.mmap_block_size)) == -1)
+        if (virt_fs.remap_last_data_seg(vn, wr_start, wr_size, (union_wh.mmap_block_size - prev.mmap_block_size)) == -1)
             return -1;
 
         return 1; // Write optmization successfuly performed.

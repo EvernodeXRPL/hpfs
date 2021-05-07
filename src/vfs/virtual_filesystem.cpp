@@ -331,24 +331,18 @@ namespace hpfs::vfs
         return 0;
     }
 
-    int virtual_filesystem::remap_last_data_seg(const std::string &vpath, const off_t wr_offset, const size_t wr_size,
+    int virtual_filesystem::remap_last_data_seg(vfs::vnode &vn, const off_t wr_offset, const size_t wr_size,
                                                 const size_t block_size_increase)
     {
-        vnode_map::iterator iter = vnodes.find(vpath);
-        if (iter == vnodes.end())
-            return 0;
-
-        vnode &vn = iter->second;
-
         if (vn.data_segs.empty())
         {
-            LOG_ERROR << "No vnode data seg to extend. " << vpath;
+            LOG_ERROR << "No vnode data seg to extend.";
             return -1;
         }
 
         if (!vn.mmap.ptr)
         {
-            LOG_ERROR << "No existing mmap to unmap and extend. " << vpath;
+            LOG_ERROR << "No existing mmap to unmap and extend.";
             return -1;
         }
 
@@ -374,7 +368,7 @@ namespace hpfs::vfs
         // Unmap the last data segment.
         if (munmap((uint8_t *)vn.mmap.ptr + seg.logical_offset, seg.size) == -1)
         {
-            LOG_ERROR << errno << ": Error in munmap when extending last data seg. " << vpath;
+            LOG_ERROR << errno << ": Error in munmap when extending last data seg.";
             return -1;
         }
         vn.mapped_data_segs--;
@@ -387,7 +381,7 @@ namespace hpfs::vfs
 
         if (ptr == MAP_FAILED)
         {
-            LOG_ERROR << errno << ": Error in vnode re-mmap when extending last data seg. " << vpath;
+            LOG_ERROR << errno << ": Error in vnode re-mmap when extending last data seg.";
             return -1;
         }
         vn.mapped_data_segs++;
