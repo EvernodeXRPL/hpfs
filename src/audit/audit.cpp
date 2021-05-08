@@ -176,6 +176,7 @@ namespace hpfs::audit
                       << ", blkdata_off: " << std::to_string(record.block_data_offset)
                       << ", blkdata_len: " << std::to_string(record.block_data_len)
                       << ", root_hash: " << record.root_hash
+                      << ", total_size: " << record.size
                       << "\n";
 
         } while (log_offset > 0);

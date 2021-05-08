@@ -44,12 +44,14 @@ namespace hpfs::vfs
                           hpfs::audit::audit_logger &logger);
         virtual_filesystem(const bool readonly, std::string_view seed_dir, hpfs::audit::audit_logger &logger);
         int get_vnode(const std::string &vpath, vnode **vn);
-        int build_vfs(const off_t build_from_offset = 0);
+        int build_vfs();
         int get_dir_children(const std::string &vpath, vdir_children_map &children);
         void populate_block_buf_segs(std::vector<iovec> &block_buf_segs,
                                      off_t &block_buf_start, off_t &block_buf_end,
                                      const char *buf, const size_t wr_size,
                                      const off_t wr_start, const size_t fsize, uint8_t *mmap_ptr);
+        int apply_last_write_log_adjustment(vfs::vnode &vn, const off_t wr_offset, const size_t wr_size,
+                                            const size_t block_size_increase);
         int re_build_vfs();
         ~virtual_filesystem();
     };

@@ -146,14 +146,10 @@ namespace hpfs::vfs
 
     /**
      * Playback any unread logs and build up the latest view of the virtual fs.
-     * @param build_from_offset If specified, force building vfs from specified offset.
      * @return 0 on success. -1 on failure;
      */
-    int virtual_filesystem::build_vfs(const off_t build_from_offset)
+    int virtual_filesystem::build_vfs()
     {
-        if (build_from_offset > 0)
-            log_scanned_upto = build_from_offset;
-
         // Return immediately if we have already reached last checkpoint in ReadOnly mode.
         if (readonly && log_scanned_upto >= last_checkpoint)
             return 0;
@@ -200,7 +196,7 @@ namespace hpfs::vfs
             {
                 if (add_vnode_from_seed(record.vpath, iter) == -1 || iter == vnodes.end())
                 {
-                    LOG_ERROR << "Error in vfs adding vnode from seed in apply log record.";
+                    LOG_ERROR << "Error in vfs adding vnode from seed in apply log record. " << record.vpath;
                     return -1;
                 }
             }
@@ -332,6 +328,56 @@ namespace hpfs::vfs
 
         vnodes.erase(vnode_iter);
         vnode_iter = vnodes.end();
+        return 0;
+    }
+
+    /**
+     * Performs the necessary adjustments to the vfs and last data block memory map of the specified vnode to reflect the
+     * indicated block size increment.
+     */
+    int virtual_filesystem::apply_last_write_log_adjustment(vfs::vnode &vn, const off_t wr_offset, const size_t wr_size,
+                                                            const size_t block_size_increase)
+    {
+        if (block_size_increase > 0)
+        {
+            log_scanned_upto += block_size_increase; // Increase the log scanned marker to include the increased block bytes.
+
+            if (vn.data_segs.empty())
+            {
+                LOG_ERROR << "No vnode data seg to extend.";
+                return -1;
+            }
+
+            if (!vn.mmap.ptr)
+            {
+                LOG_ERROR << "No existing mmap to unmap and extend.";
+                return -1;
+            }
+
+            vdata_segment &seg = vn.data_segs.back();
+
+            // Unmap the last data segment before remapping it with the increased size.
+            if (munmap((uint8_t *)vn.mmap.ptr + seg.logical_offset, seg.size) == -1)
+            {
+                LOG_ERROR << errno << ": Error in munmap when extending last data seg.";
+                return -1;
+            }
+            vn.mapped_data_segs--;
+            seg.size += block_size_increase; // Increase the last segment block size;
+        }
+
+        // Update vnode stats, if the new data boundry is larger than the previous file size.
+        if (vn.st.st_size < (wr_offset + wr_size))
+        {
+            vn.st.st_size = wr_offset + wr_size;
+            if (vn.st.st_size > vn.max_size)
+                vn.max_size = vn.st.st_size;
+        }
+
+        // Trigger a mmap update with the new information.
+        if (update_vnode_mmap(vn) == -1)
+            return -1;
+
         return 0;
     }
 
