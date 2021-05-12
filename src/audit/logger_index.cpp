@@ -42,17 +42,10 @@ namespace hpfs::audit::logger_index
         // First initialize the logger.
         if (audit::audit_logger::create(index_ctx.logger, audit::LOG_MODE::LOG_SYNC, ctx.log_file_path) == -1 ||
             vfs::virtual_filesystem::create(index_ctx.virt_fs, false, ctx.seed_dir, index_ctx.logger.value()) == -1 ||
-            hmap::tree::hmap_tree::create(index_ctx.htree, index_ctx.virt_fs.value()) == -1)
+            hmap::tree::hmap_tree::create(index_ctx.htree, index_ctx.virt_fs.value(), false) == -1)
         {
             LOG_ERROR << "Error initializing log index.";
             index_ctx.reset();
-            return -1;
-        }
-
-        // Once loaded the hash map, persist dirty hashes to the cache file.
-        if (index_ctx.htree->persist_hash_maps() == -1)
-        {
-            LOG_ERROR << errno << ": Error persisting the htree.";
             return -1;
         }
 

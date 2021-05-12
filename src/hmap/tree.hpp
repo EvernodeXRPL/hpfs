@@ -16,6 +16,7 @@ namespace hpfs::hmap::tree
     private:
         bool moved = false;
         bool initialized = false; // Indicates that the instance has been initialized properly.
+        bool persist_on_destruction = false; // Indicates that hash tree needs to be persisted on destrcution. 
         store::hmap_store store;
         hpfs::vfs::virtual_filesystem &virt_fs;
         void generate_name_hash(store::vnode_hmap &vn_hmap, std::string_view vpath);
@@ -23,7 +24,7 @@ namespace hpfs::hmap::tree
 
     public:
         int init();
-        static int create(std::optional<hmap_tree> &tree, hpfs::vfs::virtual_filesystem &virt_fs);
+        static int create(std::optional<hmap_tree> &tree, hpfs::vfs::virtual_filesystem &virt_fs, const bool persist_on_destruction = true);
         hmap_tree(hpfs::vfs::virtual_filesystem &virt_fs);
         int get_vnode_hmap(store::vnode_hmap **node_hmap, const std::string &vpath);
         int calculate_dir_hash(hasher::h32 &node_hash, const std::string &vpath);
