@@ -49,6 +49,13 @@ namespace hpfs::audit::logger_index
             return -1;
         }
 
+        // Once loaded the hash map, persist dirty hashes to the cache file.
+        if (index_ctx.htree->persist_hash_maps() == -1)
+        {
+            LOG_ERROR << errno << ": Error persisting the htree.";
+            return -1;
+        }
+
         // Open or create the index file.
         if (!util::is_file_exists(file_path))
         {
