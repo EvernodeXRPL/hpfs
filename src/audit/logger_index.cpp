@@ -886,12 +886,18 @@ namespace hpfs::audit::logger_index
 
             return 0;
         }
-        else if (strncmp(query.data(), INDEX_UPDATE_QUERY, INDEX_UPDATE_QUERY_LEN) == 0)
+        else if (strncmp(query.data(), INDEX_UPDATE_QUERY_FULLSTOP, INDEX_UPDATE_QUERY_FULLSTOP_LEN) == 0 && query.length() > INDEX_UPDATE_QUERY_FULLSTOP_LEN)
             return index_ctx.initialized ? 0 : -ENOENT;
 
         return 1;
     }
 
+    /**
+     * Flush the index file after closing. Temporary read buf will be cleaned and write buffer will be appended.
+     * @param query Query passed from the outside.
+     * @return 0 if request succesfully was interpreted by index control. 1 if the request
+     *         should be passed through to the virtual fs. <0 on error.
+    */
     int index_check_flush(std::string_view query)
     {
         // Resize the read buffer to 0 when releasing the ::hpfs.index.read file.
@@ -925,7 +931,7 @@ namespace hpfs::audit::logger_index
      */
     int index_check_getattr(std::string_view query, struct stat *stbuf)
     {
-        if (query == INDEX_UPDATE_QUERY)
+        if (strncmp(query.data(), INDEX_UPDATE_QUERY_FULLSTOP, INDEX_UPDATE_QUERY_FULLSTOP_LEN) == 0 && query.length() > INDEX_UPDATE_QUERY_FULLSTOP_LEN)
         {
             // If logger index isn't initialized return no entry.
             if (!index_ctx.initialized)
@@ -935,51 +941,42 @@ namespace hpfs::audit::logger_index
                 LOG_ERROR << errno << ": Error in stat of index file.";
                 return -1;
             }
+            stbuf->st_size = MAX_LOG_READ_SIZE;
             return 0;
         }
-        // Read or truncate calls will contains paramters.
-        else if (strncmp(query.data(), INDEX_UPDATE_QUERY_FULLSTOP, INDEX_UPDATE_QUERY_FULLSTOP_LEN) == 0)
-        {
-            // If logger index isn't initialized return no entry.
-            if (!index_ctx.initialized)
-                return -ENOENT;
-            // Given path should contain a sequnce number.
-            if (query.size() > INDEX_UPDATE_QUERY_FULLSTOP_LEN)
-            {
-                if (fstat(index_ctx.fd, stbuf) == -1)
-                {
-                    LOG_ERROR << errno << ": Error in stat of index file.";
-                    return -1;
-                }
-                // Send maximum read size as dummy file size.
-                stbuf->st_size = MAX_LOG_READ_SIZE;
-                return 0;
-            }
-            else
-                return 1;
-        }
+
         return 1;
     }
 
     /**
      * Checks truncate requests for index file related truncate operations. If so it is interpreted for log file and index file truncates.
-     * @param path File path truncate function is called on.
+     * @param query passed from the outside.
      * @return 0 if request succesfully was interpreted by index truncate control. 1 if the request
      *         should be passed through to the virtual fs. <0 on error.
      */
-    int index_check_truncate(const char *path)
+    int index_check_truncate(std::string_view query)
     {
-        std::string path_str(path);
         // Given path should create a sequnce number.
-        if (strncmp(path_str.c_str(), INDEX_UPDATE_QUERY_FULLSTOP, INDEX_UPDATE_QUERY_FULLSTOP_LEN) == 0 && path_str.size() > INDEX_UPDATE_QUERY_FULLSTOP_LEN)
+        if (strncmp(query.data(), INDEX_UPDATE_QUERY_FULLSTOP, INDEX_UPDATE_QUERY_FULLSTOP_LEN) == 0 && query.length() > INDEX_UPDATE_QUERY_FULLSTOP_LEN)
         {
+            // If logger index isn't initialized, return no entry.
+            if (!index_ctx.initialized)
+                return -ENOENT;
+
+            // Split the query by '.'.
+            const std::vector<std::string> params = util::split_string(query, ".");
             uint64_t seq_no;
-            if (util::stoull(path_str.substr(INDEX_UPDATE_QUERY_FULLSTOP_LEN), seq_no) == -1 ||
-                truncate_log_and_index_file(seq_no) == -1)
+            if (params.size() != 3 || util::stoull(params.at(2).data(), seq_no) == -1)
             {
-                LOG_ERROR << "Error truncating log file. Path: " << path;
+                LOG_ERROR << "Index truncate parameter error: Invalid parameters";
                 return -1;
-            };
+            }
+
+            if (truncate_log_and_index_file(seq_no) == -1)
+            {
+                LOG_ERROR << "Error truncating log file.";
+                return -1;
+            }
             return 0;
         }
 

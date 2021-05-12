@@ -69,7 +69,7 @@ namespace hpfs::audit::logger_index
 
     int index_check_getattr(std::string_view query, struct stat *stbuf);
 
-    int index_check_truncate(const char *path);
+    int index_check_truncate(std::string_view query);
 
     int truncate_log_and_index_file(const uint64_t seq_no);
 
