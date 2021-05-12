@@ -169,12 +169,13 @@ namespace hpfs::audit
                 break;
 
             total_records++;
-            std::cout << "ts:" << std::to_string(record.timestamp)
+            std::cout << "off:" << record.offset
+                      << ", ts:" << record.timestamp
                       << ", op:" << std::to_string(record.operation)
                       << ", " << record.vpath
-                      << ", payload_len: " << std::to_string(record.payload_len)
-                      << ", blkdata_off: " << std::to_string(record.block_data_offset)
-                      << ", blkdata_len: " << std::to_string(record.block_data_len)
+                      << ", payload_len: " << record.payload_len
+                      << ", blkdata_off: " << record.block_data_offset
+                      << ", blkdata_len: " << record.block_data_len
                       << ", root_hash: " << record.root_hash
                       << ", total_size: " << record.size
                       << "\n";
@@ -234,7 +235,7 @@ namespace hpfs::audit
      * @return Returns the offset at the start of the new log record. 0 if error.
     */
     off_t audit_logger::append_log(log_record_header &rh, std::string_view vpath, const FS_OPERATION operation, const iovec *payload_buf,
-                                   const iovec *block_bufs, const int block_buf_count)
+                                   const iovec *data_bufs, const int data_buf_count)
     {
         rh = {};
         rh.timestamp = util::epoch();
@@ -244,11 +245,11 @@ namespace hpfs::audit
         rh.block_data_len = 0;
 
         // Calculate total block data length.
-        if (block_bufs != NULL && block_buf_count > 0)
+        if (data_bufs != NULL && data_buf_count > 0)
         {
-            for (int i = 0; i < block_buf_count; i++)
+            for (int i = 0; i < data_buf_count; i++)
             {
-                iovec block_buf = block_bufs[i];
+                iovec block_buf = data_bufs[i];
                 rh.block_data_len += block_buf.iov_len;
             }
         }
@@ -273,20 +274,10 @@ namespace hpfs::audit
 
         // Append block data bufs.
         // Block data must start at the next clean block after log header data and payload.
-        if (block_bufs != NULL && block_buf_count > 0)
+        if (write_data_bufs(data_bufs, data_buf_count, (eof + lm.block_data_offset)) == -1)
         {
-            off_t write_offset = eof + lm.block_data_offset;
-            for (int i = 0; i < block_buf_count; i++)
-            {
-                iovec block_buf = block_bufs[i];
-                if (block_buf.iov_base && pwrite(fd, block_buf.iov_base, block_buf.iov_len, write_offset) == -1)
-                {
-                    LOG_ERROR << errno << ": Error in writing block data.";
-                    return 0;
-                }
-
-                write_offset += block_buf.iov_len;
-            }
+            LOG_ERROR << errno << ": Error when overwriting data buffers at " << (eof + lm.block_data_offset);
+            return 0;
         }
 
         // Update log file header.
@@ -360,20 +351,47 @@ namespace hpfs::audit
             return -1;
         }
 
-        if (data_bufs != NULL && data_buf_count > 0)
+        // Overwrite block data bufs.
+        // Block data must start at the next clean block after log header data and payload.
+        if (write_data_bufs(data_bufs, data_buf_count, (header.last_record + data_write_offset)) == -1)
         {
-            off_t write_offset = (header.last_record + data_write_offset);
+            LOG_ERROR << errno << ": Error when overwriting data buffers at " << (header.last_record + data_write_offset);
+            return -1;
+        }
 
-            for (int i = 0; i < data_buf_count; i++)
+        return 0;
+    }
+
+    /**
+     * Writes the specified data buf segments and the specified offset at the log file.
+     * @return 0 on success. -1 on error.
+     */
+    int audit_logger::write_data_bufs(const iovec *data_bufs, const int data_buf_count, const off_t begin_offset)
+    {
+        if (!data_bufs || data_buf_count == 0)
+            return 0;
+
+        off_t write_offset = begin_offset;
+
+        for (int i = 0; i < data_buf_count; i++)
+        {
+            iovec block_buf = data_bufs[i];
+            if (block_buf.iov_base && pwrite(fd, block_buf.iov_base, block_buf.iov_len, write_offset) == -1)
             {
-                iovec block_buf = data_bufs[i];
-                if (block_buf.iov_base && pwrite(fd, block_buf.iov_base, block_buf.iov_len, write_offset) == -1)
-                {
-                    LOG_ERROR << errno << ": Error when overwriting data buffers (" << data_buf_count << ") at " << write_offset;
-                    return -1;
-                }
+                LOG_ERROR << errno << ": Error when writing data buffer (" << data_buf_count << ") at " << write_offset;
+                return -1;
+            }
 
-                write_offset += block_buf.iov_len;
+            write_offset += block_buf.iov_len;
+
+            // If the last segmant is a null segment, we should extend the log file size by that much because those null bytes
+            // has to be included in the log file even though they were not actually written to the disk.
+            // When we reach this point 'write_offset' actually contains the last byte offset of the log record tail.
+            if (i == (data_buf_count - 1) && !block_buf.iov_base &&
+                ftruncate(fd, write_offset) == -1)
+            {
+                LOG_ERROR << errno << ": Error in extending log file size.";
+                return -1;
             }
         }
 
