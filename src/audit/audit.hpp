@@ -146,6 +146,7 @@ namespace hpfs::audit
         std::optional<fs_operation_summary> last_op; // Keeps track of the last-performed operation during this session to aid optimizations.
 
         int init();
+        int write_data_bufs(const iovec *data_bufs, const int data_buf_count, const off_t begin_offset);
 
     public:
         int init_log_header();
@@ -159,7 +160,7 @@ namespace hpfs::audit
         int read_header();
         int commit_header();
         off_t append_log(log_record_header &log_record, std::string_view vpath, const FS_OPERATION operation, const iovec *payload_buf = NULL,
-                         const iovec *block_bufs = NULL, const int block_buf_count = 0);
+                         const iovec *data_bufs = NULL, const int data_buf_count = 0);
         int read_log_at(const off_t offset, off_t &next_offset, log_record &record);
         int read_log_record_buf_at(const off_t offset, off_t &next_offset, std::string &buf);
         int read_payload(std::vector<uint8_t> &payload, const log_record &record);
