@@ -215,7 +215,7 @@ namespace hpfs::audit
         return 0;
     }
 
-    int audit_logger::reset_eof()
+    int audit_logger::update_eof()
     {
         struct stat st;
         if (fstat(fd, &st) == -1)

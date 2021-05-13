@@ -53,7 +53,7 @@ namespace hpfs::audit::logger_index
 
     int read_hash(hmap::hasher::h32 &hash, const uint64_t seq_no);
 
-    int reset_logger();
+    int update_logger_info();
 
     int read_log_records(std::string &buf, const uint64_t min_seq_no, const uint64_t max_seq_no = 0, const uint64_t max_size = 0);
 

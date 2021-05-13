@@ -115,8 +115,8 @@ namespace hpfs::audit::logger_index
             return -1;
         }
 
-        // First read the header from the log file.
-        if (reset_logger() == -1)
+        // First update the log header and eof from the physical log file.
+        if (update_logger_info() == -1)
             return -1;
 
         // Read the log header to get the offset.
@@ -289,7 +289,7 @@ namespace hpfs::audit::logger_index
      * Read the log header and eof from the physical file to the local variables.
      * @return Returns -1 on error otherwise 0.
     */
-    int reset_logger()
+    int update_logger_info()
     {
         if (index_ctx.logger->read_header() == -1)
         {
@@ -297,7 +297,7 @@ namespace hpfs::audit::logger_index
             return -1;
         }
 
-        if (index_ctx.logger->reset_eof() == -1)
+        if (index_ctx.logger->update_eof() == -1)
         {
             LOG_ERROR << errno << ": Error in re setting the header eof.";
             return -1;
@@ -426,7 +426,7 @@ namespace hpfs::audit::logger_index
             // Read the log record buf at current offset.
             // After reading current_offset would be next records offset.
             std::string log_record;
-            if (reset_logger() || index_ctx.logger->read_log_record_buf_at(current_offset, current_offset, log_record) == -1)
+            if (update_logger_info() || index_ctx.logger->read_log_record_buf_at(current_offset, current_offset, log_record) == -1)
                 return -1;
             record_buf.append(log_record);
             log_record.clear();
@@ -464,7 +464,7 @@ namespace hpfs::audit::logger_index
      * Appending log records to hpfs log file.
      * @param buf Buffer to append.
      * @param size Size of the buffer.
-     * @return Returns 0 on success, -1 on error.
+     * @return Returns 1 if success, 0 if joining point check failed, otherwise -1 on error.
     */
     int append_log_records(const char *buf, const size_t size)
     {
@@ -516,8 +516,8 @@ namespace hpfs::audit::logger_index
             {
                 if (index_ctx.eof == version::VERSION_BYTES_LEN)
                 {
-                    // First reset header and the eof of the log file.
-                    if (reset_logger() == -1)
+                    // First update the log header and eof from the physical log file.
+                    if (update_logger_info() == -1)
                         return -1;
 
                     // Read the log header to get the offset.
@@ -538,8 +538,8 @@ namespace hpfs::audit::logger_index
                 {
                     if (*seq_no != last_seq_no || rh->root_hash != last_root_hash)
                     {
-                        LOG_ERROR << "Invalid joining point in the received log response. Received seq no " << *seq_no << " Last seq no " << last_seq_no;
-                        return -1;
+                        LOG_DEBUG << "Invalid joining point in the received log response. Received seq no " << *seq_no << " Last seq no " << last_seq_no;
+                        return 0;
                     }
 
                     prev_seq_no = *seq_no;
@@ -648,7 +648,7 @@ namespace hpfs::audit::logger_index
             return -1;
         }
 
-        return 0;
+        return 1;
     }
 
     /**
@@ -682,7 +682,8 @@ namespace hpfs::audit::logger_index
         else if (!vn)
             return -ENOENT;
 
-        if (reset_logger() == -1)
+        // First update the log header and eof from the physical log file.
+        if (update_logger_info() == -1)
             return -1;
 
         log_record_header rh;
@@ -927,9 +928,11 @@ namespace hpfs::audit::logger_index
         // Append the collected write buffer and resize the write buffer to 0 when releasing the ::hpfs.index.write file.
         else if (strncmp(query.data(), INDEX_WRITE_QUERY_FULLSTOP, INDEX_WRITE_QUERY_FULLSTOP_LEN) == 0 && query.length() > INDEX_WRITE_QUERY_FULLSTOP_LEN)
         {
-            if (append_log_records(index_ctx.write_buf.c_str(), index_ctx.write_buf.length()) == -1)
+            const int res = append_log_records(index_ctx.write_buf.c_str(), index_ctx.write_buf.length());
+            if (res == -1 || res == 0)
             {
-                LOG_ERROR << "Error appending logs";
+                if (res == -1)
+                    LOG_ERROR << "Error appending logs";
                 index_ctx.write_buf.resize(0);
                 return -1;
             }
@@ -1035,7 +1038,7 @@ namespace hpfs::audit::logger_index
         }
 
         // Truncate log file.
-        if (reset_logger() == -1 || index_ctx.logger->truncate_log_file(log_offset) == -1)
+        if (update_logger_info() == -1 || index_ctx.logger->truncate_log_file(log_offset) == -1)
         {
             LOG_ERROR << "Error truncating log file";
             return -1;

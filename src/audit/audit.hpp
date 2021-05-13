@@ -158,7 +158,7 @@ namespace hpfs::audit
         int set_lock(struct flock &lock, const LOCK_TYPE type);
         int release_lock(struct flock &lock);
         int read_header();
-        int reset_eof();
+        int update_eof();
         int commit_header();
         off_t append_log(log_record_header &log_record, std::string_view vpath, const FS_OPERATION operation, const iovec *payload_buf = NULL,
                          const iovec *data_bufs = NULL, const int data_buf_count = 0);
