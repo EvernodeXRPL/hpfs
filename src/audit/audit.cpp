@@ -215,6 +215,19 @@ namespace hpfs::audit
         return 0;
     }
 
+    int audit_logger::reset_eof()
+    {
+        struct stat st;
+        if (fstat(fd, &st) == -1)
+        {
+            LOG_ERROR << errno << ": Error in stat of log file.";
+            return -1;
+        }
+        eof = st.st_size;
+
+        return 0;
+    }
+
     int audit_logger::commit_header()
     {
         // Log header is after the hpfs version header.
@@ -645,13 +658,13 @@ namespace hpfs::audit
                 header.last_checkpoint = header.last_record;
         }
 
-        if (truncate_offset <= 0 || truncate_offset > eof)
+        if (truncate_offset < 0 || truncate_offset > eof)
         {
             LOG_ERROR << "Invalid log record offset for truncation";
             release_lock(truncate_lock);
             return -1;
         }
-        else if (truncate_offset == eof) // If truncate offset is eof, No need of truncation.
+        else if (truncate_offset == 0 || truncate_offset == eof) // If truncate offset is eof or 0 (No more log records), No need of truncation.
         {
             release_lock(truncate_lock);
             return 0;

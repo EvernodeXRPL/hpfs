@@ -116,11 +116,8 @@ namespace hpfs::audit::logger_index
         }
 
         // First read the header from the log file.
-        if (index_ctx.logger->read_header() == -1)
-        {
-            LOG_ERROR << errno << ": Error in reading the log header.";
+        if (reset_logger() == -1)
             return -1;
-        }
 
         // Read the log header to get the offset.
         const hpfs::audit::log_header header = index_ctx.logger->get_header();
@@ -289,6 +286,27 @@ namespace hpfs::audit::logger_index
     }
 
     /**
+     * Read the log header and eof from the physical file to the local variables.
+     * @return Returns -1 on error otherwise 0.
+    */
+    int reset_logger()
+    {
+        if (index_ctx.logger->read_header() == -1)
+        {
+            LOG_ERROR << errno << ": Error in reading the log header.";
+            return -1;
+        }
+
+        if (index_ctx.logger->reset_eof() == -1)
+        {
+            LOG_ERROR << errno << ": Error in re setting the header eof.";
+            return -1;
+        }
+
+        return 0;
+    }
+
+    /**
      * Read the hash of a given position.
      * @param hash Hash at the given position.
      * @param seq_no Sequence number of the log.
@@ -408,7 +426,7 @@ namespace hpfs::audit::logger_index
             // Read the log record buf at current offset.
             // After reading current_offset would be next records offset.
             std::string log_record;
-            if (index_ctx.logger->init_log_header() == -1 || index_ctx.logger->read_log_record_buf_at(current_offset, current_offset, log_record) == -1)
+            if (reset_logger() || index_ctx.logger->read_log_record_buf_at(current_offset, current_offset, log_record) == -1)
                 return -1;
             record_buf.append(log_record);
             log_record.clear();
@@ -498,12 +516,9 @@ namespace hpfs::audit::logger_index
             {
                 if (index_ctx.eof == version::VERSION_BYTES_LEN)
                 {
-                    // First read the header from the log file.
-                    if (index_ctx.logger->read_header() == -1)
-                    {
-                        LOG_ERROR << errno << ": Error in reading the log header.";
+                    // First reset header and the eof of the log file.
+                    if (reset_logger() == -1)
                         return -1;
-                    }
 
                     // Read the log header to get the offset.
                     const hpfs::audit::log_header header = index_ctx.logger->get_header();
@@ -666,6 +681,9 @@ namespace hpfs::audit::logger_index
         }
         else if (!vn)
             return -ENOENT;
+
+        if (reset_logger() == -1)
+            return -1;
 
         log_record_header rh;
         log_offset = index_ctx.logger->append_log(rh, vpath, op, &payload_vec,
@@ -974,7 +992,7 @@ namespace hpfs::audit::logger_index
 
             if (truncate_log_and_index_file(seq_no) == -1)
             {
-                LOG_ERROR << "Error truncating log file.";
+                LOG_ERROR << "Error truncating log and index file.";
                 return -1;
             }
             return 0;
@@ -1009,10 +1027,17 @@ namespace hpfs::audit::logger_index
         // If the seq no to truncate is 0 we set the index truncating offset to version header length;
         const off_t end_of_index = seq_no > 0 ? get_data_offset_of_index_file(seq_no + 1) : version::VERSION_BYTES_LEN;
 
-        if (index_ctx.logger->truncate_log_file(log_offset) == -1 ||
-            ftruncate(index_ctx.fd, end_of_index) == -1)
+        // Truncate index file.
+        if (ftruncate(index_ctx.fd, end_of_index) == -1)
         {
-            LOG_ERROR << "Error truncating log and index file";
+            LOG_ERROR << errno << " Error truncating index file";
+            return -1;
+        }
+
+        // Truncate log file.
+        if (reset_logger() == -1 || index_ctx.logger->truncate_log_file(log_offset) == -1)
+        {
+            LOG_ERROR << "Error truncating log file";
             return -1;
         }
 
