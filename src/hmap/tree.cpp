@@ -23,7 +23,7 @@ namespace hpfs::hmap::tree
     constexpr size_t BLOCK_SIZE = 4194304; // 4MB
     constexpr const char *ROOT_VPATH = "/";
 
-    int hmap_tree::create(std::optional<hmap_tree> &tree, hpfs::vfs::virtual_filesystem &virt_fs, const bool persist_on_destruction)
+    int hmap_tree::create(std::optional<hmap_tree> &tree, hpfs::vfs::virtual_filesystem &virt_fs)
     {
         tree.emplace(virt_fs);
         if (tree->init() == -1)
@@ -31,7 +31,6 @@ namespace hpfs::hmap::tree
             tree.reset();
             return -1;
         }
-        tree->persist_on_destruction = persist_on_destruction;
 
         return 0;
     }
@@ -387,18 +386,9 @@ namespace hpfs::hmap::tree
         return 0;
     }
 
-    /**
-     * Persist hash map to the disk.
-     * @return -1 on error and 0 on success.
-    */
-    int hmap_tree::persist_hash_maps()
-    {
-        return store.persist_hash_maps();
-    }
-
     hmap_tree::~hmap_tree()
     {
-        if (initialized && !moved && persist_on_destruction)
+        if (initialized && !moved)
         {
             // Persist any hash map updates to the disk.
             store.persist_hash_maps();

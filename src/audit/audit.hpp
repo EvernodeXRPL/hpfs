@@ -31,15 +31,17 @@ namespace hpfs::audit
         RW,
         MERGE,
         PRINT,
-        LOG_SYNC
+        LOG_SYNC_WRITE,
+        LOG_SYNC_READ
     };
 
     enum LOCK_TYPE
     {
-        SESSION_LOCK, // Used by RO/RW session to indicate existance of session.
-        UPDATE_LOCK,  // Used by RW session to make updates to the header.
-        MERGE_LOCK,   // Used by MERGE session to acquire exclusive access to the log.
-        SYNC_LOCK     // Used by LOG_SYNC session to acquire exclusive access to the log.
+        SESSION_LOCK,    // Used by RO/RW session to indicate existance of session.
+        UPDATE_LOCK,     // Used by RW session to make updates to the header.
+        MERGE_LOCK,      // Used by MERGE session to acquire exclusive access to the log.
+        SYNC_WRITE_LOCK, // Used by LOG_SYNC_WRITE session to acquire exclusive access to the log.
+        SYNC_READ_LOCK   // Used by LOG_SYNC_READ session to acquire non exclusive read access to the log.
     };
 
     struct log_header
@@ -158,7 +160,6 @@ namespace hpfs::audit
         int set_lock(struct flock &lock, const LOCK_TYPE type);
         int release_lock(struct flock &lock);
         int read_header();
-        int update_eof();
         int commit_header();
         off_t append_log(log_record_header &log_record, std::string_view vpath, const FS_OPERATION operation, const iovec *payload_buf = NULL,
                          const iovec *data_bufs = NULL, const int data_buf_count = 0);

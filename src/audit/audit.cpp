@@ -47,12 +47,30 @@ namespace hpfs::audit
         fd = res;
 
         // RW sessions acquire a read lock on first byte of the log file.
-        // This is to prevent merge or sync operation from running when any RO/RW sessions are live.
+        // This is to prevent merge or log sync write operation from running when any RO/RW sessions are live.
         if ((mode == LOG_MODE::RW || mode == LOG_MODE::RO) &&
             set_lock(session_lock, LOCK_TYPE::SESSION_LOCK) == -1)
         {
             close(fd);
             LOG_ERROR << errno << ": error acquiring RO/RW session lock.";
+            return -1;
+        }
+        // SYN_WRITE sessions acquire a write lock on two bytes of the log file.
+        // This is to prevent RO/RW operation from running when any log sync write sessions are live.
+        else if ((mode == LOG_MODE::LOG_SYNC_WRITE) &&
+            set_lock(session_lock, LOCK_TYPE::SYNC_WRITE_LOCK) == -1)
+        {
+            close(fd);
+            LOG_ERROR << errno << ": error acquiring SYNC_WRITE lock.";
+            return -1;
+        }
+        // SYN_READ sessions acquire a read lock on first byte of the log file.
+        // This is to prevent merge or log sync write operation from running when any log sync read sessions are live.
+        else if ((mode == LOG_MODE::LOG_SYNC_READ) &&
+            set_lock(session_lock, LOCK_TYPE::SYNC_READ_LOCK) == -1)
+        {
+            close(fd);
+            LOG_ERROR << errno << ": error acquiring SYNC_READ lock.";
             return -1;
         }
 
@@ -190,11 +208,13 @@ namespace hpfs::audit
         if (type == LOCK_TYPE::SESSION_LOCK)
             return util::set_lock(fd, lock, false, 0, 1); // Read lock first byte.
         else if (type == LOCK_TYPE::UPDATE_LOCK)
-            return util::set_lock(fd, lock, true, 1, 1); // Write lock second byte.
+            return util::set_lock(fd, lock, true, 1, 1);  // Write lock second byte.
         else if (type == LOCK_TYPE::MERGE_LOCK)
-            return util::set_lock(fd, lock, true, 0, 2); // Write lock inclusive of both bytes above.
-        else if (type == LOCK_TYPE::SYNC_LOCK)
-            return util::set_lock(fd, lock, true, 0, 2); // Write lock inclusive of both bytes above.
+            return util::set_lock(fd, lock, true, 0, 2);  // Write lock inclusive of both bytes above.
+        else if (type == LOCK_TYPE::SYNC_WRITE_LOCK)
+            return util::set_lock(fd, lock, true, 0, 2);  // Sync write lock inclusive of both bytes above.
+        else if (type == LOCK_TYPE::SYNC_READ_LOCK)
+            return util::set_lock(fd, lock, false, 0, 1); // Sync read lock first byte.
 
         return -1;
     }
@@ -211,19 +231,6 @@ namespace hpfs::audit
             LOG_ERROR << errno << ": Error when reading header.";
             return -1;
         }
-
-        return 0;
-    }
-
-    int audit_logger::update_eof()
-    {
-        struct stat st;
-        if (fstat(fd, &st) == -1)
-        {
-            LOG_ERROR << errno << ": Error in stat of log file.";
-            return -1;
-        }
-        eof = st.st_size;
 
         return 0;
     }
@@ -615,20 +622,12 @@ namespace hpfs::audit
     */
     int audit_logger::truncate_log_file(const off_t log_record_offset)
     {
-        if (mode != LOG_MODE::LOG_SYNC)
+        if (mode != LOG_MODE::LOG_SYNC_WRITE)
             return -1;
 
         if (header.first_record == 0)
         {
             LOG_ERROR << "Invalid log record offset for truncation";
-            return -1;
-        }
-
-        flock truncate_lock;
-        // This is a blocking call. This will wait until running RO and RW sessions exits.
-        if (set_lock(truncate_lock, LOCK_TYPE::SYNC_LOCK) == -1)
-        {
-            LOG_ERROR << "Error acquiring log file sync lock.";
             return -1;
         }
 
@@ -648,7 +647,6 @@ namespace hpfs::audit
             if (read_log_at(log_record_offset, truncate_offset, log_record) == -1)
             {
                 LOG_ERROR << "Error reading log record at offset: " << log_record_offset;
-                release_lock(truncate_lock);
                 return -1;
             }
             // Update new last record offset.
@@ -661,19 +659,16 @@ namespace hpfs::audit
         if (truncate_offset < 0 || truncate_offset > eof)
         {
             LOG_ERROR << "Invalid log record offset for truncation";
-            release_lock(truncate_lock);
             return -1;
         }
         else if (truncate_offset == 0 || truncate_offset == eof) // If truncate offset is eof or 0 (No more log records), No need of truncation.
         {
-            release_lock(truncate_lock);
             return 0;
         }
 
         if (ftruncate(fd, truncate_offset) == -1) // Truncate the file.
         {
             LOG_ERROR << errno << ": Error truncating log file at offset: " << truncate_offset;
-            release_lock(truncate_lock);
             return -1;
         }
 
@@ -682,12 +677,10 @@ namespace hpfs::audit
         if (commit_header() == -1)
         {
             LOG_ERROR << errno << ": Error updating header during truncate log.";
-            release_lock(truncate_lock);
             return -1;
         }
 
         // Release aquired lock after truncate operation finishes.
-        release_lock(truncate_lock);
         return 0;
     }
 
