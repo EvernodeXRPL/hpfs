@@ -10,7 +10,7 @@ namespace hpfs::merger
     void deinit();
     void signal_handler(int signum);
     void merger_loop();
-    int merge_log_front();
+    int merge_log_front(hpfs::audit::audit_logger &logger);
     int merge_log_record(const hpfs::audit::log_record &record, const std::vector<uint8_t> payload);
 } // namespace merger
 
