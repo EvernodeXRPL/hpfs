@@ -386,15 +386,6 @@ namespace hpfs::hmap::tree
         return 0;
     }
 
-    /**
-     * Persist hash map to the disk.
-     * @return -1 on error and 0 on success.
-    */
-    int hmap_tree::persist_hash_maps()
-    {
-        return store.persist_hash_maps();
-    }
-
     hmap_tree::~hmap_tree()
     {
         if (initialized && !moved)

@@ -31,15 +31,17 @@ namespace hpfs::audit
         RW,
         MERGE,
         PRINT,
-        LOG_SYNC
+        LOG_SYNC_WRITE,
+        LOG_SYNC_READ
     };
 
     enum LOCK_TYPE
     {
-        SESSION_LOCK, // Used by RO/RW session to indicate existance of session.
-        UPDATE_LOCK,  // Used by RW session to make updates to the header.
-        MERGE_LOCK,   // Used by MERGE session to acquire exclusive access to the log.
-        SYNC_LOCK     // Used by LOG_SYNC session to acquire exclusive access to the log.
+        SESSION_LOCK,    // Used by RO/RW session to indicate existance of session.
+        UPDATE_LOCK,     // Used by RW session to make updates to the header.
+        MERGE_LOCK,      // Used by MERGE session to acquire exclusive access to the log.
+        SYNC_WRITE_LOCK, // Used by LOG_SYNC_WRITE session to acquire exclusive access to the log.
+        SYNC_READ_LOCK   // Used by LOG_SYNC_READ session to acquire non exclusive read access to the log.
     };
 
     struct log_header

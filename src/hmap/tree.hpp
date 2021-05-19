@@ -39,7 +39,6 @@ namespace hpfs::hmap::tree
         int apply_vnode_rename(const std::string &from_vpath, const std::string &to_vpath, const bool is_dir);
         hmap::hasher::h32 get_root_hash();
         int re_build_hash_maps(hasher::h32 &root_hash);
-        int persist_hash_maps();
         ~hmap_tree();
     };
 

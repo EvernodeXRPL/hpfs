@@ -17,22 +17,11 @@ namespace hpfs::audit::logger_index
         off_t eof = 0;            // End of file (End offset of index file).
         bool initialized = false; // Indicates that the index has been initialized properly.
         std::string index_file_path;
-        std::optional<audit::audit_logger> logger;
-        std::optional<vfs::virtual_filesystem> virt_fs;
-        std::optional<hmap::tree::hmap_tree> htree;
         /* Because fuse is multithreaded and reading and writing processed by mulitple threads for several page blocks,
         We use two local buffers to collect read and write logs and serve the reading logas and appending logs from these buffers.
         This log read cannot be done from multiple threads by hpcore */
         std::string read_buf;  // Tempory buffer to keep reading result.
         std::string write_buf; // Tempory buffer to collect writing logs.
-
-        void reset()
-        {
-            logger.reset();
-            virt_fs.reset();
-            htree.reset();
-            initialized = false;
-        }
     };
 
     extern index_context index_ctx;
@@ -57,7 +46,8 @@ namespace hpfs::audit::logger_index
 
     int append_log_records(const char *buf, const size_t size);
 
-    int persist_log_record(const uint64_t seq_no, const audit::FS_OPERATION op, const std::string &vpath, std::string_view payload, std::string_view block_data, off_t &log_offset, hmap::hasher::h32 &root_hash);
+    int persist_log_record(audit::audit_logger &logger, vfs::virtual_filesystem &virt_fs, hmap::tree::hmap_tree &htree, const uint64_t seq_no, const audit::FS_OPERATION op,
+                           const std::string &vpath, std::string_view payload, std::string_view block_data, off_t &log_offset, hmap::hasher::h32 &root_hash);
 
     int index_check_read(std::string_view query, char *buf, size_t *size, const off_t offset);
 
@@ -69,7 +59,7 @@ namespace hpfs::audit::logger_index
 
     int index_check_getattr(std::string_view query, struct stat *stbuf);
 
-    int index_check_truncate(const char *path);
+    int index_check_truncate(std::string_view query);
 
     int truncate_log_and_index_file(const uint64_t seq_no);
 
