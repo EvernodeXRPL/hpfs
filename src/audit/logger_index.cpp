@@ -102,16 +102,17 @@ namespace hpfs::audit::logger_index
             return -1;
         }
 
+        std::optional<audit::audit_logger> logger;
+
         // First initialize the logger.
-        if (audit::audit_logger::create(index_ctx.logger, audit::LOG_MODE::LOG_SYNC_READ, ctx.log_file_path) == -1)
+        if (audit::audit_logger::create(logger, audit::LOG_MODE::LOG_SYNC_READ, ctx.log_file_path) == -1)
         {
             LOG_ERROR << "Error initializing log.";
-            index_ctx.logger.reset();
             return -1;
         }
 
         // Read the log header to get the offset.
-        const hpfs::audit::log_header header = index_ctx.logger->get_header();
+        const hpfs::audit::log_header header = logger->get_header();
 
         // Check whether previous index data are populated.
         // If not populate them with last updated data.
@@ -131,19 +132,15 @@ namespace hpfs::audit::logger_index
             {
                 // If index is empty populate the first log record's root hash and offset.
                 prev_offset = header.first_record;
-                if (index_ctx.logger->read_log_at(prev_offset, next_offset, log_record) == -1)
+                if (logger->read_log_at(prev_offset, next_offset, log_record) == -1)
                 {
                     LOG_ERROR << "Error in reading the first log at offset " << prev_offset;
-                    index_ctx.logger.reset();
                     return -1;
                 }
                 prev_root_hash = log_record.root_hash;
             }
             else if (get_last_index_data(prev_offset, prev_root_hash) == -1)
-            {
-                index_ctx.logger.reset();
                 return -1;
-            }
 
             util::uint64_to_bytes(offset_be, prev_offset);
 
@@ -159,10 +156,9 @@ namespace hpfs::audit::logger_index
         }
 
         // Read the last log record.
-        if (index_ctx.logger->read_log_at(header.last_record, next_offset, log_record) == -1)
+        if (logger->read_log_at(header.last_record, next_offset, log_record) == -1)
         {
             LOG_ERROR << "Error in reading the last log at offset " << header.last_record;
-            index_ctx.logger.reset();
             return -1;
         }
 
@@ -179,14 +175,10 @@ namespace hpfs::audit::logger_index
         if (pwritev(index_ctx.fd, iov_vec, (missing_count + 1) * 2, index_ctx.eof) == -1)
         {
             LOG_ERROR << errno << ": Error writing to log index file.";
-            index_ctx.logger.reset();
             return -1;
         }
 
         index_ctx.eof += (sizeof(offset_be) + sizeof(log_record.root_hash)) * (missing_count + 1);
-
-        // After the operation distroy the logger instance.
-        index_ctx.logger.reset();
 
         return 0;
     }
@@ -351,11 +343,12 @@ namespace hpfs::audit::logger_index
             return -1;
         }
 
+        std::optional<audit::audit_logger> logger;
+
         // First initialize the logger.
-        if (audit::audit_logger::create(index_ctx.logger, audit::LOG_MODE::LOG_SYNC_READ, ctx.log_file_path) == -1)
+        if (audit::audit_logger::create(logger, audit::LOG_MODE::LOG_SYNC_READ, ctx.log_file_path) == -1)
         {
             LOG_ERROR << "Error initializing log.";
-            index_ctx.logger.reset();
             return -1;
         }
 
@@ -371,10 +364,7 @@ namespace hpfs::audit::logger_index
 
         if (min_seq_no > 0 && read_offset(current_offset, min_seq_no) == -1 ||
             max_seq_no > 0 && read_offset(max_offset, max_seq_no) == -1)
-        {
-            index_ctx.logger.reset();
             return -1;
-        }
 
         uint64_t seq_no = min_seq_no;
         off_t next_seq_no_offset;
@@ -383,10 +373,7 @@ namespace hpfs::audit::logger_index
         if (current_offset == 0)
         {
             if (read_offset(next_seq_no_offset, ++seq_no) == -1)
-            {
-                index_ctx.logger.reset();
                 return -1;
-            }
         }
         else
             next_seq_no_offset = current_offset;
@@ -414,10 +401,7 @@ namespace hpfs::audit::logger_index
                 while (next_seq_no_offset != 0 && next_seq_no_offset == current_offset)
                 {
                     if (read_offset(next_seq_no_offset, ++seq_no) == -1)
-                    {
-                        index_ctx.logger.reset();
                         return -1;
-                    }
                 }
             }
             else
@@ -426,11 +410,8 @@ namespace hpfs::audit::logger_index
             // Read the log record buf at current offset.
             // After reading current_offset would be next records offset.
             std::string log_record;
-            if (index_ctx.logger->read_log_record_buf_at(current_offset, current_offset, log_record) == -1)
-            {
-                index_ctx.logger.reset();
+            if (logger->read_log_record_buf_at(current_offset, current_offset, log_record) == -1)
                 return -1;
-            }
             record_buf.append(log_record);
             log_record.clear();
 
@@ -460,9 +441,6 @@ namespace hpfs::audit::logger_index
         // Setting the last scanned seq number as the max seq number header of the response.
         memcpy(buf.data(), &(--seq_no), sizeof(seq_no));
 
-        // After the operation distroy the logger instance.
-        index_ctx.logger.reset();
-
         return 0;
     }
 
@@ -481,23 +459,23 @@ namespace hpfs::audit::logger_index
             return -1;
         }
 
+        std::optional<audit::audit_logger> logger;
+        std::optional<vfs::virtual_filesystem> virt_fs;
+        std::optional<hmap::tree::hmap_tree> htree;
+
         // First initialize the logger virtual fs and htree.
-        if (audit::audit_logger::create(index_ctx.logger, audit::LOG_MODE::LOG_SYNC_WRITE, ctx.log_file_path) == -1 ||
-            vfs::virtual_filesystem::create(index_ctx.virt_fs, false, ctx.seed_dir, index_ctx.logger.value()) == -1 ||
-            hmap::tree::hmap_tree::create(index_ctx.htree, index_ctx.virt_fs.value()) == -1)
+        if (audit::audit_logger::create(logger, audit::LOG_MODE::LOG_SYNC_WRITE, ctx.log_file_path) == -1 ||
+            vfs::virtual_filesystem::create(virt_fs, false, ctx.seed_dir, logger.value()) == -1 ||
+            hmap::tree::hmap_tree::create(htree, virt_fs.value()) == -1)
         {
             LOG_ERROR << "Error initializing log, virtual fs and htree.";
-            index_ctx.reset_optional_variables();
             return -1;
         }
 
         uint64_t last_seq_no = get_last_seq_no();
         hmap::hasher::h32 last_root_hash;
         if (read_last_root_hash(last_root_hash) == -1)
-        {
-            index_ctx.reset_optional_variables();
             return -1;
-        }
 
         off_t offset = 0;
         bool first_record = true;
@@ -530,16 +508,15 @@ namespace hpfs::audit::logger_index
                 if (index_ctx.eof == version::VERSION_BYTES_LEN)
                 {
                     // Read the log header to get the offset.
-                    const hpfs::audit::log_header header = index_ctx.logger->get_header();
+                    const hpfs::audit::log_header header = logger->get_header();
 
                     prev_seq_no = 0;
                     prev_offset = header.first_record;
                     off_t next_offset;
                     log_record log_record;
-                    if (index_ctx.logger->read_log_at(prev_offset, next_offset, log_record) == -1)
+                    if (logger->read_log_at(prev_offset, next_offset, log_record) == -1)
                     {
                         LOG_ERROR << "Error reading log at offset " << prev_offset;
-                        index_ctx.reset_optional_variables();
                         return -1;
                     }
                     prev_root_hash = log_record.root_hash;
@@ -549,7 +526,6 @@ namespace hpfs::audit::logger_index
                     if (*seq_no != last_seq_no || rh->root_hash != last_root_hash)
                     {
                         LOG_DEBUG << "Invalid joining point in the received log response. Received seq no " << *seq_no << " Last seq no " << last_seq_no;
-                        index_ctx.reset_optional_variables();
                         return 0;
                     }
 
@@ -558,7 +534,6 @@ namespace hpfs::audit::logger_index
                     if (get_log_offset_from_index_file(prev_offset, *seq_no) == -1)
                     {
                         LOG_ERROR << "Error getting offset from index file seq no " << *seq_no;
-                        index_ctx.reset_optional_variables();
                         return -1;
                     }
 
@@ -571,10 +546,9 @@ namespace hpfs::audit::logger_index
             off_t log_offset;
             hmap::hasher::h32 log_root_hash;
             if ((rh->root_hash != hmap::hasher::h32_empty && rh->operation != 0) &&
-                persist_log_record(*seq_no, rh->operation, vpath, payload, block_data, log_offset, log_root_hash) == -1)
+                persist_log_record(logger.value(), virt_fs.value(), htree.value(), *seq_no, rh->operation, vpath, payload, block_data, log_offset, log_root_hash) == -1)
             {
                 LOG_ERROR << "Error persisting log record. seq no " << *seq_no;
-                index_ctx.reset_optional_variables();
                 return -1;
             }
 
@@ -608,7 +582,6 @@ namespace hpfs::audit::logger_index
                 if (pwritev(index_ctx.fd, iov_vec, (missing_count + 1) * 2, index_ctx.eof) == -1)
                 {
                     LOG_ERROR << errno << ": Error writing to log index file.";
-                    index_ctx.reset_optional_variables();
                     return -1;
                 }
 
@@ -628,10 +601,7 @@ namespace hpfs::audit::logger_index
             off_t prev_offset;
             hmap::hasher::h32 prev_root_hash;
             if (get_last_index_data(prev_offset, prev_root_hash) == -1)
-            {
-                index_ctx.reset_optional_variables();
                 return -1;
-            }
 
             uint8_t offset_be[8];
             util::uint64_to_bytes(offset_be, prev_offset);
@@ -652,21 +622,20 @@ namespace hpfs::audit::logger_index
             if (pwritev(index_ctx.fd, iov_vec, missing_count * 2, index_ctx.eof) == -1)
             {
                 LOG_ERROR << errno << ": Error writing to log index file.";
-                index_ctx.reset_optional_variables();
                 return -1;
             }
 
             index_ctx.eof += (sizeof(offset_be) + sizeof(prev_root_hash)) * missing_count;
         }
 
-        // After the operation distroy the logger, virtual fs and htree instance.
-        index_ctx.reset_optional_variables();
-
         return 1;
     }
 
     /**
      * Persisting log records and updating the hashes.
+     * @param logger Logger instance.
+     * @param virt_fs Virtual file system instance.Seq no of the log record
+     * @param htree Hash tree instance.
      * @param seq_no Seq no of the log record.
      * @param op File operation.
      * @param vpath Vpath in the log record.
@@ -676,14 +645,15 @@ namespace hpfs::audit::logger_index
      * @param root_hash Updated root hash after persisting the log record.
      * @return Returns 0 on success, -1 on error.
     */
-    int persist_log_record(const uint64_t seq_no, const audit::FS_OPERATION op, const std::string &vpath, std::string_view payload, std::string_view block_data, off_t &log_offset, hmap::hasher::h32 &root_hash)
+    int persist_log_record(audit::audit_logger &logger, vfs::virtual_filesystem &virt_fs, hmap::tree::hmap_tree &htree, const uint64_t seq_no, const audit::FS_OPERATION op,
+                           const std::string &vpath, std::string_view payload, std::string_view block_data, off_t &log_offset, hmap::hasher::h32 &root_hash)
     {
         const iovec payload_vec{(void *)payload.data(), payload.size()};
         std::vector<iovec> block_data_vec;
         block_data_vec.push_back({(void *)block_data.data(), block_data.size()});
 
         vfs::vnode *vn = NULL;
-        if (index_ctx.virt_fs->get_vnode(vpath, &vn) == -1)
+        if (virt_fs.get_vnode(vpath, &vn) == -1)
         {
             LOG_ERROR << "Error fetching the vnode " << vpath << " " << op;
             return -1;
@@ -697,8 +667,8 @@ namespace hpfs::audit::logger_index
             return -ENOENT;
 
         log_record_header rh;
-        log_offset = index_ctx.logger->append_log(rh, vpath, op, &payload_vec,
-                                                  block_data_vec.data(), block_data_vec.size());
+        log_offset = logger.append_log(rh, vpath, op, &payload_vec,
+                                       block_data_vec.data(), block_data_vec.size());
 
         if (log_offset == 0)
         {
@@ -707,7 +677,7 @@ namespace hpfs::audit::logger_index
         }
 
         // After appending the log records and calculating the hash. Update the vfs.
-        if (index_ctx.virt_fs->build_vfs() == -1)
+        if (virt_fs.build_vfs() == -1)
         {
             LOG_ERROR << "Error building the virtual file system.";
             return -1;
@@ -718,41 +688,41 @@ namespace hpfs::audit::logger_index
         case (audit::FS_OPERATION::MKDIR):
         case (audit::FS_OPERATION::CREATE):
         {
-            if (index_ctx.htree && index_ctx.htree->apply_vnode_create(vpath) == -1)
+            if (htree.apply_vnode_create(vpath) == -1)
                 return -1;
             break;
         }
         case (audit::FS_OPERATION::WRITE):
         {
             const op_write_payload_header *wh = (const op_write_payload_header *)payload.data();
-            if (index_ctx.htree && index_ctx.htree->apply_vnode_data_update(vpath, *vn, wh->offset, wh->size) == -1)
+            if (htree.apply_vnode_data_update(vpath, *vn, wh->offset, wh->size) == -1)
                 return -1;
             break;
         }
         case (audit::FS_OPERATION::TRUNCATE):
         {
             const hpfs::audit::op_truncate_payload_header *th = (const op_truncate_payload_header *)payload.data();
-            if (index_ctx.htree && index_ctx.htree->apply_vnode_data_update(vpath, *vn, MIN(th->size, vn->st.st_size), MAX(0, th->size - vn->st.st_size)) == -1)
+            if (htree.apply_vnode_data_update(vpath, *vn, MIN(th->size, vn->st.st_size), MAX(0, th->size - vn->st.st_size)) == -1)
                 return -1;
             break;
         }
         case (audit::FS_OPERATION::CHMOD):
         {
-            if (index_ctx.htree && index_ctx.htree->apply_vnode_metadata_update(vpath, *vn) == -1)
+            if (htree.apply_vnode_metadata_update(vpath, *vn) == -1)
                 return -1;
             break;
         }
         case (audit::FS_OPERATION::RMDIR):
         case (audit::FS_OPERATION::UNLINK):
         {
-            if (index_ctx.htree && index_ctx.htree->apply_vnode_delete(vpath) == -1)
+            if (htree.apply_vnode_delete(vpath) == -1)
                 return -1;
             break;
         }
         case (audit::FS_OPERATION::RENAME):
         {
             const std::string to_vpath(std::string_view((char *)payload.data(), payload.size() - 1));
-            if (index_ctx.htree && index_ctx.htree->apply_vnode_rename(vpath, to_vpath, !S_ISREG(vn->st.st_mode)) == -1)
+            if (htree.apply_vnode_rename(vpath, to_vpath, !S_ISREG(vn->st.st_mode)) == -1)
                 return -1;
             break;
         }
@@ -760,10 +730,10 @@ namespace hpfs::audit::logger_index
             return -1;
         }
 
-        root_hash = index_ctx.htree->get_root_hash();
+        root_hash = htree.get_root_hash();
 
         // Update the log record with root hash.
-        if (index_ctx.htree && index_ctx.logger->update_log_record_hash(log_offset, root_hash, rh) == -1)
+        if (logger.update_log_record_hash(log_offset, root_hash, rh) == -1)
             return -1;
 
         return 0;
@@ -1028,13 +998,16 @@ namespace hpfs::audit::logger_index
             return -1;
         }
 
+        std::optional<audit::audit_logger> logger;
+        std::optional<vfs::virtual_filesystem> virt_fs;
+        std::optional<hmap::tree::hmap_tree> htree;
+
         // First initialize the logger virtual fs and htree.
-        if (audit::audit_logger::create(index_ctx.logger, audit::LOG_MODE::LOG_SYNC_WRITE, ctx.log_file_path) == -1 ||
-            vfs::virtual_filesystem::create(index_ctx.virt_fs, false, ctx.seed_dir, index_ctx.logger.value()) == -1 ||
-            hmap::tree::hmap_tree::create(index_ctx.htree, index_ctx.virt_fs.value()) == -1)
+        if (audit::audit_logger::create(logger, audit::LOG_MODE::LOG_SYNC_WRITE, ctx.log_file_path) == -1 ||
+            vfs::virtual_filesystem::create(virt_fs, false, ctx.seed_dir, logger.value()) == -1 ||
+            hmap::tree::hmap_tree::create(htree, virt_fs.value()) == -1)
         {
             LOG_ERROR << "Error initializing log, virtual fs and htree.";
-            index_ctx.reset_optional_variables();
             return -1;
         }
 
@@ -1044,7 +1017,6 @@ namespace hpfs::audit::logger_index
         else if (get_log_offset_from_index_file(log_offset, seq_no) == -1)
         {
             LOG_ERROR << "Error getting log offset from index file";
-            index_ctx.reset_optional_variables();
             return -1;
         }
 
@@ -1055,15 +1027,13 @@ namespace hpfs::audit::logger_index
         if (ftruncate(index_ctx.fd, end_of_index) == -1)
         {
             LOG_ERROR << errno << " Error truncating index file";
-            index_ctx.reset_optional_variables();
             return -1;
         }
 
         // Truncate log file.
-        if (index_ctx.logger->truncate_log_file(log_offset) == -1)
+        if (logger->truncate_log_file(log_offset) == -1)
         {
             LOG_ERROR << "Error truncating log file";
-            index_ctx.reset_optional_variables();
             return -1;
         }
 
@@ -1072,17 +1042,13 @@ namespace hpfs::audit::logger_index
         // Reaching this point means truncation is successful. Delete existing hmap and re-calculate.
 
         hmap::hasher::h32 root_hash;
-        if (index_ctx.virt_fs->re_build_vfs() == -1 ||            // Clear and re-build vfs.
-            index_ctx.htree->re_build_hash_maps(root_hash) == -1) // Clear and re-build hash map.
+        if (virt_fs->re_build_vfs() == -1 ||            // Clear and re-build vfs.
+            htree->re_build_hash_maps(root_hash) == -1) // Clear and re-build hash map.
         {
             LOG_ERROR << "Error re-calculating root hash after truncation.";
-            index_ctx.reset_optional_variables();
             return -1;
         }
         LOG_DEBUG << "New root hash after truncation: " << root_hash;
-
-        // After the operation distroy the logger, virtual fs and htree instance.
-        index_ctx.reset_optional_variables();
 
         return 0;
     }
