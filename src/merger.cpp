@@ -54,10 +54,14 @@ namespace hpfs::merger
 
         while (!should_stop)
         {
-            usleep(CHECK_INTERVAL); // We perform idle sleep() for smaller time windows due to lesser delay in handling interrupts.
+            // Idle sleep is performed at the very begining and when there are no log records to merge the last time we checked.
+            // We perform idle sleep for small time windows due to lesser delay in handling interrupts.
+            usleep(CHECK_INTERVAL);
             counter++;
             if (counter == 10)
             {
+                bool records_merged = false; // Indicates whether any records were merged during this cycle.
+
                 while (!should_stop)
                 {
                     // We lock the header and release it only after the merge is complete.
@@ -72,17 +76,34 @@ namespace hpfs::merger
                     const audit::log_header &header = logger.get_header();
                     const bool priority_merge = ((header.last_record - header.first_record) >= PRIORITY_MERGE_SIZE_THRESHOLD);
 
+                    if (priority_merge)
+                        LOG_WARNING << "Performing priority merge...";
+
                     // Keep processing the oldest record of the log as long as it succeeds.
                     // Result  0 = There was no log record to process.
                     // Result  1 = There was a log record and it was succesfully merged.
                     // Result -1 = There was an error when processing log front.
-                    while (merge_log_front(logger) == 1)
+                    int merge_result = 0;
+                    while ((merge_result = merge_log_front(logger)) == 1)
                     {
-                        if (!priority_merge) // Stop after merging on log record if we are not doing priority merge.
+                        if (!priority_merge || should_stop) // Stop after merging one log record if we are not doing priority merge.
                             break;
                     }
 
                     logger.release_lock(header_lock);
+                    std::this_thread::yield(); // Gracefully allow any waiting RO/RW sessions to take control over log file lock.
+
+                    // Go back to idle sleep if there were no records or on error.
+                    if (merge_result != 1)
+                    {
+                        if (records_merged)
+                            LOG_DEBUG << "Switching to idle.";
+                        break;
+                    }
+                    else
+                    {
+                        records_merged = true;
+                    }
                 }
 
                 counter = 0;
