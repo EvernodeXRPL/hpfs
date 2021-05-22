@@ -58,7 +58,7 @@ namespace hpfs::audit
         // SYN_WRITE sessions acquire a write lock on two bytes of the log file.
         // This is to prevent RO/RW operation from running when any log sync write sessions are live.
         else if ((mode == LOG_MODE::LOG_SYNC_WRITE) &&
-            set_lock(session_lock, LOCK_TYPE::SYNC_WRITE_LOCK) == -1)
+                 set_lock(session_lock, LOCK_TYPE::SYNC_WRITE_LOCK) == -1)
         {
             close(fd);
             LOG_ERROR << errno << ": error acquiring SYNC_WRITE lock.";
@@ -67,7 +67,7 @@ namespace hpfs::audit
         // SYN_READ sessions acquire a read lock on first byte of the log file.
         // This is to prevent merge or log sync write operation from running when any log sync read sessions are live.
         else if ((mode == LOG_MODE::LOG_SYNC_READ) &&
-            set_lock(session_lock, LOCK_TYPE::SYNC_READ_LOCK) == -1)
+                 set_lock(session_lock, LOCK_TYPE::SYNC_READ_LOCK) == -1)
         {
             close(fd);
             LOG_ERROR << errno << ": error acquiring SYNC_READ lock.";
@@ -208,11 +208,11 @@ namespace hpfs::audit
         if (type == LOCK_TYPE::SESSION_LOCK)
             return util::set_lock(fd, lock, false, 0, 1); // Read lock first byte.
         else if (type == LOCK_TYPE::UPDATE_LOCK)
-            return util::set_lock(fd, lock, true, 1, 1);  // Write lock second byte.
+            return util::set_lock(fd, lock, true, 1, 1); // Write lock second byte.
         else if (type == LOCK_TYPE::MERGE_LOCK)
-            return util::set_lock(fd, lock, true, 0, 2);  // Write lock inclusive of both bytes above.
+            return util::set_lock(fd, lock, true, 0, 2); // Write lock inclusive of both bytes above.
         else if (type == LOCK_TYPE::SYNC_WRITE_LOCK)
-            return util::set_lock(fd, lock, true, 0, 2);  // Sync write lock inclusive of both bytes above.
+            return util::set_lock(fd, lock, true, 0, 2); // Sync write lock inclusive of both bytes above.
         else if (type == LOCK_TYPE::SYNC_READ_LOCK)
             return util::set_lock(fd, lock, false, 0, 1); // Sync read lock first byte.
 
@@ -649,11 +649,10 @@ namespace hpfs::audit
                 LOG_ERROR << "Error reading log record at offset: " << log_record_offset;
                 return -1;
             }
+            
             // Update new last record offset.
             header.last_record = log_record_offset;
-            // Update last checkpoint if the check point was in a truncated offset.
-            if (header.last_checkpoint > header.last_record)
-                header.last_checkpoint = header.last_record;
+            header.last_checkpoint = truncate_offset;
         }
 
         if (truncate_offset < 0 || truncate_offset > eof)
