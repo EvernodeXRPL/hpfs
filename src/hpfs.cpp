@@ -20,7 +20,7 @@ namespace hpfs
     constexpr const char *HMAP_DIR_NAME = "hmap";
     constexpr const char *LOG_FILE_NAME = "log.hpfs";
     constexpr const char *LOG_INDEX_FILE_NAME = "log.hpfs.idx";
-    constexpr int DIR_PERMS = 0755;
+    constexpr int DIR_PERMS = 0754;
 
     hpfs_context ctx;
 
