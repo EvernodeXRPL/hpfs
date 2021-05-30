@@ -649,8 +649,7 @@ namespace hpfs::audit
                 LOG_ERROR << "Error reading log record at offset: " << log_record_offset;
                 return -1;
             }
-            
-            // Update new last record offset.
+            // Update new last record offset and last checkpoint.
             header.last_record = log_record_offset;
             header.last_checkpoint = truncate_offset;
         }
