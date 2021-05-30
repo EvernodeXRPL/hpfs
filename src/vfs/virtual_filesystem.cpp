@@ -326,6 +326,9 @@ namespace hpfs::vfs
         if (vn.mmap.ptr && munmap(vn.mmap.ptr, vn.mmap.size) == -1)
             return -1;
 
+        if (vn.seed_fd > 0)
+            close(vn.seed_fd);
+
         vnodes.erase(vnode_iter);
         vnode_iter = vnodes.end();
         return 0;
