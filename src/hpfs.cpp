@@ -37,8 +37,8 @@ namespace hpfs
         {
             std::cerr << "Invalid arguments.\n";
             std::cout << "Usage:\n"
-                      << "hpfs rdlog [fsdir] trace=[dbg|inf|wrn|err]\n"
-                      << "hpfs fs [fsdir] [mountdir] merge=[true|false] trace=[dbg|inf|wrn|err]\n";
+                      << "hpfs rdlog <fsdir> trace=dbg|inf|wrn|err\n"
+                      << "hpfs fs <fsdir> <mountdir> merge=true|false trace=dbg|inf|wrn|err [ugid=<uid>:<gid>]\n";
             return -1;
         }
         if (version::init() == -1 || vaidate_context() == -1 || tracelog::init() == -1)
@@ -50,6 +50,9 @@ namespace hpfs
             LOG_ERROR << errno << ":Failed to load seed dir stat.";
             return -1;
         }
+
+        ctx.self_uid = getuid();
+        ctx.self_gid = getgid();
 
         ctx.default_stat.st_ino = 0;
         ctx.default_stat.st_nlink = 0;
@@ -105,7 +108,8 @@ namespace hpfs
         }
 
         // This is a blocking call. This will exit when fuse_main receives a signal.
-        LOG_INFO << "Starting FUSE session...";
+        LOG_INFO << "Starting FUSE session... (access: " << ctx.self_uid << ":" << ctx.self_gid
+                 << (ctx.ugid_enabled ? (" + " + std::to_string(ctx.allowed_uid) + ":" + std::to_string(ctx.allowed_gid)) : "") << ")";
         const int ret = fusefs::init(arg0);
         LOG_INFO << "Ended FUSE session.";
 
@@ -160,7 +164,7 @@ namespace hpfs
 
     int parse_cmd(int argc, char **argv)
     {
-        if (argc == 4 || argc == 6)
+        if (argc == 4 || argc == 6 || argc == 7)
         {
             if (strcmp(argv[1], "fs") == 0)
                 ctx.run_mode = RUN_MODE::FS;
@@ -173,7 +177,7 @@ namespace hpfs
             realpath(argv[2], buf);
             ctx.fs_dir = buf;
 
-            const char *trace_arg = argv[argc - 1];
+            const char *trace_arg = argv[argc - 1]; // Trace arg is the last arg.
             if (strcmp(trace_arg, "trace=dbg") == 0)
                 ctx.trace_level = TRACE_LEVEL::DEBUG;
             else if (strcmp(trace_arg, "trace=none") == 0)
@@ -191,7 +195,7 @@ namespace hpfs
             {
                 return 0;
             }
-            else if (argc == 6 && ctx.run_mode == RUN_MODE::FS)
+            else if ((argc == 6 || argc == 7) && ctx.run_mode == RUN_MODE::FS)
             {
                 if (strcmp(argv[4], "merge=true") == 0)
                     ctx.merge_enabled = true;
@@ -200,9 +204,41 @@ namespace hpfs
                 else
                     return -1;
 
+                // ugid arg (optional) specified uid/gid combination that is allowed to access the fuse mount
+                // in addition to the mount owner.
+                if (argc == 7 && read_ugid_arg(argv[5]) == -1)
+                    return -1;
+
                 realpath(argv[3], buf);
                 ctx.mount_dir = buf;
                 return 0;
+            }
+        }
+
+        return -1;
+    }
+
+    int read_ugid_arg(std::string_view arg)
+    {
+        if (arg.rfind("ugid=", 0) == 0)
+        {
+            const std::vector<std::string> parts = util::split_string(arg, "=");
+            if (parts.size() == 2)
+            {
+                const std::vector<std::string> ids = util::split_string(parts[1], ":");
+                if (ids.size() == 2)
+                {
+                    const int uid = atoi(ids[0].c_str());
+                    const int gid = atoi(ids[1].c_str());
+
+                    if (uid > 0 && gid > 0)
+                    {
+                        ctx.ugid_enabled = true;
+                        ctx.allowed_uid = uid;
+                        ctx.allowed_gid = gid;
+                        return 0;
+                    }
+                }
             }
         }
 

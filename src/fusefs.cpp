@@ -522,7 +522,7 @@ namespace hpfs::fusefs
         fuse_opt_add_arg(&args, hpfs::ctx.mount_dir.c_str()); // Mount dir
         fuse_opt_add_arg(&args, "-f");                        // Foreground
         fuse_opt_add_arg(&args, "-ofsname=hpfs");
-        fuse_opt_add_arg(&args, "-odefault_permissions");
+        fuse_opt_add_arg(&args, "-oallow_other"); // Default: "-odefault_permissions"
         // fuse_opt_add_arg(&args, "-s"); // Single threaded
         // fuse_opt_add_arg(&args, "-d"); // Debug
 
