@@ -47,6 +47,12 @@
     if (!sess)                                           \
         return -ENOENT;
 
+#define CHECK_UGID                                                                  \
+    const fuse_context *fctx = fuse_get_context();                                  \
+    if (!(fctx->uid == hpfs::ctx.self_uid && fctx->gid == hpfs::ctx.self_gid) &&    \
+        !(fctx->uid == hpfs::ctx.allowed_uid && fctx->gid == hpfs::ctx.allowed_gid)) \
+        return -EACCES;
+
 namespace hpfs::fusefs
 {
     void *fs_init(struct fuse_conn_info *conn,
@@ -72,7 +78,10 @@ namespace hpfs::fusefs
 
     int fs_getattr(const char *full_path, struct stat *stbuf, struct fuse_file_info *fi)
     {
-        (void)fi;
+        CHECK_UGID
+
+            (void)
+            fi;
 
         // Treat root path as success so we will return dummy stat for root.
         // Fuse host will fail if we return error code for root.
@@ -120,17 +129,23 @@ namespace hpfs::fusefs
 
     int fs_access(const char *full_path, int mask)
     {
+        CHECK_UGID
+
         return 0;
     }
 
     int fs_readlink(const char *full_path, char *buf, size_t size)
     {
+        CHECK_UGID
+
         return 0;
     }
 
     int fs_readdir(const char *full_path, void *buf, fuse_fill_dir_t filler,
                    off_t offset, struct fuse_file_info *fi, enum fuse_readdir_flags flags)
     {
+        CHECK_UGID
+
         if (strcmp(full_path, "/") == 0)
         {
             // Return listing of all sessions as child directories.
@@ -163,6 +178,8 @@ namespace hpfs::fusefs
 
     int fs_mkdir(const char *full_path, mode_t mode)
     {
+        CHECK_UGID
+
         const auto &[sess_name, res_path] = session::split_path(full_path);
         CHECK_SESSION(sess_name);
         return sess->fuse_adapter->mkdir(res_path, mode);
@@ -170,6 +187,8 @@ namespace hpfs::fusefs
 
     int fs_rmdir(const char *full_path)
     {
+        CHECK_UGID
+
         const auto &[sess_name, res_path] = session::split_path(full_path);
         CHECK_SESSION(sess_name);
         return sess->fuse_adapter->rmdir(res_path);
@@ -177,11 +196,15 @@ namespace hpfs::fusefs
 
     int fs_symlink(const char *from, const char *to)
     {
+        CHECK_UGID
+
         return 0;
     }
 
     int fs_rename(const char *from, const char *to, unsigned int flags)
     {
+        CHECK_UGID
+
         if (flags)
             return -EINVAL;
 
@@ -198,11 +221,15 @@ namespace hpfs::fusefs
 
     int fs_link(const char *from, const char *to)
     {
+        CHECK_UGID
+
         return 0;
     }
 
     int fs_unlink(const char *full_path)
     {
+        CHECK_UGID
+
         // 0 = Successfuly interpreted as a session control request.
         // 1 = Request should be handled by the virtual fs.
         // <0 = Error code needs to be returned.
@@ -224,6 +251,8 @@ namespace hpfs::fusefs
     int fs_chmod(const char *full_path, mode_t mode,
                  struct fuse_file_info *fi)
     {
+        CHECK_UGID
+
         const auto &[sess_name, res_path] = session::split_path(full_path);
         CHECK_SESSION(sess_name);
         return sess->fuse_adapter->chmod(res_path, mode);
@@ -238,11 +267,15 @@ namespace hpfs::fusefs
     int fs_utimens(const char *full_path, const struct timespec ts[2],
                    struct fuse_file_info *fi)
     {
+        CHECK_UGID
+
         return 0;
     }
 
     int fs_create(const char *full_path, mode_t mode, struct fuse_file_info *fi)
     {
+        CHECK_UGID
+
         // 0 = Successfuly interpreted as a session control request.
         // 1 = Request should be handled by the virtual fs.
         // <0 = Error code needs to be returned.
@@ -263,6 +296,8 @@ namespace hpfs::fusefs
 
     int fs_open(const char *full_path, struct fuse_file_info *fi)
     {
+        CHECK_UGID
+
         // Check whether this is a index file control request.
         // 0 = Successfuly interpreted as a log index control request.
         // 1 = Request should be handled by the virtual fs.
@@ -292,6 +327,8 @@ namespace hpfs::fusefs
     int fs_read(const char *full_path, char *buf, size_t size, off_t offset,
                 struct fuse_file_info *fi)
     {
+        CHECK_UGID
+
         // Check whether this is a index file control request.
         // 0 = Successfuly interpreted as a log index control request.
         // 1 = Request should be handled by the virtual fs.
@@ -325,6 +362,8 @@ namespace hpfs::fusefs
     int fs_write(const char *full_path, const char *buf, size_t size,
                  off_t offset, struct fuse_file_info *fi)
     {
+        CHECK_UGID
+
         // Check whether this is a index file control request.
         // 0 = Successfuly interpreted as a log index control request.
         // 1 = Request should be handled by the virtual fs.
@@ -346,11 +385,15 @@ namespace hpfs::fusefs
 
     int fs_statfs(const char *full_path, struct statvfs *stbuf)
     {
+        CHECK_UGID
+
         return 0;
     }
 
     static int fs_flush(const char *full_path, struct fuse_file_info *fi)
     {
+        CHECK_UGID
+
         /* This is called from every close on an open file, so call the
         close on the underlying filesystem.	But since flush may be
         called multiple times for an open file, this must not really
@@ -372,6 +415,8 @@ namespace hpfs::fusefs
 
     int fs_release(const char *full_path, struct fuse_file_info *fi)
     {
+        CHECK_UGID
+
         if (fi->fh > 0)
             close(fi->fh);
         return 0;
@@ -379,6 +424,8 @@ namespace hpfs::fusefs
 
     int fs_truncate(const char *full_path, off_t size, struct fuse_file_info *fi)
     {
+        CHECK_UGID
+
         // Check whether this is a index file truncate control request.
         // 0 = Successfuly interpreted as a log index truncate control request.
         // 1 = Request should be handled by the virtual fs.
@@ -401,6 +448,8 @@ namespace hpfs::fusefs
     int fs_fallocate(const char *full_path, int mode,
                      off_t offset, off_t length, struct fuse_file_info *fi)
     {
+        CHECK_UGID
+
         return 0;
     }
 #endif
@@ -410,22 +459,30 @@ namespace hpfs::fusefs
     int fs_setxattr(const char *full_path, const char *name, const char *value,
                     size_t size, int flags)
     {
+        CHECK_UGID
+
         return 0;
     }
 
     int fs_getxattr(const char *full_path, const char *name, char *value,
                     size_t size)
     {
+        CHECK_UGID
+
         return 0;
     }
 
     int fs_listxattr(const char *full_path, char *list, size_t size)
     {
+        CHECK_UGID
+
         return 0;
     }
 
     int fs_removexattr(const char *full_path, const char *name)
     {
+        CHECK_UGID
+
         return 0;
     }
 #endif /* HAVE_SETXATTR */
@@ -434,6 +491,8 @@ namespace hpfs::fusefs
     int fs_lock(const char *full_path, struct fuse_file_info *fi, int cmd,
                 struct flock *lock)
     {
+        CHECK_UGID
+
         return 0;
     }
 #endif
@@ -450,12 +509,16 @@ namespace hpfs::fusefs
                                struct fuse_file_info *fi_out,
                                off_t off_out, size_t len, int flags)
     {
+        CHECK_UGID
+
         return 0;
     }
 #endif
 
     off_t fs_lseek(const char *full_path, off_t off, int whence, struct fuse_file_info *fi)
     {
+        CHECK_UGID
+
         return 0;
     }
 
