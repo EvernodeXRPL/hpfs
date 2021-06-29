@@ -20,7 +20,7 @@ namespace hpfs
     constexpr const char *HMAP_DIR_NAME = "hmap";
     constexpr const char *LOG_FILE_NAME = "log.hpfs";
     constexpr const char *LOG_INDEX_FILE_NAME = "log.hpfs.idx";
-    constexpr int DIR_PERMS = 0754;
+    constexpr int DIR_PERMS = 0755;
 
     hpfs_context ctx;
 
@@ -225,6 +225,9 @@ namespace hpfs
             const std::vector<std::string> parts = util::split_string(arg, "=");
             if (parts.size() == 2)
             {
+                if (parts[1].empty())
+                    return 0;
+
                 const std::vector<std::string> ids = util::split_string(parts[1], ":");
                 if (ids.size() == 2)
                 {
@@ -236,6 +239,10 @@ namespace hpfs
                         ctx.ugid_enabled = true;
                         ctx.allowed_uid = uid;
                         ctx.allowed_gid = gid;
+                        return 0;
+                    }
+                    else if (uid == 0 && gid == 0)
+                    {
                         return 0;
                     }
                 }
