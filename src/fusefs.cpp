@@ -50,7 +50,7 @@
 #define CHECK_UGID                                                                  \
     const fuse_context *fctx = fuse_get_context();                                  \
     if (!(fctx->uid == hpfs::ctx.self_uid && fctx->gid == hpfs::ctx.self_gid) &&    \
-        !(fctx->uid == hpfs::ctx.allowed_uid && fctx->gid == hpfs::ctx.allowed_gid)) \
+        !(hpfs::ctx.ugid_enabled && fctx->uid == hpfs::ctx.allowed_uid && fctx->gid == hpfs::ctx.allowed_gid)) \
         return -EACCES;
 
 namespace hpfs::fusefs
