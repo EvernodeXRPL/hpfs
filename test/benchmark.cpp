@@ -11,7 +11,7 @@
 // g++ -std=c++17 -O3 -Wno-unused-result benchmark.cpp -o benchmark && ./benchmark
 
 constexpr uint64_t MAX_FILE_SIZE = 64 * 1024 * 1024;
-constexpr mode_t DIR_PERMS = 0754;
+constexpr mode_t DIR_PERMS = 0755;
 const std::string test_dir = "temp";
 const std::string hpfs_binary = "../build/hpfs";
 
