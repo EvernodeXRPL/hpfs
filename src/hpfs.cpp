@@ -37,11 +37,23 @@ namespace hpfs
         {
             std::cerr << "Invalid arguments.\n";
             std::cout << "Usage:\n"
+                      << "hpfs version\n"
                       << "hpfs rdlog <fsdir> trace=dbg|inf|wrn|err\n"
-                      << "hpfs fs <fsdir> <mountdir> merge=true|false trace=dbg|inf|wrn|err [ugid=<uid>:<gid>]\n";
+                      << "hpfs fs <fsdir> <mountdir> merge=true|false [ugid=<uid>:<gid>] trace=dbg|inf|wrn|err\n";
             return -1;
         }
-        if (version::init() == -1 || vaidate_context() == -1 || tracelog::init() == -1)
+
+        if (version::init() == -1)
+            return -1;
+
+        if (ctx.run_mode == RUN_MODE::VERSION)
+        {
+            // Print the version
+            std::cout << version::HPFS_VERSION << std::endl;
+            return 0;
+        }
+
+        if (vaidate_context() == -1 || tracelog::init() == -1)
             return -1;
 
         // Populate default stat using seed dir stat.
@@ -50,6 +62,8 @@ namespace hpfs
             LOG_ERROR << errno << ":Failed to load seed dir stat.";
             return -1;
         }
+
+        LOG_INFO << "hpfs " << version::HPFS_VERSION;
 
         ctx.self_uid = getuid();
         ctx.self_gid = getgid();
@@ -164,6 +178,12 @@ namespace hpfs
 
     int parse_cmd(int argc, char **argv)
     {
+        if (strcmp(argv[1], "version") == 0 && argc == 2)
+        {
+            ctx.run_mode = RUN_MODE::VERSION;
+            return 0;
+        }
+
         if (argc == 4 || argc == 6 || argc == 7)
         {
             if (strcmp(argv[1], "fs") == 0)

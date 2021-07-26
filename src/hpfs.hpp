@@ -8,8 +8,9 @@ namespace hpfs
 {
     enum RUN_MODE
     {
-        FS,    // rw/ro filesystem sessions.
-        RDLOG  // Log printing.
+        FS,     // rw/ro filesystem sessions.
+        RDLOG,  // Log printing.
+        VERSION // Version printing.
     };
 
     enum TRACE_LEVEL
