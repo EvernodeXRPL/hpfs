@@ -3,6 +3,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <CLI/CLI.hpp>
 #include "hpfs.hpp"
 #include "util.hpp"
 #include "fusefs.hpp"
@@ -34,14 +35,7 @@ namespace hpfs
         }
 
         if (parse_cmd(argc, argv) == -1)
-        {
-            std::cerr << "Invalid arguments.\n";
-            std::cout << "Usage:\n"
-                      << "hpfs version\n"
-                      << "hpfs rdlog <fsdir> trace=dbg|inf|wrn|err\n"
-                      << "hpfs fs <fsdir> <mountdir> merge=true|false [ugid=<uid>:<gid>] trace=dbg|inf|wrn|err\n";
             return -1;
-        }
 
         if (version::init() == -1)
             return -1;
@@ -178,94 +172,131 @@ namespace hpfs
 
     int parse_cmd(int argc, char **argv)
     {
-        if (strcmp(argv[1], "version") == 0 && argc == 2)
-        {
-            ctx.run_mode = RUN_MODE::VERSION;
-            return 0;
-        }
+        // Initialize CLI.
+        CLI::App app("Hot Pocket File System");
+        app.set_help_all_flag("--help-all", "Expand all help");
 
-        if (argc == 4 || argc == 6 || argc == 7)
-        {
-            if (strcmp(argv[1], "fs") == 0)
-                ctx.run_mode = RUN_MODE::FS;
-            else if (strcmp(argv[1], "rdlog") == 0)
-                ctx.run_mode = RUN_MODE::RDLOG;
-            else
-                return -1;
+        // Initialize subcommands.
+        CLI::App *version = app.add_subcommand("version", "hpfs version");
+        CLI::App *fs = app.add_subcommand("fs", "Virtual filesystem mode");
+        CLI::App *rdlog = app.add_subcommand("rdlog", "Log reader mode (for debugging)");
 
+        // Initialize options.
+        std::string fs_dir;
+        std::string mount_dir;
+        bool is_merge_enabled;
+        std::string ugid;
+        std::string trace_mode;
+
+        // fs
+        fs->add_option("-f,--fs-dir", fs_dir, "Required - Filesystem metadata dir");
+        fs->add_option("-m,--mount-dir", mount_dir, "Required - Virtual filesystem mount dir");
+        fs->add_option("-g,--merge", is_merge_enabled, "Whether the log merger is enabled or not");
+        fs->add_option("-u,--ugid", ugid, "Additional user group access in \"uid:gid\" format. Optional. Default: empty");
+        fs->add_option("-t,--trace", trace_mode, "Trace mode (dbg | inf | wrn | err) Optional. Default: wrn");
+
+        // rdlog
+        rdlog->add_option("-f,--fs-dir", fs_dir, "Required - Filesystem metadata dir");
+        rdlog->add_option("-t,--trace", trace_mode, "Trace mode (dbg | inf | wrn | err) Optional. Default: wrn");
+
+        CLI11_PARSE(app, argc, argv);
+
+        if (argc > 1)
+        {
             char buf[PATH_MAX];
-            realpath(argv[2], buf);
-            ctx.fs_dir = buf;
 
-            const char *trace_arg = argv[argc - 1]; // Trace arg is the last arg.
-            if (strcmp(trace_arg, "trace=dbg") == 0)
-                ctx.trace_level = TRACE_LEVEL::DEBUG;
-            else if (strcmp(trace_arg, "trace=none") == 0)
-                ctx.trace_level = TRACE_LEVEL::NONE;
-            else if (strcmp(trace_arg, "trace=inf") == 0)
-                ctx.trace_level = TRACE_LEVEL::INFO;
-            else if (strcmp(trace_arg, "trace=wrn") == 0)
-                ctx.trace_level = TRACE_LEVEL::WARN;
-            else if (strcmp(trace_arg, "trace=err") == 0)
-                ctx.trace_level = TRACE_LEVEL::ERROR;
-            else
-                return -1;
+            // Verifying subcommands.
+            const std::string sub_command = argv[1];
 
-            if (argc == 4 && ctx.run_mode == RUN_MODE::RDLOG)
+            if (sub_command == "version")
             {
+                ctx.run_mode = RUN_MODE::VERSION;
                 return 0;
             }
-            else if ((argc == 6 || argc == 7) && ctx.run_mode == RUN_MODE::FS)
+            else
             {
-                if (strcmp(argv[4], "merge=true") == 0)
-                    ctx.merge_enabled = true;
-                else if (strcmp(argv[4], "merge=false") == 0)
-                    ctx.merge_enabled = false;
-                else
-                    return -1;
+                if (sub_command == "fs")
+                {
+                    ctx.run_mode = RUN_MODE::FS;
+                }
+                else if (sub_command == "rdlog")
+                {
+                    ctx.run_mode = RUN_MODE::RDLOG;
+                }
 
-                // ugid arg (optional) specified uid/gid combination that is allowed to access the fuse mount
-                // in addition to the mount owner.
-                if (argc == 7 && read_ugid_arg(argv[5]) == -1)
-                    return -1;
+                // Common options for fs and rdlog.
+                if (!fs_dir.empty())
+                {
+                    realpath(fs_dir.c_str(), buf);
+                    ctx.fs_dir = buf;
+                }
+                if (!trace_mode.empty())
+                {
+                    if (trace_mode == "dbg")
+                        ctx.trace_level = TRACE_LEVEL::DEBUG;
+                    else if (trace_mode == "none")
+                        ctx.trace_level = TRACE_LEVEL::NONE;
+                    else if (trace_mode == "inf")
+                        ctx.trace_level = TRACE_LEVEL::INFO;
+                    else if (trace_mode == "wrn")
+                        ctx.trace_level = TRACE_LEVEL::WARN;
+                    else if (trace_mode == "err")
+                        ctx.trace_level = TRACE_LEVEL::ERROR;
+                    else
+                        return -1;
+                }
 
-                realpath(argv[3], buf);
-                ctx.mount_dir = buf;
-                return 0;
+                if (ctx.run_mode == RUN_MODE::RDLOG)
+                {
+                    return 0;
+                }
+                else if (ctx.run_mode == RUN_MODE::FS)
+                {
+                    if (is_merge_enabled)
+                    {
+                        ctx.merge_enabled = true;
+                    }
+                    else
+                    {
+                        ctx.merge_enabled = false;
+                    }
+
+                    // ugid arg (optional) specified uid/gid combination that is allowed to access the fuse mount
+                    // in addition to the mount owner.
+                    if (!ugid.empty() && read_ugid_arg(ugid) == -1)
+                        return -1;
+
+                    if (!mount_dir.empty())
+                    {
+                        realpath(mount_dir.c_str(), buf);
+                        ctx.mount_dir = buf;
+                    }
+                    return 0;
+                }
             }
         }
-
+        std::cout << app.help();
         return -1;
     }
 
     int read_ugid_arg(std::string_view arg)
     {
-        if (arg.rfind("ugid=", 0) == 0)
+        const std::vector<std::string> ids = util::split_string(arg, ":");
+        if (ids.size() == 2)
         {
-            const std::vector<std::string> parts = util::split_string(arg, "=");
-            if (parts.size() == 2)
+            const int uid = atoi(ids[0].c_str());
+            const int gid = atoi(ids[1].c_str());
+
+            if (uid > 0 && gid > 0)
             {
-                if (parts[1].empty())
-                    return 0;
-
-                const std::vector<std::string> ids = util::split_string(parts[1], ":");
-                if (ids.size() == 2)
-                {
-                    const int uid = atoi(ids[0].c_str());
-                    const int gid = atoi(ids[1].c_str());
-
-                    if (uid > 0 && gid > 0)
-                    {
-                        ctx.ugid_enabled = true;
-                        ctx.allowed_uid = uid;
-                        ctx.allowed_gid = gid;
-                        return 0;
-                    }
-                    else if (uid == 0 && gid == 0)
-                    {
-                        return 0;
-                    }
-                }
+                ctx.ugid_enabled = true;
+                ctx.allowed_uid = uid;
+                ctx.allowed_gid = gid;
+                return 0;
+            }
+            else if (uid == 0 && gid == 0)
+            {
+                return 0;
             }
         }
 
