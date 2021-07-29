@@ -184,13 +184,13 @@ namespace hpfs
         // Initialize options.
         std::string fs_dir;
         std::string mount_dir;
-        bool is_merge_enabled;
         std::string ugid;
         std::string trace_mode;
+        bool is_merge_enabled;
 
         // fs
-        fs->add_option("-f,--fs-dir", fs_dir, "Required - Filesystem metadata dir");
-        fs->add_option("-m,--mount-dir", mount_dir, "Required - Virtual filesystem mount dir");
+        fs->add_option("-f,--fs-dir", fs_dir, "Filesystem metadata dir. Required");
+        fs->add_option("-m,--mount-dir", mount_dir, "Virtual filesystem mount dir. Required");
         fs->add_option("-g,--merge", is_merge_enabled, "Whether the log merger is enabled or not");
         fs->add_option("-u,--ugid", ugid, "Additional user group access in \"uid:gid\" format. Optional. Default: empty");
         fs->add_option("-t,--trace", trace_mode, "Trace mode (dbg | inf | wrn | err) Optional. Default: wrn");
@@ -213,23 +213,20 @@ namespace hpfs
                 ctx.run_mode = RUN_MODE::VERSION;
                 return 0;
             }
-            else
+            else if (sub_command == "fs" || sub_command == "rdlog")
             {
-                if (sub_command == "fs")
-                {
-                    ctx.run_mode = RUN_MODE::FS;
-                }
-                else if (sub_command == "rdlog")
-                {
-                    ctx.run_mode = RUN_MODE::RDLOG;
-                }
-
                 // Common options for fs and rdlog.
                 if (!fs_dir.empty())
                 {
                     realpath(fs_dir.c_str(), buf);
                     ctx.fs_dir = buf;
                 }
+                else
+                {
+                    std::cout << "Filesystem metadata dir is required.\n";
+                    return -1;
+                }
+
                 if (!trace_mode.empty())
                 {
                     if (trace_mode == "dbg")
@@ -246,20 +243,20 @@ namespace hpfs
                         return -1;
                 }
 
-                if (ctx.run_mode == RUN_MODE::RDLOG)
+                // rdlog & fs operations.
+                if (sub_command == "rdlog")
                 {
+                    ctx.run_mode = RUN_MODE::RDLOG;
                     return 0;
                 }
-                else if (ctx.run_mode == RUN_MODE::FS)
+                else if (sub_command == "fs")
                 {
+                    ctx.run_mode = RUN_MODE::FS;
+                    
                     if (is_merge_enabled)
-                    {
                         ctx.merge_enabled = true;
-                    }
                     else
-                    {
                         ctx.merge_enabled = false;
-                    }
 
                     // ugid arg (optional) specified uid/gid combination that is allowed to access the fuse mount
                     // in addition to the mount owner.
@@ -271,6 +268,12 @@ namespace hpfs
                         realpath(mount_dir.c_str(), buf);
                         ctx.mount_dir = buf;
                     }
+                    else
+                    {
+                        std::cout << "Virtual filesystem mount dir is required.\n";
+                        return -1;
+                    }
+
                     return 0;
                 }
             }
