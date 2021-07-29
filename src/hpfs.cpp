@@ -3,7 +3,6 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
-#include <CLI/CLI.hpp>
 #include "hpfs.hpp"
 #include "util.hpp"
 #include "fusefs.hpp"
@@ -193,11 +192,11 @@ namespace hpfs
         fs->add_option("-m,--mount-dir", mount_dir, "Virtual filesystem mount dir. Required");
         fs->add_option("-g,--merge", is_merge_enabled, "Whether the log merger is enabled or not");
         fs->add_option("-u,--ugid", ugid, "Additional user group access in \"uid:gid\" format. Optional. Default: empty");
-        fs->add_option("-t,--trace", trace_mode, "Trace mode (dbg | inf | wrn | err) Optional. Default: wrn");
+        fs->add_option("-t,--trace", trace_mode, "Trace mode (dbg | inf | wrn | err). Optional. Default: wrn");
 
         // rdlog
-        rdlog->add_option("-f,--fs-dir", fs_dir, "Required - Filesystem metadata dir");
-        rdlog->add_option("-t,--trace", trace_mode, "Trace mode (dbg | inf | wrn | err) Optional. Default: wrn");
+        rdlog->add_option("-f,--fs-dir", fs_dir, "Filesystem metadata dir. Required");
+        rdlog->add_option("-t,--trace", trace_mode, "Trace mode (dbg | inf | wrn | err). Optional. Default: wrn");
 
         CLI11_PARSE(app, argc, argv);
 

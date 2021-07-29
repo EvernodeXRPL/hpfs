@@ -3,6 +3,7 @@
 
 #include <string>
 #include <sys/stat.h>
+#include <CLI/CLI.hpp>
 
 namespace hpfs
 {
