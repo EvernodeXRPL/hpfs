@@ -201,64 +201,62 @@ namespace hpfs
 
         CLI11_PARSE(app, argc, argv);
 
-        if (argc > 1)
+        // Verifying subcommands.
+        if (version->parsed())
         {
-            // Verifying subcommands.
-            if (version->parsed())
+            ctx.run_mode = RUN_MODE::VERSION;
+            return 0;
+        }
+        else if (fs->parsed() || rdlog->parsed())
+        {
+            char buf[PATH_MAX];
+
+            // Common options for fs and rdlog.
+            if (!fs_dir.empty())
             {
-                ctx.run_mode = RUN_MODE::VERSION;
+                realpath(fs_dir.c_str(), buf);
+                ctx.fs_dir = buf;
+            }
+
+            if (!trace_mode.empty())
+            {
+                if (trace_mode == "dbg")
+                    ctx.trace_level = TRACE_LEVEL::DEBUG;
+                else if (trace_mode == "none")
+                    ctx.trace_level = TRACE_LEVEL::NONE;
+                else if (trace_mode == "inf")
+                    ctx.trace_level = TRACE_LEVEL::INFO;
+                else if (trace_mode == "wrn")
+                    ctx.trace_level = TRACE_LEVEL::WARN;
+                else if (trace_mode == "err")
+                    ctx.trace_level = TRACE_LEVEL::ERROR;
+                else
+                    return -1;
+            }
+
+            // rdlog & fs operations.
+            if (rdlog->parsed())
+            {
+                ctx.run_mode = RUN_MODE::RDLOG;
                 return 0;
             }
-            else if (fs->parsed() || rdlog->parsed())
+            else if (fs->parsed())
             {
-                char buf[PATH_MAX];
+                ctx.run_mode = RUN_MODE::FS;
+                ctx.merge_enabled = is_merge_enabled;
 
-                // Common options for fs and rdlog.
-                if (!fs_dir.empty())
+                // ugid arg (optional) specified uid/gid combination that is allowed to access the fuse mount
+                // in addition to the mount owner.
+                if (!mount_dir.empty())
                 {
-                    realpath(fs_dir.c_str(), buf);
-                    ctx.fs_dir = buf;
+                    realpath(mount_dir.c_str(), buf);
+                    ctx.mount_dir = buf;
                 }
 
-                if (!trace_mode.empty())
-                {
-                    if (trace_mode == "dbg")
-                        ctx.trace_level = TRACE_LEVEL::DEBUG;
-                    else if (trace_mode == "none")
-                        ctx.trace_level = TRACE_LEVEL::NONE;
-                    else if (trace_mode == "inf")
-                        ctx.trace_level = TRACE_LEVEL::INFO;
-                    else if (trace_mode == "wrn")
-                        ctx.trace_level = TRACE_LEVEL::WARN;
-                    else if (trace_mode == "err")
-                        ctx.trace_level = TRACE_LEVEL::ERROR;
-                    else
-                        return -1;
-                }
-
-                // rdlog & fs operations.
-                if (rdlog->parsed())
-                {
-                    ctx.run_mode = RUN_MODE::RDLOG;
-                    return 0;
-                }
-                else if (fs->parsed())
-                {
-                    ctx.run_mode = RUN_MODE::FS;
-                    ctx.merge_enabled = is_merge_enabled;
-
-                    // ugid arg (optional) specified uid/gid combination that is allowed to access the fuse mount
-                    // in addition to the mount owner.
-                    if (!mount_dir.empty())
-                    {
-                        realpath(mount_dir.c_str(), buf);
-                        ctx.mount_dir = buf;
-                    }
-
-                    return 0;
-                }
+                return 0;
             }
         }
+
         ctx.run_mode = RUN_MODE::HELP;
         std::cout << app.help();
         return -1;
