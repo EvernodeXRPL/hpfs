@@ -248,7 +248,7 @@ namespace hpfs
                     ctx.merge_enabled = is_merge_enabled;
 
                     // ugid arg (optional) specified uid/gid combination that is allowed to access the fuse mount
-                    // in adcout
+                    // in addition to the mount owner.
                     if (!mount_dir.empty())
                     {
                         realpath(mount_dir.c_str(), buf);
