@@ -52,6 +52,18 @@ sudo cp -r include/plog /usr/local/include/
 popd > /dev/null 2>&1
 rm 1.1.5.tar.gz && rm -r plog-1.1.5
 
+# CLI11
+wget https://github.com/CLIUtils/CLI11/archive/refs/tags/v2.0.0.tar.gz
+tar -zxvf v2.0.0.tar.gz
+pushd CLI11-2.0.0 > /dev/null 2>&1
+mkdir build
+pushd build > /dev/null 2>&1
+cmake ..
+sudo make install/fast
+popd > /dev/null 2>&1
+popd > /dev/null 2>&1
+rm v2.0.0.tar.gz && sudo rm -r CLI11-2.0.0
+
 # Update linker library cache.
 sudo ldconfig
 
