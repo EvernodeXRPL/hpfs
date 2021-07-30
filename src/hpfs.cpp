@@ -3,6 +3,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <CLI/CLI.hpp>
 #include "hpfs.hpp"
 #include "util.hpp"
 #include "fusefs.hpp"
@@ -135,6 +136,9 @@ namespace hpfs
 
     int vaidate_context()
     {
+        if (!ctx.run_mode)
+            return 0;
+
         if (!util::is_dir_exists(ctx.fs_dir))
         {
             std::cerr << "Directory " << ctx.fs_dir << " does not exist.\n";
@@ -181,49 +185,39 @@ namespace hpfs
         CLI::App *rdlog = app.add_subcommand("rdlog", "Log reader mode (for debugging)");
 
         // Initialize options.
-        std::string fs_dir;
-        std::string mount_dir;
-        std::string ugid;
-        std::string trace_mode;
+        std::string fs_dir, mount_dir, ugid, trace_mode;
         bool is_merge_enabled;
 
         // fs
-        fs->add_option("-f,--fs-dir", fs_dir, "Filesystem metadata dir. Required");
-        fs->add_option("-m,--mount-dir", mount_dir, "Virtual filesystem mount dir. Required");
+        fs->add_option("-f,--fs-dir", fs_dir, "Filesystem metadata dir")->required()->check(CLI::ExistingPath);
+        fs->add_option("-m,--mount-dir", mount_dir, "Virtual filesystem mount dir")->required()->check(CLI::ExistingPath);
         fs->add_option("-g,--merge", is_merge_enabled, "Whether the log merger is enabled or not");
-        fs->add_option("-u,--ugid", ugid, "Additional user group access in \"uid:gid\" format. Optional. Default: empty");
-        fs->add_option("-t,--trace", trace_mode, "Trace mode (dbg | inf | wrn | err). Optional. Default: wrn");
+        fs->add_option("-u,--ugid", ugid, "Additional user group access in \"uid:gid\" format. Default: empty");
+        fs->add_option("-t,--trace", trace_mode, "Trace mode")->check(CLI::IsMember({"dbg", "none", "inf", "wrn", "err"}))->default_str("wrn");
 
         // rdlog
-        rdlog->add_option("-f,--fs-dir", fs_dir, "Filesystem metadata dir. Required");
-        rdlog->add_option("-t,--trace", trace_mode, "Trace mode (dbg | inf | wrn | err). Optional. Default: wrn");
+        rdlog->add_option("-f,--fs-dir", fs_dir, "Filesystem metadata dir")->required()->check(CLI::ExistingPath);
+        rdlog->add_option("-t,--trace", trace_mode, "Trace mode")->check(CLI::IsMember({"dbg", "none", "inf", "wrn", "err"}))->default_str("wrn");
 
         CLI11_PARSE(app, argc, argv);
 
         if (argc > 1)
         {
-            char buf[PATH_MAX];
-
             // Verifying subcommands.
-            const std::string sub_command = argv[1];
-
-            if (sub_command == "version")
+            if (version->parsed())
             {
                 ctx.run_mode = RUN_MODE::VERSION;
                 return 0;
             }
-            else if (sub_command == "fs" || sub_command == "rdlog")
+            else if (fs->parsed() || rdlog->parsed())
             {
+                char buf[PATH_MAX];
+
                 // Common options for fs and rdlog.
                 if (!fs_dir.empty())
                 {
                     realpath(fs_dir.c_str(), buf);
                     ctx.fs_dir = buf;
-                }
-                else
-                {
-                    std::cout << "Filesystem metadata dir is required.\n";
-                    return -1;
                 }
 
                 if (!trace_mode.empty())
@@ -243,40 +237,29 @@ namespace hpfs
                 }
 
                 // rdlog & fs operations.
-                if (sub_command == "rdlog")
+                if (rdlog->parsed())
                 {
                     ctx.run_mode = RUN_MODE::RDLOG;
                     return 0;
                 }
-                else if (sub_command == "fs")
+                else if (fs->parsed())
                 {
                     ctx.run_mode = RUN_MODE::FS;
-                    
-                    if (is_merge_enabled)
-                        ctx.merge_enabled = true;
-                    else
-                        ctx.merge_enabled = false;
+                    ctx.merge_enabled = is_merge_enabled;
 
                     // ugid arg (optional) specified uid/gid combination that is allowed to access the fuse mount
-                    // in addition to the mount owner.
-                    if (!ugid.empty() && read_ugid_arg(ugid) == -1)
-                        return -1;
-
+                    // in adcout
                     if (!mount_dir.empty())
                     {
                         realpath(mount_dir.c_str(), buf);
                         ctx.mount_dir = buf;
-                    }
-                    else
-                    {
-                        std::cout << "Virtual filesystem mount dir is required.\n";
-                        return -1;
                     }
 
                     return 0;
                 }
             }
         }
+        ctx.run_mode = RUN_MODE::HELP;
         std::cout << app.help();
         return -1;
     }

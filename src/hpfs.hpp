@@ -3,12 +3,12 @@
 
 #include <string>
 #include <sys/stat.h>
-#include <CLI/CLI.hpp>
 
 namespace hpfs
 {
     enum RUN_MODE
     {
+        HELP, // Help printing.
         FS,     // rw/ro filesystem sessions.
         RDLOG,  // Log printing.
         VERSION // Version printing.
