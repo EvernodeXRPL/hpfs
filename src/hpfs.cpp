@@ -96,7 +96,7 @@ namespace hpfs
             merger::deinit();
             return 0;
         }
-    }
+    }       
 
     int run_ro_rw_session(char *arg0)
     {
@@ -247,6 +247,9 @@ namespace hpfs
 
                 // ugid arg (optional) specified uid/gid combination that is allowed to access the fuse mount
                 // in addition to the mount owner.
+                if (!ugid.empty() && read_ugid_arg(ugid) == -1)
+                    return -1;
+
                 if (!mount_dir.empty())
                 {
                     realpath(mount_dir.c_str(), buf);
