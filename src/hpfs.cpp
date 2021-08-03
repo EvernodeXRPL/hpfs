@@ -212,11 +212,9 @@ namespace hpfs
             char buf[PATH_MAX];
 
             // Common options for fs and rdlog.
-            if (!fs_dir.empty())
-            {
-                realpath(fs_dir.c_str(), buf);
-                ctx.fs_dir = buf;
-            }
+
+            realpath(fs_dir.c_str(), buf);
+            ctx.fs_dir = buf;
 
             if (!trace_mode.empty())
             {
