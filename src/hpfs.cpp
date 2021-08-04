@@ -212,11 +212,9 @@ namespace hpfs
             char buf[PATH_MAX];
 
             // Common options for fs and rdlog.
-            if (!fs_dir.empty())
-            {
-                realpath(fs_dir.c_str(), buf);
-                ctx.fs_dir = buf;
-            }
+
+            realpath(fs_dir.c_str(), buf);
+            ctx.fs_dir = buf;
 
             if (!trace_mode.empty())
             {
@@ -247,11 +245,11 @@ namespace hpfs
 
                 // ugid arg (optional) specified uid/gid combination that is allowed to access the fuse mount
                 // in addition to the mount owner.
-                if (!mount_dir.empty())
-                {
-                    realpath(mount_dir.c_str(), buf);
-                    ctx.mount_dir = buf;
-                }
+                if (!ugid.empty() && read_ugid_arg(ugid) == -1)
+                    return -1;
+
+                realpath(mount_dir.c_str(), buf);
+                ctx.mount_dir = buf;
 
                 return 0;
             }
