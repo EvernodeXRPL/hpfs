@@ -189,14 +189,14 @@ namespace hpfs
         bool is_merge_enabled;
 
         // fs
-        fs->add_option("-f,--fs-dir", fs_dir, "Filesystem metadata dir")->required()->check(CLI::ExistingPath);
-        fs->add_option("-m,--mount-dir", mount_dir, "Virtual filesystem mount dir")->required()->check(CLI::ExistingPath);
-        fs->add_option("-g,--merge", is_merge_enabled, "Whether the log merger is enabled or not");
+        fs->add_option("-f,--fs-dir", fs_dir, "Filesystem metadata dir")->required()->check(CLI::ExistingDirectory);
+        fs->add_option("-m,--mount-dir", mount_dir, "Virtual filesystem mount dir")->required();
         fs->add_option("-u,--ugid", ugid, "Additional user group access in \"uid:gid\" format. Default: empty");
         fs->add_option("-t,--trace", trace_mode, "Trace mode")->check(CLI::IsMember({"dbg", "none", "inf", "wrn", "err"}))->default_str("wrn");
+        fs->add_flag("-g,--merge", is_merge_enabled, "Whether the log merger is enabled or not");
 
         // rdlog
-        rdlog->add_option("-f,--fs-dir", fs_dir, "Filesystem metadata dir")->required()->check(CLI::ExistingPath);
+        rdlog->add_option("-f,--fs-dir", fs_dir, "Filesystem metadata dir")->required()->check(CLI::ExistingDirectory);
         rdlog->add_option("-t,--trace", trace_mode, "Trace mode")->check(CLI::IsMember({"dbg", "none", "inf", "wrn", "err"}))->default_str("wrn");
 
         CLI11_PARSE(app, argc, argv);
