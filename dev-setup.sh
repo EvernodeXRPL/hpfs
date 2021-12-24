@@ -31,7 +31,7 @@ meson .. && ninja
 sudo ninja install
 popd > /dev/null 2>&1
 popd > /dev/null 2>&1
-rm fuse-3.8.0.tar.gz && rm -r libfuse-fuse-3.8.0
+rm fuse-3.8.0.tar.gz && sudo rm -r libfuse-fuse-3.8.0
 
 # Blake3
 git clone https://github.com/BLAKE3-team/BLAKE3.git
