@@ -30,6 +30,7 @@
 
 #include <iostream>
 #include <string>
+#include <sys/statvfs.h>
 #include "hpfs.hpp"
 #include "session.hpp"
 #include "inodes.hpp"
@@ -387,7 +388,9 @@ namespace hpfs::fusefs
     {
         CHECK_UGID
 
-        return 0;
+        // Because we don't have our own block allocation statstics, simply return the stats for
+        // the parent (real) filesystem.
+        return statvfs(ctx.fs_dir.c_str(), stbuf);
     }
 
     static int fs_flush(const char *full_path, struct fuse_file_info *fi)

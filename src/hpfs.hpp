@@ -28,7 +28,7 @@ namespace hpfs
         RUN_MODE run_mode;
         TRACE_LEVEL trace_level;
         bool merge_enabled;
-        std::string fs_dir;
+        std::string fs_dir; // The parent dir containing all metadata information for hpfs.
         std::string seed_dir;
         std::string mount_dir;
         std::string hmap_dir;
